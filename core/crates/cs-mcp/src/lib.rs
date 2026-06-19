@@ -68,21 +68,16 @@ pub enum Transport {
 }
 
 /// The visibility scope a server is configured at.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Scope {
     /// Available only in the current project.
+    #[default]
     Local,
     /// Shared with the project (e.g. checked into `.mcp.json`).
     Project,
     /// Available to the user across all projects.
     User,
-}
-
-impl Default for Scope {
-    fn default() -> Self {
-        Scope::Local
-    }
 }
 
 /// The full configuration of one MCP server.

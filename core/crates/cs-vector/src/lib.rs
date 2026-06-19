@@ -250,9 +250,7 @@ fn payload_matches(payload: &serde_json::Value, filter: &Filter) -> bool {
         return true;
     }
     match payload.as_object() {
-        Some(obj) => filter
-            .iter()
-            .all(|(k, v)| obj.get(k).map_or(false, |pv| pv == v)),
+        Some(obj) => filter.iter().all(|(k, v)| obj.get(k) == Some(v)),
         None => false,
     }
 }

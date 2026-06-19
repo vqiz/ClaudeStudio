@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/vqiz/ClaudeStudio/discussions
+    about: Questions, ideas, and show-and-tell. Not sure if it's a bug? Start here.
+  - name: 🔐 Report a security vulnerability
+    url: https://github.com/vqiz/ClaudeStudio/security/advisories/new
+    about: Please report security issues privately, not as public issues.

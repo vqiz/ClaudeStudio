@@ -196,9 +196,11 @@ mod tests {
     #[test]
     fn roundtrip_save_and_load() {
         let dir = std::env::temp_dir().join(format!("cs-config-test-{}", std::process::id()));
-        let mut cfg = AppConfig::default();
-        cfg.trust_mode = cs_types::TrustMode::Auto;
-        cfg.daily_budget_usd = 42.5;
+        let cfg = AppConfig {
+            trust_mode: cs_types::TrustMode::Auto,
+            daily_budget_usd: 42.5,
+            ..AppConfig::default()
+        };
         cfg.save(&dir).expect("save");
         let loaded = AppConfig::load_or_default(&dir);
         assert_eq!(loaded.trust_mode, cs_types::TrustMode::Auto);

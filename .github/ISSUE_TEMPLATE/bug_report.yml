@@ -1,0 +1,52 @@
+name: 🐞 Bug report
+description: Something isn't working as expected
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug! Please fill in as much as you can.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, including what you expected instead.
+      placeholder: When I click Connect in Settings, the core stays "offline" even though it is running…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the core with `cargo run --release`
+        2. Launch the app with `swift run ClaudeStudio`
+        3. …
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - app (SwiftUI front-end)
+        - core (Rust sidecar / a crate)
+        - IPC bridge
+        - build / CI
+        - docs
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Environment
+      description: macOS version, `swift --version`, `rustc --version`, `claude --version`.
+      placeholder: macOS 15.1 · Swift 6.0 · rustc 1.x · claude 1.x
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: Paste relevant output (e.g. `RUST_LOG=debug` core logs). Code blocks are auto-formatted.
+      render: shell

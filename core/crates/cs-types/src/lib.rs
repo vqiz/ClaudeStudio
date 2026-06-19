@@ -35,12 +35,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 ///
 /// Ordered loosely from most cautious ([`TrustMode::Strict`]) to fully
 /// autonomous ([`TrustMode::Yolo`]).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum TrustMode {
     /// Confirm every potentially mutating action.
     Strict,
     /// The default balance: confirm risky actions, auto-approve safe ones.
+    #[default]
     Standard,
     /// Auto-approve most actions, pausing only on destructive operations.
     Auto,
@@ -48,40 +49,30 @@ pub enum TrustMode {
     Yolo,
 }
 
-impl Default for TrustMode {
-    fn default() -> Self {
-        TrustMode::Standard
-    }
-}
-
 /// The Claude model tier selected for a given task.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ModelTier {
     /// Fastest and cheapest; good for routine or background work.
     Haiku,
     /// Balanced default for interactive coding sessions.
+    #[default]
     Sonnet,
     /// Most capable; reserved for the hardest reasoning tasks.
     Opus,
-}
-
-impl Default for ModelTier {
-    fn default() -> Self {
-        ModelTier::Sonnet
-    }
 }
 
 /// Scheduling priority for agentic tasks on the event bus.
 ///
 /// Ordered so that [`Priority::Critical`] is the greatest, allowing priority
 /// queues to pop the most urgent work first.
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Serialize, Deserialize)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Priority {
     /// Lowest priority; runs only when nothing else is pending.
     Background,
     /// Default priority for ordinary work.
+    #[default]
     Normal,
     /// Elevated priority; preempts normal work.
     High,
@@ -89,17 +80,12 @@ pub enum Priority {
     Critical,
 }
 
-impl Default for Priority {
-    fn default() -> Self {
-        Priority::Normal
-    }
-}
-
 /// Lifecycle state of an agent within the agentic layer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum AgentStatus {
     /// Created but not currently doing work.
+    #[default]
     Idle,
     /// Actively executing.
     Running,
@@ -109,12 +95,6 @@ pub enum AgentStatus {
     Done,
     /// Finished with an error.
     Error,
-}
-
-impl Default for AgentStatus {
-    fn default() -> Self {
-        AgentStatus::Idle
-    }
 }
 
 /// The category of an IPC message exchanged with the front-end.
