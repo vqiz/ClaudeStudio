@@ -16,6 +16,7 @@
 		3673FCE47476301612AEA136 /* ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25B15E09416D95ADD06733F /* ThemeSupport.swift */; };
 		36F07CA4E9842314231AD9D3 /* CoreBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED682F637EFF6FA87A07316 /* CoreBridgeTests.swift */; };
 		3A3926FF03E12ADBC45694B0 /* ClaudeStudioKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */; };
 		3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */; };
 		46F82E4E6DD64FDF058902B4 /* TaskLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9493AC42BF85690ADC0EC399 /* TaskLibraryView.swift */; };
 		4C37DD26F2C4A4D241230BD5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0F1415B675D75D400E27F /* SettingsView.swift */; };
@@ -26,6 +27,7 @@
 		669B6844412F0CE7F09F884E /* SessionEvent.swift in Sources */ = {isa = PBXBuildFile; fileRef = C529DEA649DA0BB2B262D076 /* SessionEvent.swift */; };
 		67D7F9789C799E79AE5E264C /* AgentSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */; };
 		7872A3EA117F5067A48E5447 /* ClaudeStudioKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		8632488903BB79EAEBE14859 /* tasks in Resources */ = {isa = PBXBuildFile; fileRef = 3AD390F1F9D448B5AAC8CEBF /* tasks */; };
 		959650426068D5DA13168ED2 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 340E660D21D7C24DEB954DE7 /* Support.swift */; };
 		992929685347975B78AA0E72 /* AgentStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC03FD56CEA8162F4E2A14C /* AgentStudioView.swift */; };
 		9B9CAD1CB8DA353D2FBE336F /* OSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE80E1CD767EDEAC44930245 /* OSView.swift */; };
@@ -39,6 +41,7 @@
 		CB050036F90C06197B746E16 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58C8BBD99C5D0B2620BB132 /* RootView.swift */; };
 		D2C87EFC9F63503FA2FEEB7D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2E75A100244510EF45B09F /* Theme.swift */; };
 		D2E96DCB36F49A40D21B0297 /* MessagePackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42DA5146AF235A845EE4FB55 /* MessagePackTests.swift */; };
+		D481531AF3A602EFEC9A8207 /* definitions in Resources */ = {isa = PBXBuildFile; fileRef = 56F7CCC32385E92E2DEBDA25 /* definitions */; };
 		E0C945DC4E427D0A1EF2175D /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0E35A24E924DB6E7AD7F3A /* Project.swift */; };
 		FA85B729D3D51265F8252037 /* ClaudeStudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; };
 		FCE8A1A287F3F7768C70522E /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8328CCE1458A37E673271550 /* SampleData.swift */; };
@@ -93,11 +96,13 @@
 		3255E9BEA3536F6FA42F6BFB /* IpcProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpcProtocol.swift; sourceTree = "<group>"; };
 		340E660D21D7C24DEB954DE7 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
 		37759FC68F686A672EE35A93 /* BrainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainView.swift; sourceTree = "<group>"; };
+		3AD390F1F9D448B5AAC8CEBF /* tasks */ = {isa = PBXFileReference; lastKnownFileType = folder; name = tasks; path = ../tasks; sourceTree = SOURCE_ROOT; };
 		3D2E75A100244510EF45B09F /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		3D4ED5B92A41C80179E09E5B /* CoreClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreClient.swift; sourceTree = "<group>"; };
 		426B9B60A0D4FED73E3BC5CF /* IpcClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpcClient.swift; sourceTree = "<group>"; };
 		42DA5146AF235A845EE4FB55 /* MessagePackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePackTests.swift; sourceTree = "<group>"; };
 		4C1262B174A7494E1438290F /* SessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelView.swift; sourceTree = "<group>"; };
+		56F7CCC32385E92E2DEBDA25 /* definitions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = definitions; path = ../definitions; sourceTree = SOURCE_ROOT; };
 		57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStudioApp.swift; sourceTree = "<group>"; };
 		67DD23025A066675485DD1D1 /* CoreConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreConnection.swift; sourceTree = "<group>"; };
 		70391C7EEBD75576AF83ECCB /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
@@ -114,6 +119,7 @@
 		D0E71B23CC147E46799AD68F /* ContextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextView.swift; sourceTree = "<group>"; };
 		D58C8BBD99C5D0B2620BB132 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
+		DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLauncher.swift; sourceTree = "<group>"; };
 		DED682F637EFF6FA87A07316 /* CoreBridgeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreBridgeTests.swift; sourceTree = "<group>"; };
 		E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = ClaudeStudioKit.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		E8A16988C7E5C0A5C7C9DFAE /* CostTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CostTracker.swift; sourceTree = "<group>"; };
@@ -146,6 +152,7 @@
 		07F1B96BAE41090949DDDEED = {
 			isa = PBXGroup;
 			children = (
+				902862F41A502A11CF764485 /* ClaudeStudio */,
 				52E2C6194D386D498B07FBDF /* Resources */,
 				EAA82710AA119D5EF28A9844 /* Sources */,
 				38FC719671A13FDD1021ABF9 /* Tests */,
@@ -209,6 +216,16 @@
 			path = Views;
 			sourceTree = "<group>";
 		};
+		902862F41A502A11CF764485 /* ClaudeStudio */ = {
+			isa = PBXGroup;
+			children = (
+				56F7CCC32385E92E2DEBDA25 /* definitions */,
+				3AD390F1F9D448B5AAC8CEBF /* tasks */,
+			);
+			name = ClaudeStudio;
+			path = ..;
+			sourceTree = "<group>";
+		};
 		96BEC0CDEC46BDD70B8976D3 /* ClaudeStudio */ = {
 			isa = PBXGroup;
 			children = (
@@ -225,6 +242,7 @@
 				DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */,
 				F3CF20BEB30EA82E29F356B3 /* AppState.swift */,
 				67DD23025A066675485DD1D1 /* CoreConnection.swift */,
+				DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */,
 				E8A16988C7E5C0A5C7C9DFAE /* CostTracker.swift */,
 				7F0E35A24E924DB6E7AD7F3A /* Project.swift */,
 				8328CCE1458A37E673271550 /* SampleData.swift */,
@@ -280,6 +298,7 @@
 			buildConfigurationList = 8B3DE301BA547E443B489F11 /* Build configuration list for PBXNativeTarget "ClaudeStudio" */;
 			buildPhases = (
 				CB488CB4E276B63EB43360F4 /* Sources */,
+				619B89A9096516068D981C9B /* Build & bundle claudestudio-core */,
 				3865744C90D1C64E2FC5E7FD /* Resources */,
 				CCA3DF3943560E978572984A /* Frameworks */,
 				BA5FB9AD67C6EA4602E8A5A6 /* Embed Frameworks */,
@@ -354,10 +373,34 @@
 			buildActionMask = 2147483647;
 			files = (
 				5839234A073AAF96D2C6E7C9 /* Assets.xcassets in Resources */,
+				D481531AF3A602EFEC9A8207 /* definitions in Resources */,
+				8632488903BB79EAEBE14859 /* tasks in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		619B89A9096516068D981C9B /* Build & bundle claudestudio-core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build & bundle claudestudio-core";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -eu\nexport PATH=\"$HOME/.cargo/bin:$PATH\"\nif ! command -v cargo >/dev/null 2>&1; then\n  echo \"warning: cargo not found — skipping core bundle\"\n  exit 0\nfi\nCFG=\"debug\"; [ \"${CONFIGURATION:-Debug}\" = \"Release\" ] && CFG=\"release\"\nCORE=\"$SRCROOT/../core\"\n( cd \"$CORE\" && cargo build -p cs-cli $([ \"$CFG\" = \"release\" ] && echo --release) )\nDEST=\"$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH\"\nmkdir -p \"$DEST\"\ncp -f \"$CORE/target/$CFG/claudestudio-core\" \"$DEST/claudestudio-core\"\necho \"bundled core → $DEST/claudestudio-core\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		059B1F7F0B0DF28868F328D2 /* Sources */ = {
@@ -381,6 +424,7 @@
 				3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */,
 				A83A19740BEE3ABE7FC2ACE5 /* ContextView.swift in Sources */,
 				34553D30BEDC0E1114F8C1D1 /* CoreConnection.swift in Sources */,
+				3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */,
 				AE12E61EFCB35A2A0D5B5CB8 /* CostTracker.swift in Sources */,
 				C7D7C21992855C7802334AAE /* MCPView.swift in Sources */,
 				9B9CAD1CB8DA353D2FBE336F /* OSView.swift in Sources */,

@@ -36,6 +36,13 @@ targets:
     sources:
       - Sources/ClaudeStudio
       - Resources/Assets.xcassets
+      # Bundle the shipped libraries so the auto-started core can find them.
+      - path: ../tasks
+        type: folder
+        buildPhase: resources
+      - path: ../definitions
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: ClaudeStudioKit
         embed: true
@@ -46,6 +53,26 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: ClaudeStudio
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
+    postCompileScripts:
+      # Build the Rust core and bundle it into the .app so the app can start it
+      # itself — no terminal needed. Non-fatal if cargo is missing (the app then
+      # falls back to a dev checkout or a core you start yourself).
+      - name: "Build & bundle claudestudio-core"
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v cargo >/dev/null 2>&1; then
+            echo "warning: cargo not found — skipping core bundle"
+            exit 0
+          fi
+          CFG="debug"; [ "${CONFIGURATION:-Debug}" = "Release" ] && CFG="release"
+          CORE="$SRCROOT/../core"
+          ( cd "$CORE" && cargo build -p cs-cli $([ "$CFG" = "release" ] && echo --release) )
+          DEST="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+          mkdir -p "$DEST"
+          cp -f "$CORE/target/$CFG/claudestudio-core" "$DEST/claudestudio-core"
+          echo "bundled core → $DEST/claudestudio-core"
 
   # Unit tests (run with ⌘U in Xcode, where XCTest is available).
   ClaudeStudioKitTests:

@@ -85,9 +85,9 @@ final class CoreConnection {
         self.socketPath = socketPath
     }
 
-    /// Connect, verify with `ping`, then load the config and context budget.
-    /// Tearing down any previous connection first, this is safe to call repeatedly
-    /// (e.g. a "Reconnect" button).
+    /// Connect to the core, **starting it automatically if nothing is listening**
+    /// (no terminal needed). Verifies with `ping`, then loads config, budget, and
+    /// the live libraries. Safe to call repeatedly (e.g. a "Reconnect" button).
     func connect() async {
         guard !connectInFlight else { return }
         connectInFlight = true
@@ -95,8 +95,23 @@ final class CoreConnection {
         await disconnect()
         status = .connecting
 
+        // 1. Use a core that's already running (e.g. started by the dev script).
+        if await attach() { return }
+
+        // 2. Nothing there — spawn the bundled/dev core and try once more.
+        if await CoreLauncher.shared.ensureRunning(socketPath: socketPath), await attach() {
+            return
+        }
+
+        if status == .connecting {
+            status = .failed("Could not reach or start the core sidecar.")
+        }
+    }
+
+    /// One connect-and-load attempt. Returns `true` on success; on failure it
+    /// leaves `status == .connecting` so the caller can decide whether to spawn.
+    private func attach() async -> Bool {
         let client = CoreClient(socketPath: socketPath)
-        self.client = client
         do {
             try await client.connect()
             guard try await client.ping() else {
@@ -104,6 +119,7 @@ final class CoreConnection {
             }
             let config = try await client.fetchConfig()
             let budget = try await client.fetchContextBudget()
+            self.client = client
             self.config = config
             self.budget = budget
             // Best-effort live data; failure of any one of these must not drop
@@ -116,16 +132,10 @@ final class CoreConnection {
             try? await client.subscribeEvents()
             startEventConsumer(client)
             self.status = .online
+            return true
         } catch {
             await client.disconnect()
-            self.client = nil
-            self.config = nil
-            self.budget = nil
-            self.sessions = []
-            self.tasks = []
-            self.definitions = []
-            self.mcpServers = []
-            self.status = .failed(Self.describe(error))
+            return false
         }
     }
 
