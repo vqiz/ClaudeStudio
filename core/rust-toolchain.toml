@@ -1,0 +1,6 @@
+# Pin the toolchain so `cargo fmt --check` and `clippy -D warnings` are
+# deterministic across local development and CI. Bump deliberately.
+[toolchain]
+channel = "1.96.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
