@@ -81,14 +81,31 @@ final class CoreBridgeTests: XCTestCase {
             + "cs-bridge-\(ProcessInfo.processInfo.processIdentifier)-\(UInt32.random(in: 0...UInt32.max)).sock"
         try? FileManager.default.removeItem(atPath: socket)
 
+        // The repo root holds the shipped tasks/ and definitions/ libraries, and
+        // is a git repo we can query. Derive it from this file's path.
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // ClaudeStudioKitTests
+            .deletingLastPathComponent()  // Tests
+            .deletingLastPathComponent()  // app
+            .deletingLastPathComponent()  // repo root
+            .path
+        // Isolate the core's state directory so the test never touches real data.
+        let tmpHome = NSTemporaryDirectory() + "cs-bridge-home-\(ProcessInfo.processInfo.processIdentifier)"
+        try? FileManager.default.createDirectory(atPath: tmpHome, withIntermediateDirectories: true)
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binPath)
         process.arguments = [socket]
-        process.environment = ["RUST_LOG": "warn"]
+        process.environment = [
+            "RUST_LOG": "warn",
+            "HOME": tmpHome,
+            "CLAUDESTUDIO_LIBRARY_DIR": repoRoot,
+        ]
         try process.run()
         defer {
             if process.isRunning { process.terminate() }
             try? FileManager.default.removeItem(atPath: socket)
+            try? FileManager.default.removeItem(atPath: tmpHome)
         }
 
         try await waitForFile(socket, timeout: 5.0)
@@ -111,7 +128,33 @@ final class CoreBridgeTests: XCTestCase {
         XCTAssertEqual(budget.layers.count, 6, "the assembler reports six context layers")
         XCTAssertGreaterThan(budget.totalBudget, 0)
 
-        // 4. error path: an unknown method round-trips as a thrown remote error
+        // 4. config.set round-trips and persists
+        let updated = try await core.setConfig(trustMode: "auto", dailyBudgetUSD: 25.0)
+        XCTAssertEqual(updated.trustMode, "auto")
+        let reread = try await core.fetchConfig()
+        XCTAssertEqual(reread.trustMode, "auto", "config.set must persist")
+
+        // 5. session lifecycle (SQLite archive)
+        let created = try await core.call("session.create", .map([
+            "title": .string("Bridge test"), "cwd": .string(repoRoot), "branch": .string("main"),
+        ]))
+        let sid = try XCTUnwrap(created.payload?["id"]?.stringValue, "session.create returns an id")
+        let sessions = try await core.listSessions()
+        XCTAssertTrue(sessions.contains { $0.id == sid }, "created session appears in the list")
+
+        // 6. git over the repo
+        let branch = try await core.call("git.branch", .map(["cwd": .string(repoRoot)]))
+        XCTAssertFalse((branch.payload?["branch"]?.stringValue ?? "").isEmpty)
+        let gitLog = try await core.call("git.log", .map(["cwd": .string(repoRoot), "limit": .int(3)]))
+        XCTAssertGreaterThanOrEqual((gitLog.payload?["commits"]?.arrayValue ?? []).count, 1)
+
+        // 7. shipped libraries
+        let tasks = try await core.fetchTasks()
+        XCTAssertGreaterThan(tasks.count, 0, "task library should be discovered")
+        let defs = try await core.fetchDefinitions()
+        XCTAssertGreaterThan(defs.count, 0, "definition library should be discovered")
+
+        // 8. error path: an unknown method round-trips as a thrown remote error
         do {
             _ = try await core.call("does.not.exist")
             XCTFail("unknown method should have thrown")
