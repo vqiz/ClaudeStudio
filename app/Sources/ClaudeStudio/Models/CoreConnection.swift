@@ -2,6 +2,18 @@ import Foundation
 import Observation
 import ClaudeStudioKit
 
+/// A server-pushed `SystemEvent`, surfaced in the OS View's live feed.
+struct CoreEvent: Identifiable, Sendable {
+    let id = UUID()
+    let kind: String
+    let at: Date = Date()
+
+    /// A human-friendly label for the raw `snake_case` event type.
+    var label: String {
+        kind.split(separator: "_").map { $0.capitalized }.joined(separator: " ")
+    }
+}
+
 /// Owns the live connection to the Rust core sidecar and exposes its state to the
 /// UI as observable properties.
 ///
@@ -29,6 +41,10 @@ final class CoreConnection {
     private(set) var sessions: [CoreSession] = []
     private(set) var tasks: [LibraryTask] = []
     private(set) var definitions: [LibraryDefinition] = []
+
+    /// Server-pushed events (newest first), populated while connected.
+    private(set) var recentEvents: [CoreEvent] = []
+    private var eventTask: Task<Void, Never>?
 
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
@@ -70,6 +86,9 @@ final class CoreConnection {
             self.sessions = (try? await client.listSessions()) ?? []
             self.tasks = (try? await client.fetchTasks()) ?? []
             self.definitions = (try? await client.fetchDefinitions()) ?? []
+            // Subscribe to the live event stream, then drain it on the main actor.
+            try? await client.subscribeEvents()
+            startEventConsumer(client)
             self.status = .online
         } catch {
             await client.disconnect()
@@ -114,12 +133,35 @@ final class CoreConnection {
     }
 
     func disconnect() async {
+        eventTask?.cancel()
+        eventTask = nil
         if let client { await client.disconnect() }
         client = nil
         sessions = []
         tasks = []
         definitions = []
+        recentEvents = []
         if status != .offline { status = .offline }
+    }
+
+    // MARK: Live events
+
+    private func startEventConsumer(_ client: CoreClient) {
+        eventTask?.cancel()
+        let stream = client.events
+        eventTask = Task { @MainActor [weak self] in
+            for await envelope in stream {
+                guard let self else { return }
+                self.handleEvent(envelope)
+            }
+        }
+    }
+
+    private func handleEvent(_ envelope: IpcEnvelope) {
+        guard envelope.method == "event",
+              let kind = envelope.payload?["type"]?.stringValue else { return }
+        recentEvents.insert(CoreEvent(kind: kind), at: 0)
+        if recentEvents.count > 100 { recentEvents.removeLast() }
     }
 
     /// A short, user-facing description of an IPC failure.

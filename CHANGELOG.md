@@ -17,6 +17,9 @@ a tagged release.
   `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`.
 - **Live UI data**: the Archive shows the persisted SQLite session archive and
   the Task Library lists the shipped one-click workflows when connected.
+- **Live event streaming**: a client sends `events.subscribe` and the core
+  pushes `SystemEvent`s as `event` frames over the same connection; the OS View
+  renders them in real time. Verified end-to-end.
 - **Theming**: System / Light / Dark / Transparent (behind-window vibrancy),
   persisted and selectable from Settings → Appearance.
 - **Brand**: a generated logo, macOS app icon (`.icns` + `.appiconset`), README

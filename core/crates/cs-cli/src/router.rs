@@ -58,6 +58,12 @@ impl Router {
         }
     }
 
+    /// The shared event bus, so the connection layer can stream `SystemEvent`s
+    /// to a subscribed front-end.
+    pub fn event_bus(&self) -> &EventBus {
+        &self.inner.event_bus
+    }
+
     /// Dispatch a request envelope, returning the response envelope to send back.
     pub async fn dispatch(&self, request: &IpcEnvelope) -> IpcEnvelope {
         match self.handle(request).await {

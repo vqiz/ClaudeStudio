@@ -190,6 +190,17 @@ public final class CoreClient: Sendable {
         get async { await client.state }
     }
 
+    /// Server-pushed `event` envelopes (e.g. supervisor / event-bus ticks). Call
+    /// ``subscribeEvents()`` first; then `for await` over this stream.
+    public var events: AsyncStream<IpcEnvelope> {
+        client.events
+    }
+
+    /// Ask the core to start streaming `SystemEvent`s on this connection.
+    public func subscribeEvents() async throws {
+        _ = try await call("events.subscribe")
+    }
+
     /// Send a request and await the correlated response, throwing
     /// `IpcError.remote` if the core replies with an error envelope.
     @discardableResult

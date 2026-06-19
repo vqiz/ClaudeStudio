@@ -25,8 +25,56 @@ struct OSView: View {
             }
 
             Divider()
-            EventStream(events: appState.busEvents)
-                .frame(height: 240)
+            if appState.coreConnected {
+                LiveEventStream(events: appState.core.recentEvents)
+                    .frame(height: 240)
+            } else {
+                EventStream(events: appState.busEvents)
+                    .frame(height: 240)
+            }
+        }
+    }
+}
+
+/// The real Supervisor / Event-Bus feed, streamed from the core over IPC.
+private struct LiveEventStream: View {
+    let events: [CoreEvent]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Label("Supervisor · Event Bus", systemImage: "dot.radiowaves.left.and.right")
+                    .font(.headline)
+                Text("LIVE")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.green.opacity(0.2), in: Capsule())
+                    .foregroundStyle(.green)
+                Spacer()
+                Text("\(events.count) events").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(.bar)
+
+            if events.isEmpty {
+                ContentUnavailableView("Listening for events",
+                                       systemImage: "dot.radiowaves.left.and.right",
+                                       description: Text("System events from the core appear here in real time."))
+            } else {
+                List(events) { event in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "bolt.horizontal.circle")
+                            .foregroundStyle(.tint).frame(width: 18)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(event.label).font(.callout)
+                            Text(Format.clock(event.at)).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                    }
+                    .listRowSeparator(.hidden)
+                }
+                .listStyle(.plain)
+            }
         }
     }
 }

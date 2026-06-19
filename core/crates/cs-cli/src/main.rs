@@ -9,24 +9,33 @@
 //!
 //! 1. Initializes tracing.
 //! 2. Loads [`cs_config::AppConfig`] via `load_or_default` from `~/.claudestudio`.
-//! 3. Opens an in-memory [`cs_sessions::SessionStore`].
+//! 3. Opens the on-disk [`cs_sessions::SessionStore`] archive.
 //! 4. Creates a [`cs_agentic_os::EventBus`].
 //! 5. Binds a Unix domain socket (CLI arg, or `~/.claudestudio/core.sock`).
 //! 6. Accepts connections and dispatches [`cs_ipc::IpcEnvelope`] frames through a
-//!    small [`Router`] (`ping`, `config.get`, `context.budget`).
+//!    [`Router`] (config, sessions, git, task & definition libraries), and
+//!    streams `SystemEvent`s to any client that sends `events.subscribe`.
 //!
 //! It shuts down gracefully on `Ctrl-C`, removing the socket file.
 
 mod router;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use cs_agentic_os::EventBus;
+use cs_agentic_os::{EventBus, SystemEvent};
 use cs_config::AppConfig;
-use cs_ipc::{FrameReader, FrameWriter, IpcEnvelope};
+use cs_ipc::{new_event, FrameReader, FrameWriter, IpcEnvelope};
 use cs_sessions::SessionStore;
 use router::Router;
+use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::broadcast;
+use tokio::sync::Mutex;
+
+/// A connection's write half, shared between the request loop and any event
+/// forwarder task spawned by `events.subscribe`.
+type SharedWriter = Arc<Mutex<FrameWriter<OwnedWriteHalf>>>;
 
 /// Default directory under the user's home where state and the socket live.
 const STATE_DIR: &str = ".claudestudio";
@@ -110,17 +119,55 @@ async fn serve(listener: &UnixListener, router: Router) -> anyhow::Result<()> {
 
 /// Read request frames from a single client and write back response frames until
 /// the client disconnects.
+///
+/// The special method `events.subscribe` acknowledges, then streams every
+/// [`SystemEvent`] on the bus to this client as `event` frames until the
+/// connection closes. The write half is shared so the forwarder and the
+/// request loop never interleave a half-written frame.
 async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result<()> {
     let (read_half, write_half) = stream.into_split();
     let mut reader = FrameReader::new(read_half);
-    let mut writer = FrameWriter::new(write_half);
+    let writer: SharedWriter = Arc::new(Mutex::new(FrameWriter::new(write_half)));
 
     while let Some(request) = reader.read_frame::<IpcEnvelope>().await? {
         tracing::debug!(method = %request.method, id = %request.id, "request");
+
+        if request.method == "events.subscribe" {
+            // Subscribe BEFORE acking so no event published between the ack and
+            // the subscription is lost.
+            let rx = router.event_bus().subscribe();
+            let ack = request.response_to(serde_json::json!({ "subscribed": true }));
+            writer.lock().await.write_frame(&ack).await?;
+            spawn_event_forwarder(rx, Arc::clone(&writer));
+            continue;
+        }
+
         let response = router.dispatch(&request).await;
-        writer.write_frame(&response).await?;
+        writer.lock().await.write_frame(&response).await?;
     }
     Ok(())
+}
+
+/// Forward `SystemEvent`s from `rx` to the client as `event` frames until the
+/// connection closes or the bus is dropped.
+fn spawn_event_forwarder(mut rx: broadcast::Receiver<SystemEvent>, writer: SharedWriter) {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(event) => {
+                    let payload =
+                        serde_json::to_value(&event).unwrap_or_else(|_| serde_json::json!({}));
+                    let frame = new_event("event", payload);
+                    if writer.lock().await.write_frame(&frame).await.is_err() {
+                        break; // client went away
+                    }
+                }
+                // Slow consumer dropped some events; keep going with the newest.
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// Initialize the tracing subscriber, honoring `RUST_LOG`.
