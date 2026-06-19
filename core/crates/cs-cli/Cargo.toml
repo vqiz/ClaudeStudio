@@ -19,6 +19,7 @@ cs-ipc = { workspace = true }
 cs-sessions = { workspace = true }
 cs-agentic-os = { workspace = true }
 cs-git = { workspace = true }
+cs-mcp = { workspace = true }
 
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }

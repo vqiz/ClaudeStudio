@@ -9,6 +9,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
     case brainView
     case archive
     case taskLibrary
+    case mcp
     case voiceLog
     case settings
     // Definitions section
@@ -24,6 +25,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .brainView: return "Brain View"
         case .archive: return "Archive"
         case .taskLibrary: return "Task Library"
+        case .mcp: return "MCP Servers"
         case .voiceLog: return "Voice Log"
         case .settings: return "Settings"
         case .agentStudio: return "Agent Studio"
@@ -38,6 +40,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .brainView: return "brain"
         case .archive: return "archivebox"
         case .taskLibrary: return "square.grid.2x2"
+        case .mcp: return "puzzlepiece.extension"
         case .voiceLog: return "waveform"
         case .settings: return "gearshape"
         case .agentStudio: return "person.crop.rectangle.stack"
@@ -47,7 +50,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
 
     /// Items shown in the primary navigation section.
     static let workspace: [SidebarItem] = [
-        .projects, .osView, .brainView, .archive, .taskLibrary, .voiceLog, .settings
+        .projects, .osView, .brainView, .archive, .taskLibrary, .mcp, .voiceLog, .settings
     ]
 
     /// Items shown under the "Definitions" sidebar section.

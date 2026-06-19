@@ -160,6 +160,26 @@ public struct LibraryDefinition: Sendable, Identifiable, Equatable {
     }
 }
 
+/// A configured MCP server from the Claude config (`mcp.list`).
+public struct McpServer: Sendable, Identifiable, Equatable {
+    public var id: String { name }
+    public let name: String
+    /// Transport kind: `"stdio"`, `"sse"`, or `"http"`.
+    public let transport: String
+    /// The command (stdio) or URL (sse/http).
+    public let target: String
+    /// Visibility scope: `"local"`, `"project"`, or `"user"`.
+    public let scope: String
+
+    public init?(value: MsgPackValue) {
+        guard let name = value["name"]?.stringValue else { return nil }
+        self.name = name
+        self.transport = value["transport"]?.stringValue ?? ""
+        self.target = value["target"]?.stringValue ?? ""
+        self.scope = value["scope"]?.stringValue ?? ""
+    }
+}
+
 /// A small, typed facade over [`IpcClient`] exposing the Rust core's RPC surface
 /// as `async` Swift methods. It owns the underlying connection actor and decodes
 /// MessagePack payloads into the value types above so the UI layer never touches
@@ -274,5 +294,12 @@ public final class CoreClient: Sendable {
         let response = try await call("definitions.list")
         let rows = response.payload?["definitions"]?.arrayValue ?? []
         return rows.compactMap(LibraryDefinition.init(value:))
+    }
+
+    /// List configured MCP servers from the Claude config.
+    public func fetchMcpServers() async throws -> [McpServer] {
+        let response = try await call("mcp.list")
+        let rows = response.payload?["servers"]?.arrayValue ?? []
+        return rows.compactMap(McpServer.init(value:))
     }
 }

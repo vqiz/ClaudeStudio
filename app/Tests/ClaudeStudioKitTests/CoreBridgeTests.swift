@@ -92,6 +92,9 @@ final class CoreBridgeTests: XCTestCase {
         // Isolate the core's state directory so the test never touches real data.
         let tmpHome = NSTemporaryDirectory() + "cs-bridge-home-\(ProcessInfo.processInfo.processIdentifier)"
         try? FileManager.default.createDirectory(atPath: tmpHome, withIntermediateDirectories: true)
+        // An MCP config in the isolated HOME (mcp.list defaults to ~/.claude.json).
+        try? #"{"mcpServers":{"fs":{"command":"npx"},"web":{"type":"http","url":"https://x"}}}"#
+            .write(toFile: tmpHome + "/.claude.json", atomically: true, encoding: .utf8)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binPath)
@@ -153,6 +156,9 @@ final class CoreBridgeTests: XCTestCase {
         XCTAssertGreaterThan(tasks.count, 0, "task library should be discovered")
         let defs = try await core.fetchDefinitions()
         XCTAssertGreaterThan(defs.count, 0, "definition library should be discovered")
+        let servers = try await core.fetchMcpServers()
+        XCTAssertEqual(servers.count, 2, "two MCP servers from the isolated config")
+        XCTAssertEqual(Set(servers.map(\.transport)), ["stdio", "http"])
 
         // 8. error path: an unknown method round-trips as a thrown remote error
         do {

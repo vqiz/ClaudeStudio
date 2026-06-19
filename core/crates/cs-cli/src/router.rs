@@ -96,9 +96,10 @@ impl Router {
             "git.diff" => self.git_diff(p).await,
             "git.log" => self.git_log(p).await,
 
-            // --- Libraries ---
+            // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
             "definitions.list" => self.definitions_list(),
+            "mcp.list" => self.mcp_list(p),
 
             other => Err(format!("unknown method: {other}")),
         }
@@ -298,6 +299,33 @@ impl Router {
             })
             .collect();
         Ok(json!({ "tasks": tasks }))
+    }
+
+    /// List configured MCP servers parsed from a Claude-style config file
+    /// (default `~/.claude.json`; override with a `path` param). Missing or
+    /// unparseable files yield an empty list rather than an error.
+    fn mcp_list(&self, p: &Value) -> HandlerResult {
+        let default_path = std::env::var("HOME")
+            .map(|h| format!("{h}/.claude.json"))
+            .unwrap_or_default();
+        let path = p
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or(&default_path);
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        let servers = cs_mcp::parse_mcp_config(&content).unwrap_or_default();
+        let list: Vec<Value> = servers
+            .iter()
+            .map(|s| {
+                let (transport, target) = match &s.transport {
+                    cs_mcp::Transport::Stdio { command, .. } => ("stdio", command.clone()),
+                    cs_mcp::Transport::Sse { url } => ("sse", url.clone()),
+                    cs_mcp::Transport::Http { url } => ("http", url.clone()),
+                };
+                json!({ "name": s.name, "transport": transport, "target": target, "scope": s.scope })
+            })
+            .collect();
+        Ok(json!({ "servers": list }))
     }
 
     fn definitions_list(&self) -> HandlerResult {
@@ -517,6 +545,33 @@ mod tests {
         assert_eq!(darr[0]["scope"], json!("global"));
 
         let _ = std::fs::remove_dir_all(&lib);
+    }
+
+    #[tokio::test]
+    async fn mcp_list_parses_config_file() {
+        let dir = std::env::temp_dir().join(format!("cs-mcp-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let cfg = dir.join("claude.json");
+        std::fs::write(
+            &cfg,
+            r#"{"mcpServers":{"fs":{"command":"npx","args":["-y","server-fs"]}}}"#,
+        )
+        .unwrap();
+
+        let r = router();
+        let res = r
+            .dispatch(&new_request(
+                "mcp.list",
+                json!({ "path": cfg.to_string_lossy() }),
+            ))
+            .await;
+        let servers = res.payload["servers"].as_array().expect("servers");
+        assert_eq!(servers.len(), 1);
+        assert_eq!(servers[0]["name"], json!("fs"));
+        assert_eq!(servers[0]["transport"], json!("stdio"));
+        assert_eq!(servers[0]["target"], json!("npx"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

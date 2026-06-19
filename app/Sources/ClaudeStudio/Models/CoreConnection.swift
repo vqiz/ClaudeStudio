@@ -41,6 +41,7 @@ final class CoreConnection {
     private(set) var sessions: [CoreSession] = []
     private(set) var tasks: [LibraryTask] = []
     private(set) var definitions: [LibraryDefinition] = []
+    private(set) var mcpServers: [McpServer] = []
 
     /// Server-pushed events (newest first), populated while connected.
     private(set) var recentEvents: [CoreEvent] = []
@@ -86,6 +87,7 @@ final class CoreConnection {
             self.sessions = (try? await client.listSessions()) ?? []
             self.tasks = (try? await client.fetchTasks()) ?? []
             self.definitions = (try? await client.fetchDefinitions()) ?? []
+            self.mcpServers = (try? await client.fetchMcpServers()) ?? []
             // Subscribe to the live event stream, then drain it on the main actor.
             try? await client.subscribeEvents()
             startEventConsumer(client)
@@ -98,6 +100,7 @@ final class CoreConnection {
             self.sessions = []
             self.tasks = []
             self.definitions = []
+            self.mcpServers = []
             self.status = .failed(Self.describe(error))
         }
     }
@@ -140,6 +143,7 @@ final class CoreConnection {
         sessions = []
         tasks = []
         definitions = []
+        mcpServers = []
         recentEvents = []
         if status != .offline { status = .offline }
     }

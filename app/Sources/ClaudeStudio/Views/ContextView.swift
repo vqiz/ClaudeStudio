@@ -21,6 +21,15 @@ struct ContextView: View {
                     }
                 }
 
+                if !appState.core.definitions.isEmpty {
+                    GroupBox {
+                        definitionLibrary(appState.core.definitions)
+                    } label: {
+                        Label("Definition Library — \(appState.core.definitions.count) live from core",
+                              systemImage: "books.vertical")
+                    }
+                }
+
                 GroupBox {
                     contextFile(name: "AGENTS.md", lines: [
                         "# Atlas API — Agent Guide",
@@ -87,6 +96,31 @@ struct ContextView: View {
                 Spacer()
                 Text("\(budget.remaining.formatted()) remaining")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(6)
+    }
+
+    private func definitionLibrary(_ defs: [LibraryDefinition]) -> some View {
+        let grouped = Dictionary(grouping: defs) { $0.category.isEmpty ? "Other" : $0.category }
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(grouped.sorted { $0.key < $1.key }, id: \.key) { category, items in
+                Text(category)
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(items) { def in
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.plaintext").font(.caption2).foregroundStyle(.tint)
+                        Text(def.name).font(.callout)
+                        if !def.scope.isEmpty {
+                            Text(def.scope)
+                                .font(.caption2)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(.quaternary, in: Capsule())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
             }
         }
         .padding(6)

@@ -233,6 +233,7 @@ dependencies = [
  "cs-config",
  "cs-git",
  "cs-ipc",
+ "cs-mcp",
  "cs-sessions",
  "cs-types",
  "serde_json",
