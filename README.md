@@ -151,6 +151,17 @@ git clone https://github.com/vqiz/ClaudeStudio.git
 cd ClaudeStudio
 ```
 
+### Fastest path — one command
+
+```bash
+./scripts/dev.sh            # builds + runs the core and the app together
+./scripts/dev.sh --release  # optimized build
+```
+
+It builds and starts the Rust core, waits for the IPC socket, launches the app,
+wires up your `claude` CLI (so live sessions use your CLI login / subscription),
+and stops the core when you quit. Prefer the manual steps below? Read on.
+
 ### 2. Build the Rust core
 
 ```bash
