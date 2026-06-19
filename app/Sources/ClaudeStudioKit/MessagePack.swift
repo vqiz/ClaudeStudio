@@ -319,7 +319,8 @@ public enum MessagePack {
             case 0xC6:
                 return .binary(try readData(count: Int(try readUInt32())))
             case 0xCA:
-                return .double(Double(bitPattern: UInt64(try readUInt32())))
+                // float32: load as a 32-bit Float bit pattern, then widen.
+                return .double(Double(Float(bitPattern: try readUInt32())))
             case 0xCB:
                 return .double(Double(bitPattern: try readUInt64()))
             case 0xCC:

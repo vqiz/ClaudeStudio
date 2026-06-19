@@ -97,7 +97,10 @@ async fn serve(listener: &UnixListener, router: Router) -> anyhow::Result<()> {
                         });
                     }
                     Err(e) => {
-                        tracing::warn!(%e, "accept failed");
+                        // Back off briefly so a persistent error (e.g. fd
+                        // exhaustion) cannot busy-spin the loop and flood logs.
+                        tracing::warn!(%e, "accept failed; backing off");
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                     }
                 }
             }

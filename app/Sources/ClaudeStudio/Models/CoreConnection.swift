@@ -34,6 +34,9 @@ final class CoreConnection {
     var socketPath: String
 
     private var client: CoreClient?
+    /// Set synchronously at the top of ``connect()`` (before any `await`) so two
+    /// overlapping connects can't both build a client and leak the first one.
+    private var connectInFlight = false
 
     var isConnected: Bool { status.isOnline }
 
@@ -45,7 +48,9 @@ final class CoreConnection {
     /// Tearing down any previous connection first, this is safe to call repeatedly
     /// (e.g. a "Reconnect" button).
     func connect() async {
-        if status == .connecting { return }
+        guard !connectInFlight else { return }
+        connectInFlight = true
+        defer { connectInFlight = false }
         await disconnect()
         status = .connecting
 

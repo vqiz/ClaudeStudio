@@ -33,6 +33,14 @@ final class MessagePackTests: XCTestCase {
         XCTAssertEqual(decoded["nested"]?["depth"]?.intValue, 2)
     }
 
+    func testFloat32DecodesAsWidenedFloat() throws {
+        // float32 1.5 == 0x3FC00000. Must widen the 32-bit pattern, not
+        // reinterpret it as a 64-bit double pattern (which yields garbage).
+        let bytes = Data([0xCA, 0x3F, 0xC0, 0x00, 0x00])
+        let value = try MessagePack.decode(bytes)
+        XCTAssertEqual(value.doubleValue, 1.5)
+    }
+
     func testEnvelopeCodableThroughMsgPack() throws {
         let envelope = IpcEnvelope.request(
             method: "supervisor.tick",

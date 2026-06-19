@@ -29,20 +29,36 @@ public actor IpcClient {
     private let socketPath: String
     private var fileDescriptor: Int32 = -1
     private var readThread: Thread?
+    private var consumerTask: Task<Void, Never>?
 
     /// Pending request continuations keyed by envelope id.
     private var pending: [String: CheckedContinuation<IpcEnvelope, Error>] = [:]
 
-    /// Broadcast stream of inbound `event` envelopes (supervisor ticks, session
-    /// deltas, etc.). Consumers `for await` over `events`.
+    /// An ordered, internal hand-off from the blocking read thread to the actor.
+    /// Frames are delivered in strict wire order through a single consumer, so the
+    /// `events` stream and the terminal close are never reordered.
+    private enum Inbound: Sendable {
+        case frame(IpcEnvelope)
+        case closed(IpcError)
+    }
+    private let inbound: AsyncStream<Inbound>
+    private let inboundContinuation: AsyncStream<Inbound>.Continuation
+
+    /// Broadcast stream of inbound `event`/`request` envelopes (supervisor ticks,
+    /// session deltas, etc.). Consumers `for await` over `events`; it finishes
+    /// when the connection is torn down. Bounded so a slow or absent consumer
+    /// cannot grow memory without limit.
     public let events: AsyncStream<IpcEnvelope>
     private let eventContinuation: AsyncStream<IpcEnvelope>.Continuation
 
     public init(socketPath: String = IpcProtocol.defaultSocketPath) {
         self.socketPath = socketPath
-        var continuation: AsyncStream<IpcEnvelope>.Continuation!
-        self.events = AsyncStream { continuation = $0 }
-        self.eventContinuation = continuation
+        var eventCont: AsyncStream<IpcEnvelope>.Continuation!
+        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { eventCont = $0 }
+        self.eventContinuation = eventCont
+        var inboundCont: AsyncStream<Inbound>.Continuation!
+        self.inbound = AsyncStream(bufferingPolicy: .unbounded) { inboundCont = $0 }
+        self.inboundContinuation = inboundCont
     }
 
     // MARK: Connection lifecycle
@@ -91,21 +107,14 @@ public actor IpcClient {
         fileDescriptor = descriptor
         state = .connected
         startReadLoop()
+        startConsumer()
     }
 
     public func disconnect() {
-        // Dropping our reference plus closing the fd unblocks the dedicated read
-        // thread (its `recv` returns once the descriptor is closed).
+        consumerTask?.cancel()
+        consumerTask = nil
         readThread = nil
-        if fileDescriptor >= 0 {
-            close(fileDescriptor)
-            fileDescriptor = -1
-        }
-        for (_, continuation) in pending {
-            continuation.resume(throwing: IpcError.socketClosed)
-        }
-        pending.removeAll()
-        state = .disconnected
+        teardown(error: .socketClosed)
     }
 
     // MARK: Requests & notifications
@@ -199,27 +208,56 @@ public actor IpcClient {
 
     /// The blocking read loop. Runs on its **own** `Thread`, never the actor's
     /// executor, so the blocking `recv` here can never stall an outbound `send`.
-    /// Each decoded frame and every terminal condition is handed back to the
-    /// actor with a short `Task` that awaits the isolated handler.
+    /// Decoded frames are pushed — in strict wire order — onto the internal
+    /// `inbound` stream, which a single actor-side consumer drains in order.
     private nonisolated func readLoopBody(descriptor: Int32) {
         while true {
             do {
                 guard let header = try readExact(count: 4, descriptor: descriptor) else { break }
                 let length = header.withUnsafeBytes { $0.load(as: UInt32.self).bigEndian }
                 guard length <= IpcProtocol.maxFrameBytes else {
-                    Task { await self.handleClose(error: IpcError.frameTooLarge(Int(length))) }
+                    finishInbound(with: .frameTooLarge(Int(length)))
                     return
                 }
                 guard let body = try readExact(count: Int(length), descriptor: descriptor) else { break }
                 let envelope = try decodeEnvelope(MessagePack.decode(body))
-                Task { await self.dispatch(envelope) }
+                inboundContinuation.yield(.frame(envelope))
             } catch {
-                let ipcError = (error as? IpcError) ?? IpcError.socketClosed
-                Task { await self.handleClose(error: ipcError) }
+                finishInbound(with: (error as? IpcError) ?? .socketClosed)
                 return
             }
         }
-        Task { await self.handleClose(error: IpcError.socketClosed) }
+        finishInbound(with: .socketClosed)
+    }
+
+    /// Emit a terminal close marker after every preceding frame, then finish the
+    /// internal stream so the consumer observes it deterministically.
+    private nonisolated func finishInbound(with error: IpcError) {
+        inboundContinuation.yield(.closed(error))
+        inboundContinuation.finish()
+    }
+
+    /// Start the single actor-side consumer that drains `inbound` in order.
+    private func startConsumer() {
+        consumerTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runConsumer()
+        }
+    }
+
+    /// Drain `inbound` in strict order: each frame is fully dispatched before the
+    /// next is read, so neither the `events` stream nor the terminal close is
+    /// ever raced against an earlier frame.
+    private func runConsumer() async {
+        for await item in inbound {
+            switch item {
+            case .frame(let envelope):
+                dispatch(envelope)
+            case .closed(let error):
+                teardown(error: error)
+                return
+            }
+        }
     }
 
     /// Blocking-but-cooperative read of exactly `count` bytes. Returns nil on a
@@ -266,8 +304,15 @@ public actor IpcClient {
         }
     }
 
-    private func handleClose(error: IpcError) {
+    /// Tear the connection down idempotently: reliably unblock the read thread
+    /// (`shutdown` before `close`), fail any in-flight requests, finish the event
+    /// stream, and mark the client disconnected. Safe to call more than once.
+    private func teardown(error: IpcError) {
         if fileDescriptor >= 0 {
+            // `shutdown` reliably wakes a `recv` blocked on this fd on Darwin;
+            // `close` alone does not, which would leave the read thread stuck and
+            // risk it reading from a recycled fd after a later reconnect.
+            shutdown(fileDescriptor, SHUT_RDWR)
             close(fileDescriptor)
             fileDescriptor = -1
         }
@@ -275,6 +320,9 @@ public actor IpcClient {
             continuation.resume(throwing: error)
         }
         pending.removeAll()
-        if state == .connected { state = .disconnected }
+        eventContinuation.finish()
+        if state == .connected || state == .connecting {
+            state = .disconnected
+        }
     }
 }

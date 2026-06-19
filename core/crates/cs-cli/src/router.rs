@@ -108,22 +108,27 @@ impl Router {
     fn config_set(&self, p: &Value) -> HandlerResult {
         let payload = {
             let mut cfg = self.inner.config.lock().unwrap();
+            // Apply changes to a copy first, persist it, and only commit the copy
+            // to the shared state once the write succeeds — so a save failure
+            // never leaves the in-memory config diverging from settings.json.
+            let mut next = cfg.clone();
             if let Some(v) = p.get("trust_mode").and_then(Value::as_str) {
-                cfg.trust_mode = serde_json::from_value(json!(v))
+                next.trust_mode = serde_json::from_value(json!(v))
                     .map_err(|_| format!("invalid trust_mode: {v}"))?;
             }
             if let Some(v) = p.get("default_model").and_then(Value::as_str) {
-                cfg.default_model = serde_json::from_value(json!(v))
+                next.default_model = serde_json::from_value(json!(v))
                     .map_err(|_| format!("invalid default_model: {v}"))?;
             }
             if let Some(v) = p.get("daily_budget_usd").and_then(Value::as_f64) {
-                cfg.daily_budget_usd = v.max(0.0);
+                next.daily_budget_usd = v.max(0.0);
             }
             if let Some(v) = p.get("context_token_budget").and_then(Value::as_u64) {
-                cfg.context_token_budget = v as usize;
+                next.context_token_budget = v as usize;
             }
-            cfg.save(&self.inner.state_dir)
+            next.save(&self.inner.state_dir)
                 .map_err(|e| format!("failed to save settings: {e}"))?;
+            *cfg = next;
             config_to_json(&cfg)
         };
         // Best-effort: notify any event subscribers that config changed.
