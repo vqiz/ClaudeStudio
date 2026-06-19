@@ -13,8 +13,8 @@ ClaudeStudio targets **macOS** (the front-end is native SwiftUI/AppKit).
 | Requirement | Version | Notes |
 | --- | --- | --- |
 | macOS | 14 (Sonoma) or later | Apple Silicon recommended; Intel supported. |
-| Xcode | 15+ | Provides the Swift toolchain and SwiftUI SDK. |
-| Rust | stable, 1.78+ | Install via [rustup](https://rustup.rs). The core is a Cargo workspace. |
+| Xcode | 16+ | The app targets **Swift 6**. Command-Line-Tools-only works for `swift build` but can't run `swift test` (no XCTest). |
+| Rust | stable | Install via [rustup](https://rustup.rs); the workspace pins the version via `core/rust-toolchain.toml`. |
 | Claude Code CLI | latest | ClaudeStudio drives the official Claude Code CLI. Install and authenticate it first. |
 | Qdrant | 1.9+ | For semantic memory. Run locally via Docker or the native binary. **(optional at first run)** |
 | Ollama or local embed model | latest | Hosts `nomic-embed` for local embeddings. A remote embedding API is the fallback. **(optional)** |
@@ -59,10 +59,14 @@ cd core
 cargo build --release
 ```
 
-This produces:
+This produces `claudestudio-core` (from the `cs-cli` crate) — the sidecar binary
+the app connects to. Run it in its own terminal:
 
-- `claudestudio-core` — the sidecar binary the app launches and supervises.
-- `cs-cli` — an optional headless binary that exposes core capabilities for scripting/CI **(planned)**.
+```bash
+cargo run --release -p cs-cli            # binds ~/.claudestudio/core.sock
+# during dev, expose the shipped libraries from this checkout:
+CLAUDESTUDIO_LIBRARY_DIR="$(cd .. && pwd)" cargo run -p cs-cli
+```
 
 Run the test suite to confirm a healthy workspace:
 
@@ -70,21 +74,26 @@ Run the test suite to confirm a healthy workspace:
 cargo test --workspace
 ```
 
-For a faster inner loop during development, use a debug build (`cargo build`) and point the app at it (see step 5).
-
 ---
 
-## 4. Build the macOS app
+## 4. Build & run the macOS app
+
+The app is a Swift Package (Swift 6). With the core from step 3 still running in
+another terminal:
 
 ```bash
 cd ../app
-# Open in Xcode:
-open ClaudeStudio.xcodeproj
-# …or build from the command line:
-xcodebuild -scheme ClaudeStudio -configuration Release build
+swift build              # compile
+swift run ClaudeStudio   # launch
 ```
 
-The app bundles or locates the `claudestudio-core` binary and launches it as a child process, then connects over the local Unix socket (see [ARCHITECTURE.md](../ARCHITECTURE.md#4-the-ipc-bridge)).
+The app connects to the running core over the local Unix socket at
+`~/.claudestudio/core.sock` (see [ARCHITECTURE.md](../ARCHITECTURE.md#4-the-ipc-bridge)).
+The title bar shows **Core connected** once the handshake succeeds.
+
+> A bundled Xcode project (for a signed `.app` with the app icon from
+> `app/Resources/`) and app-managed auto-spawn of the core are planned; for now,
+> run the core yourself and launch the app with `swift run`.
 
 ---
 
