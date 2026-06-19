@@ -19,6 +19,7 @@
 //! through `tokio::process` only when [`ClaudeSession::run`] is actually
 //! called.
 
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use cs_types::ModelTier;
@@ -184,6 +185,8 @@ pub struct ClaudeSession {
     pub model: ModelTier,
     /// The binary to invoke (defaults to `claude`).
     pub binary: String,
+    /// Working directory to run in (defaults to the parent process's cwd).
+    pub cwd: Option<PathBuf>,
 }
 
 impl ClaudeSession {
@@ -193,12 +196,20 @@ impl ClaudeSession {
         Self {
             model,
             binary: "claude".to_string(),
+            cwd: None,
         }
     }
 
     /// Override the binary path (useful for tests or custom installs).
     pub fn with_binary(mut self, binary: impl Into<String>) -> Self {
         self.binary = binary.into();
+        self
+    }
+
+    /// Run the session in `dir` (typically the project root) instead of the
+    /// parent process's working directory.
+    pub fn with_cwd(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.cwd = Some(dir.into());
         self
     }
 
@@ -209,13 +220,16 @@ impl ClaudeSession {
         prompt: &str,
     ) -> Result<impl Stream<Item = StreamEvent> + Send + Unpin> {
         let args = build_args(self.model, prompt);
-        let mut child = Command::new(&self.binary)
+        let mut command = Command::new(&self.binary);
+        command
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .stdin(Stdio::null())
-            .spawn()
-            .map_err(|e| Error::Spawn(e.to_string()))?;
+            .stdin(Stdio::null());
+        if let Some(dir) = &self.cwd {
+            command.current_dir(dir);
+        }
+        let mut child = command.spawn().map_err(|e| Error::Spawn(e.to_string()))?;
 
         let stdout = child.stdout.take().ok_or(Error::NoStdout)?;
         let reader = BufReader::new(stdout);
@@ -350,6 +364,42 @@ mod tests {
             parse_stream_line("not json at all"),
             StreamEvent::Other(_)
         ));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn run_streams_parsed_events_from_fake_binary_in_cwd() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!("cs-claude-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fake = dir.join("fake-claude");
+        std::fs::write(
+            &fake,
+            "#!/bin/sh\n\
+             echo '{\"type\":\"text\",\"text\":\"hi there\"}'\n\
+             echo '{\"type\":\"result\",\"cost_usd\":0.01,\"is_error\":false}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let session = ClaudeSession::new(ModelTier::Haiku)
+            .with_binary(fake.to_string_lossy())
+            .with_cwd(dir.clone());
+        let mut stream = session.run("test prompt").await.expect("spawn fake claude");
+
+        let mut events = Vec::new();
+        while let Some(ev) = stream.next().await {
+            events.push(ev);
+        }
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::AssistantText(t) if t == "hi there")));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, StreamEvent::Result { .. })));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

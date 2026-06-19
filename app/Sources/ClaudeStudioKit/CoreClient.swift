@@ -302,4 +302,23 @@ public final class CoreClient: Sendable {
         let rows = response.payload?["servers"]?.arrayValue ?? []
         return rows.compactMap(McpServer.init(value:))
     }
+
+    /// Start a live Claude session and return its new id. The core spawns the
+    /// `claude` CLI and streams its output back as `session.event` frames on
+    /// ``events`` (subscribe by iterating `events`). `binary` overrides the
+    /// `claude` executable (used by tests).
+    @discardableResult
+    public func startSession(
+        prompt: String,
+        cwd: String? = nil,
+        model: String? = nil,
+        binary: String? = nil
+    ) async throws -> String {
+        var payload: [String: MsgPackValue] = ["prompt": .string(prompt)]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        if let model { payload["model"] = .string(model) }
+        if let binary { payload["binary"] = .string(binary) }
+        let response = try await call("session.start", .map(payload))
+        return response.payload?["session_id"]?.stringValue ?? ""
+    }
 }

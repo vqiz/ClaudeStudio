@@ -4,10 +4,13 @@ import SwiftUI
 /// a header showing model + trust mode + status, and a footer cost counter.
 struct SessionPanelView: View {
     @Environment(AppState.self) private var appState
+    @State private var prompt = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            if let session = appState.activeSession {
+            if appState.coreConnected {
+                liveSessionPanel
+            } else if let session = appState.activeSession {
                 header(session)
                 Divider()
                 transcript(session)
@@ -18,6 +21,72 @@ struct SessionPanelView: View {
             }
         }
         .background(.background)
+    }
+
+    // MARK: Live session (real Claude, streamed from the core)
+
+    private var liveSessionPanel: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Label("Live Session", systemImage: "sparkles").font(.headline)
+                if appState.core.runningSessionId != nil {
+                    ProgressView().controlSize(.small)
+                    Text("running…").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                TrustModeBadge(mode: appState.globalTrustMode)
+            }
+            .padding(12)
+            .background(.bar)
+            Divider()
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 10) {
+                        if appState.core.liveSession.isEmpty {
+                            ContentUnavailableView(
+                                "Run a prompt",
+                                systemImage: "text.cursor",
+                                description: Text("The core spawns the Claude CLI and streams the result here.")
+                            )
+                            .padding(.top, 48)
+                        }
+                        ForEach(appState.core.liveSession) { item in
+                            LiveSessionRow(item: item).id(item.id)
+                        }
+                    }
+                    .padding(12)
+                }
+                .onChange(of: appState.core.liveSession.count) { _, _ in
+                    if let last = appState.core.liveSession.last {
+                        withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                }
+            }
+
+            Divider()
+            HStack(spacing: 8) {
+                TextField("Ask Claude to do something…", text: $prompt, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                    .onSubmit(runLiveSession)
+                Button(action: runLiveSession) {
+                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
+                          || appState.core.runningSessionId != nil)
+            }
+            .padding(12)
+            .background(.bar)
+        }
+    }
+
+    private func runLiveSession() {
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
+        prompt = ""
+        Task { await appState.core.startSession(prompt: text) }
     }
 
     private func header(_ session: AgentSession) -> some View {
@@ -95,6 +164,39 @@ struct SessionPanelView: View {
             .padding(.horizontal, 8).padding(.vertical, 3)
             .background(status.color.opacity(0.16), in: Capsule())
             .foregroundStyle(status.color)
+    }
+}
+
+/// One streamed item from a live Claude session.
+private struct LiveSessionRow: View {
+    let item: LiveSessionEvent
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: item.symbol)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(color.gradient, in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                if item.kind == "tool_use" {
+                    Text("Tool: \(item.text)").font(.callout.weight(.medium))
+                } else {
+                    Text(item.text).font(.callout).textSelection(.enabled)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private var color: Color {
+        switch item.kind {
+        case "assistant_text": return .purple
+        case "tool_use", "tool_result": return .gray
+        case "result": return .green
+        case "error": return .red
+        default: return .secondary
+        }
     }
 }
 

@@ -18,7 +18,7 @@ use cs_agentic_os::{EventBus, SystemEvent};
 use cs_config::{AppConfig, ContextAssembler, LayerKind};
 use cs_git::{GitBackend, SystemGit};
 use cs_ipc::IpcEnvelope;
-use cs_sessions::{NewSession, SessionStore};
+use cs_sessions::{NewEvent, NewMessage, NewSession, NewToolCall, SessionStore};
 use serde_json::{json, Value};
 
 /// What every handler returns: a JSON payload or a human-readable error message.
@@ -226,6 +226,34 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let stats = store.stats().map_err(|e| e.to_string())?;
         Ok(serde_json::to_value(stats).unwrap_or(Value::Null))
+    }
+
+    // MARK: Live Claude session recording (called by the connection forwarder)
+
+    /// Insert a session record for a live run and return its id (empty on error).
+    pub fn create_run_session(&self, title: &str, cwd: &str, model: &str) -> String {
+        let mut ns = NewSession::new(title, cwd);
+        ns.model = Some(model.to_string());
+        let store = self.inner.sessions.lock().unwrap();
+        store.insert_session(&ns).unwrap_or_default()
+    }
+
+    /// Append a transcript message (best-effort).
+    pub fn record_message(&self, session_id: &str, role: &str, content: &str) {
+        let store = self.inner.sessions.lock().unwrap();
+        let _ = store.append_message(&NewMessage::new(session_id, role, content));
+    }
+
+    /// Append a tool-call record (best-effort).
+    pub fn record_tool_call(&self, session_id: &str, tool: &str, input: Value) {
+        let store = self.inner.sessions.lock().unwrap();
+        let _ = store.append_tool_call(&NewToolCall::new(session_id, tool, input));
+    }
+
+    /// Append a lifecycle event (best-effort).
+    pub fn record_run_event(&self, session_id: &str, kind: &str) {
+        let store = self.inner.sessions.lock().unwrap();
+        let _ = store.append_event(&NewEvent::new(session_id, kind));
     }
 
     // MARK: Git (operates on the project directory named in `cwd`)

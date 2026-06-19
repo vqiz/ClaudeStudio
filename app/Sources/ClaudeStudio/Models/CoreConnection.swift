@@ -14,6 +14,25 @@ struct CoreEvent: Identifiable, Sendable {
     }
 }
 
+/// One streamed item from a live Claude session (`session.event`).
+struct LiveSessionEvent: Identifiable, Sendable {
+    let id = UUID()
+    /// `assistant_text`, `tool_use`, `tool_result`, `result`, or `error`.
+    let kind: String
+    let text: String
+
+    var symbol: String {
+        switch kind {
+        case "assistant_text": return "text.bubble"
+        case "tool_use": return "wrench.and.screwdriver"
+        case "tool_result": return "arrow.turn.down.right"
+        case "result": return "checkmark.seal"
+        case "error": return "exclamationmark.triangle"
+        default: return "circle"
+        }
+    }
+}
+
 /// Owns the live connection to the Rust core sidecar and exposes its state to the
 /// UI as observable properties.
 ///
@@ -46,6 +65,11 @@ final class CoreConnection {
     /// Server-pushed events (newest first), populated while connected.
     private(set) var recentEvents: [CoreEvent] = []
     private var eventTask: Task<Void, Never>?
+
+    /// The transcript of the currently-running live Claude session, in order.
+    private(set) var liveSession: [LiveSessionEvent] = []
+    /// The id of the running session, or nil when none is active.
+    private(set) var runningSessionId: String?
 
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
@@ -145,6 +169,8 @@ final class CoreConnection {
         definitions = []
         mcpServers = []
         recentEvents = []
+        liveSession = []
+        runningSessionId = nil
         if status != .offline { status = .offline }
     }
 
@@ -162,10 +188,51 @@ final class CoreConnection {
     }
 
     private func handleEvent(_ envelope: IpcEnvelope) {
-        guard envelope.method == "event",
-              let kind = envelope.payload?["type"]?.stringValue else { return }
-        recentEvents.insert(CoreEvent(kind: kind), at: 0)
-        if recentEvents.count > 100 { recentEvents.removeLast() }
+        switch envelope.method {
+        case "event":
+            guard let kind = envelope.payload?["type"]?.stringValue else { return }
+            recentEvents.insert(CoreEvent(kind: kind), at: 0)
+            if recentEvents.count > 100 { recentEvents.removeLast() }
+
+        case "session.event":
+            guard let event = envelope.payload?["event"],
+                  let kind = event["kind"]?.stringValue else { return }
+            switch kind {
+            case "done":
+                runningSessionId = nil
+            case "assistant_text":
+                liveSession.append(LiveSessionEvent(kind: kind, text: event["text"]?.stringValue ?? ""))
+            case "tool_use":
+                liveSession.append(LiveSessionEvent(kind: kind, text: event["name"]?.stringValue ?? "tool"))
+            case "tool_result":
+                liveSession.append(LiveSessionEvent(kind: kind, text: event["content"]?.stringValue ?? ""))
+            case "result":
+                let cost = event["cost_usd"]?.doubleValue ?? 0
+                liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
+                runningSessionId = nil
+            case "error":
+                liveSession.append(LiveSessionEvent(kind: kind, text: event["message"]?.stringValue ?? "error"))
+                runningSessionId = nil
+            default:
+                break
+            }
+
+        default:
+            break
+        }
+    }
+
+    /// Start a live Claude session. Streamed output lands in ``liveSession`` and
+    /// the run is archived by the core. No-op when offline.
+    func startSession(prompt: String, cwd: String? = nil, model: String? = nil) async {
+        guard isConnected, let client else { return }
+        liveSession = []
+        runningSessionId = nil
+        if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model), !id.isEmpty {
+            runningSessionId = id
+        }
+        // Refresh the archive so the new session appears in the list.
+        await reloadSessions()
     }
 
     /// A short, user-facing description of an IPC failure.

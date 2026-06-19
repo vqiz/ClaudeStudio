@@ -24,9 +24,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cs_agentic_os::{EventBus, SystemEvent};
+use cs_claude::{ClaudeSession, StreamEvent};
 use cs_config::AppConfig;
 use cs_ipc::{new_event, FrameReader, FrameWriter, IpcEnvelope};
 use cs_sessions::SessionStore;
+use cs_types::ModelTier;
+use futures::StreamExt;
 use router::Router;
 use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
@@ -162,10 +165,145 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
             continue;
         }
 
+        if request.method == "session.start" {
+            let p = &request.payload;
+            let prompt = p
+                .get("prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if prompt.is_empty() {
+                let err = cs_ipc::error_response(&request, "missing 'prompt'");
+                writer.lock().await.write_frame(&err).await?;
+                continue;
+            }
+            let cwd = p.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
+            let binary = p
+                .get("binary")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| std::env::var("CLAUDESTUDIO_CLAUDE_BIN").ok())
+                .unwrap_or_else(|| "claude".to_string());
+            let model: ModelTier = p
+                .get("model")
+                .and_then(|v| v.as_str())
+                .and_then(|m| serde_json::from_value(serde_json::json!(m)).ok())
+                .unwrap_or_default();
+
+            let title: String = prompt.chars().take(80).collect();
+            let session_id = router.create_run_session(
+                &title,
+                cwd.as_deref().unwrap_or("."),
+                cs_claude::model_flag(model),
+            );
+            router.record_message(&session_id, "user", &prompt);
+            router.record_run_event(&session_id, "started");
+
+            let ack = request.response_to(serde_json::json!({ "session_id": session_id }));
+            writer.lock().await.write_frame(&ack).await?;
+
+            forwarders.0.push(spawn_claude_forwarder(
+                router.clone(),
+                session_id,
+                prompt,
+                cwd,
+                binary,
+                model,
+                Arc::clone(&writer),
+            ));
+            continue;
+        }
+
         let response = router.dispatch(&request).await;
         writer.lock().await.write_frame(&response).await?;
     }
     Ok(())
+}
+
+/// Map a [`StreamEvent`] to a tagged JSON object for the `session.event` frame.
+fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
+    match event {
+        StreamEvent::AssistantText(text) => {
+            serde_json::json!({ "kind": "assistant_text", "text": text })
+        }
+        StreamEvent::ToolUse { name, input } => {
+            serde_json::json!({ "kind": "tool_use", "name": name, "input": input })
+        }
+        StreamEvent::ToolResult { content } => {
+            serde_json::json!({ "kind": "tool_result", "content": content })
+        }
+        StreamEvent::Result { cost_usd, is_error } => {
+            serde_json::json!({ "kind": "result", "cost_usd": cost_usd, "is_error": is_error })
+        }
+        StreamEvent::Other(raw) => serde_json::json!({ "kind": "other", "raw": raw }),
+    }
+}
+
+/// Spawn the real `claude` CLI for a session, streaming each parsed event to the
+/// client as a `session.event` frame and recording it to the archive. The
+/// returned handle is aborted by [`ForwarderGuard`] when the connection ends.
+#[allow(clippy::too_many_arguments)]
+fn spawn_claude_forwarder(
+    router: Router,
+    session_id: String,
+    prompt: String,
+    cwd: Option<String>,
+    binary: String,
+    model: ModelTier,
+    writer: SharedWriter,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut session = ClaudeSession::new(model).with_binary(binary);
+        if let Some(dir) = cwd {
+            session = session.with_cwd(dir);
+        }
+
+        let mut stream = match session.run(&prompt).await {
+            Ok(stream) => stream,
+            Err(e) => {
+                router.record_run_event(&session_id, "spawn_failed");
+                let frame = new_event(
+                    "session.event",
+                    serde_json::json!({
+                        "session_id": session_id,
+                        "event": { "kind": "error", "message": e.to_string() },
+                    }),
+                );
+                let _ = writer.lock().await.write_frame(&frame).await;
+                return;
+            }
+        };
+
+        while let Some(event) = stream.next().await {
+            match &event {
+                StreamEvent::AssistantText(text) => {
+                    router.record_message(&session_id, "assistant", text)
+                }
+                StreamEvent::ToolUse { name, input } => {
+                    router.record_tool_call(&session_id, name, input.clone())
+                }
+                _ => {}
+            }
+            let frame = new_event(
+                "session.event",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "event": stream_event_to_json(&event),
+                }),
+            );
+            if writer.lock().await.write_frame(&frame).await.is_err() {
+                break; // client went away
+            }
+        }
+
+        router.record_run_event(&session_id, "completed");
+        let done = new_event(
+            "session.event",
+            serde_json::json!({ "session_id": session_id, "event": { "kind": "done" } }),
+        );
+        let _ = writer.lock().await.write_frame(&done).await;
+    })
 }
 
 /// Forward `SystemEvent`s from `rx` to the client as `event` frames until the
