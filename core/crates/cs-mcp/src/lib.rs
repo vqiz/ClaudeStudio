@@ -186,7 +186,8 @@ impl McpManager {
 
     /// Register a server configuration in the `Stopped` state.
     pub fn add(&mut self, config: McpServerConfig) {
-        self.status.insert(config.name.clone(), ServerStatus::Stopped);
+        self.status
+            .insert(config.name.clone(), ServerStatus::Stopped);
         self.servers.insert(config.name.clone(), config);
     }
 

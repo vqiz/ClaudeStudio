@@ -106,6 +106,19 @@ pub struct WorktreeInfo {
     pub status: WorktreeStatus,
 }
 
+/// A single commit from `git log`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommitInfo {
+    /// Full commit hash.
+    pub hash: String,
+    /// Author name.
+    pub author: String,
+    /// Authored date (`YYYY-MM-DD`).
+    pub date: String,
+    /// Commit subject (first line of the message).
+    pub subject: String,
+}
+
 /// Operations on a git repository. Implemented by [`SystemGit`].
 #[async_trait]
 pub trait GitBackend: Send + Sync {
@@ -123,6 +136,15 @@ pub trait GitBackend: Send + Sync {
 
     /// Remove the worktree at `path`.
     async fn remove_worktree(&self, path: &Path) -> Result<()>;
+
+    /// The unified diff of the working tree; `staged` selects `git diff --cached`.
+    async fn diff(&self, staged: bool) -> Result<String>;
+
+    /// Recent commits, newest first (`limit` clamped to `1..=200`).
+    async fn log(&self, limit: u32) -> Result<Vec<CommitInfo>>;
+
+    /// Stage all changes and commit with `message`; returns the new commit hash.
+    async fn commit(&self, message: &str) -> Result<String>;
 }
 
 /// Default [`GitBackend`] that invokes the system `git` binary.
@@ -189,7 +211,8 @@ impl GitBackend for SystemGit {
 
     async fn create_worktree(&self, path: &Path, branch: &str) -> Result<()> {
         let path_str = path.to_string_lossy();
-        self.run(&["worktree", "add", "-b", branch, &path_str]).await?;
+        self.run(&["worktree", "add", "-b", branch, &path_str])
+            .await?;
         Ok(())
     }
 
@@ -203,6 +226,57 @@ impl GitBackend for SystemGit {
         self.run(&["worktree", "remove", &path_str]).await?;
         Ok(())
     }
+
+    async fn diff(&self, staged: bool) -> Result<String> {
+        let mut args = vec!["diff"];
+        if staged {
+            args.push("--cached");
+        }
+        self.run(&args).await
+    }
+
+    async fn log(&self, limit: u32) -> Result<Vec<CommitInfo>> {
+        let n = format!("-{}", limit.clamp(1, 200));
+        let out = self
+            .run(&[
+                "log",
+                n.as_str(),
+                "--date=short",
+                "--pretty=format:%H%x1f%an%x1f%ad%x1f%s",
+            ])
+            .await?;
+        Ok(parse_git_log(&out))
+    }
+
+    async fn commit(&self, message: &str) -> Result<String> {
+        self.run(&["add", "-A"]).await?;
+        self.run(&["commit", "-m", message]).await?;
+        let head = self.run(&["rev-parse", "HEAD"]).await?;
+        Ok(head.trim().to_string())
+    }
+}
+
+/// Parse `git log --pretty=format:%H%x1f%an%x1f%ad%x1f%s` output (unit-separator
+/// delimited) into [`CommitInfo`] records. Pure and deterministic.
+#[must_use]
+pub fn parse_git_log(output: &str) -> Vec<CommitInfo> {
+    output
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .filter_map(|line| {
+            let mut parts = line.split('\u{1f}');
+            let hash = parts.next()?.to_string();
+            if hash.is_empty() {
+                return None;
+            }
+            Some(CommitInfo {
+                hash,
+                author: parts.next().unwrap_or("").to_string(),
+                date: parts.next().unwrap_or("").to_string(),
+                subject: parts.next().unwrap_or("").to_string(),
+            })
+        })
+        .collect()
 }
 
 /// Classify the two-character porcelain status code into a [`FileState`].
@@ -283,7 +357,12 @@ pub fn parse_worktree_list(output: &str) -> Result<Vec<WorktreeInfo>> {
         } else if let Some(branch) = line.strip_prefix("branch ") {
             if let Some(w) = current.as_mut() {
                 // git emits e.g. "refs/heads/main"; keep the short name.
-                let short = branch.trim().rsplit('/').next().unwrap_or(branch).to_string();
+                let short = branch
+                    .trim()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(branch)
+                    .to_string();
                 w.branch = Some(short);
             }
         } else if line.trim() == "bare" {
@@ -304,7 +383,9 @@ pub fn parse_worktree_list(output: &str) -> Result<Vec<WorktreeInfo>> {
     flush(&mut current, &mut worktrees);
 
     if worktrees.is_empty() && !output.trim().is_empty() {
-        return Err(Error::Parse("no worktree entries found in output".to_string()));
+        return Err(Error::Parse(
+            "no worktree entries found in output".to_string(),
+        ));
     }
     Ok(worktrees)
 }
@@ -333,13 +414,13 @@ pub fn generate_conventional_commit_message(diff: &str) -> String {
 
     let lower = diff.to_lowercase();
     let all_docs = !changed_files.is_empty()
-        && changed_files.iter().all(|f| {
-            f.ends_with(".md") || f.contains("docs/") || f.ends_with(".txt")
-        });
+        && changed_files
+            .iter()
+            .all(|f| f.ends_with(".md") || f.contains("docs/") || f.ends_with(".txt"));
     let all_tests = !changed_files.is_empty()
-        && changed_files.iter().all(|f| {
-            f.contains("test") || f.contains("/tests/") || f.ends_with("_test.rs")
-        });
+        && changed_files
+            .iter()
+            .all(|f| f.contains("test") || f.contains("/tests/") || f.ends_with("_test.rs"));
 
     let kind = if all_docs {
         "docs"
@@ -460,5 +541,19 @@ detached
     #[test]
     fn empty_worktree_output_is_ok() {
         assert!(parse_worktree_list("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn parses_unit_separated_git_log() {
+        let out = "abc123\u{1f}Ada\u{1f}2026-06-19\u{1f}feat: add widget\n\
+                   def456\u{1f}Linus\u{1f}2026-06-18\u{1f}fix: off-by-one\n";
+        let commits = parse_git_log(out);
+        assert_eq!(commits.len(), 2);
+        assert_eq!(commits[0].hash, "abc123");
+        assert_eq!(commits[0].author, "Ada");
+        assert_eq!(commits[0].date, "2026-06-19");
+        assert_eq!(commits[0].subject, "feat: add widget");
+        assert_eq!(commits[1].subject, "fix: off-by-one");
+        assert!(parse_git_log("").is_empty());
     }
 }

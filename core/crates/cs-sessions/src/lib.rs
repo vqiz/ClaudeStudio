@@ -443,6 +443,34 @@ impl SessionStore {
             .ok_or_else(|| Error::NotFound(format!("session {id}")))
     }
 
+    /// List sessions newest-first, paginated.
+    ///
+    /// `limit` is clamped to the range `1..=500`; `offset` skips that many rows.
+    pub fn list_sessions(&self, limit: i64, offset: i64) -> Result<Vec<Session>> {
+        let limit = limit.clamp(1, 500);
+        let offset = offset.max(0);
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title, cwd, branch, model, created_at, updated_at
+             FROM sessions ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        )?;
+        let rows = stmt.query_map(params![limit, offset], |row| {
+            Ok(Session {
+                id: row.get(0)?,
+                title: row.get(1)?,
+                cwd: row.get(2)?,
+                branch: row.get(3)?,
+                model: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     fn touch_session(&self, session_id: &str, at: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET updated_at = ?2 WHERE id = ?1",
@@ -599,17 +627,28 @@ mod tests {
             .unwrap();
 
         store
-            .append_message(&NewMessage::new(&sid, "user", "the parser crashes on empty input"))
+            .append_message(&NewMessage::new(
+                &sid,
+                "user",
+                "the parser crashes on empty input",
+            ))
             .unwrap();
         store
-            .append_message(&NewMessage::new(&sid, "assistant", "I will add a guard clause"))
+            .append_message(&NewMessage::new(
+                &sid,
+                "assistant",
+                "I will add a guard clause",
+            ))
             .unwrap();
 
         let hits = store.full_text_search("parser").unwrap();
         assert_eq!(hits.len(), 1, "exactly one message mentions 'parser'");
         assert_eq!(hits[0].session_id, sid);
         assert_eq!(hits[0].source, HitSource::Message);
-        assert!(hits[0].snippet.contains('['), "snippet should mark the term");
+        assert!(
+            hits[0].snippet.contains('['),
+            "snippet should mark the term"
+        );
     }
 
     #[test]
@@ -622,14 +661,18 @@ mod tests {
             .append_message(&NewMessage::new(&sid, "user", "hello world"))
             .unwrap();
         store
-            .append_tool_call(&NewToolCall::new(&sid, "Bash", serde_json::json!({"cmd": "ls"})))
+            .append_tool_call(&NewToolCall::new(
+                &sid,
+                "Bash",
+                serde_json::json!({"cmd": "ls"}),
+            ))
             .unwrap();
         store
-            .append_file_diff(&NewFileDiff::new(&sid, "src/lib.rs", "+added line").with_counts(1, 0))
+            .append_file_diff(
+                &NewFileDiff::new(&sid, "src/lib.rs", "+added line").with_counts(1, 0),
+            )
             .unwrap();
-        store
-            .append_event(&NewEvent::new(&sid, "started"))
-            .unwrap();
+        store.append_event(&NewEvent::new(&sid, "started")).unwrap();
 
         let stats = store.stats().unwrap();
         assert_eq!(stats.sessions, 1);
@@ -663,5 +706,23 @@ mod tests {
         let store = SessionStore::open_in_memory().unwrap();
         let err = store.get_session("nope").unwrap_err();
         assert!(matches!(err, Error::NotFound(_)));
+    }
+
+    #[test]
+    fn list_sessions_is_newest_first_and_paginates() {
+        let store = SessionStore::open_in_memory().unwrap();
+        for (i, title) in ["first", "second", "third"].iter().enumerate() {
+            let mut s = NewSession::new(*title, "/repo");
+            s.created_at = 1_000 + i as i64; // strictly increasing
+            store.insert_session(&s).unwrap();
+        }
+        let all = store.list_sessions(10, 0).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].title, "third", "newest first");
+        assert_eq!(all[2].title, "first");
+
+        let page = store.list_sessions(1, 1).unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].title, "second", "offset skips the newest");
     }
 }

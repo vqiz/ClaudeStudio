@@ -147,11 +147,7 @@ pub struct Task {
 
 impl Task {
     /// Create a new task with the given id, description, and priority.
-    pub fn new(
-        id: impl Into<String>,
-        description: impl Into<String>,
-        priority: Priority,
-    ) -> Self {
+    pub fn new(id: impl Into<String>, description: impl Into<String>, priority: Priority) -> Self {
         Self {
             id: id.into(),
             description: description.into(),
@@ -303,8 +299,7 @@ impl Supervisor {
         self.agents
             .values()
             .filter(|h| {
-                h.status == AgentStatus::Running
-                    && now.duration_since(h.last_output) >= max_idle
+                h.status == AgentStatus::Running && now.duration_since(h.last_output) >= max_idle
             })
             .map(|h| h.id.clone())
             .collect()

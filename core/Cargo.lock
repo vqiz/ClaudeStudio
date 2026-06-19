@@ -231,6 +231,7 @@ dependencies = [
  "anyhow",
  "cs-agentic-os",
  "cs-config",
+ "cs-git",
  "cs-ipc",
  "cs-sessions",
  "cs-types",

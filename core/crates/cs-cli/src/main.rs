@@ -45,8 +45,8 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load_or_default(&state_dir);
     tracing::info!(trust_mode = ?config.trust_mode, "loaded configuration");
 
-    // 3. Session store (ephemeral for the demo sidecar).
-    let sessions = SessionStore::open_in_memory()
+    // 3. Session store — persisted on disk so the archive survives restarts.
+    let sessions = SessionStore::open(&state_dir.join("sessions.db"))
         .map_err(|e| anyhow::anyhow!("failed to open session store: {e}"))?;
 
     // 4. Event bus.
@@ -62,7 +62,12 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to bind {}: {e}", socket_path.display()))?;
     tracing::info!(socket = %socket_path.display(), "claudestudio-core listening");
 
-    let router = Router::new(config, sessions, event_bus);
+    // The library directory holds the shipped task & definition libraries. It
+    // defaults to the state directory but can point at a checkout during dev.
+    let library_dir = std::env::var_os("CLAUDESTUDIO_LIBRARY_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state_dir.clone());
+    let router = Router::new(config, sessions, event_bus, state_dir.clone(), library_dir);
 
     // 6. Accept loop with graceful Ctrl-C shutdown.
     let result = serve(&listener, router).await;
@@ -109,7 +114,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
 
     while let Some(request) = reader.read_frame::<IpcEnvelope>().await? {
         tracing::debug!(method = %request.method, id = %request.id, "request");
-        let response = router.dispatch(&request);
+        let response = router.dispatch(&request).await;
         writer.write_frame(&response).await?;
     }
     Ok(())
@@ -171,6 +176,8 @@ mod tests {
             AppConfig::default(),
             SessionStore::open_in_memory().unwrap(),
             EventBus::new(),
+            std::env::temp_dir(),
+            std::env::temp_dir(),
         );
 
         // Accept one connection in the background.

@@ -130,7 +130,10 @@ pub fn parse_stream_line(line: &str) -> StreamEvent {
                 .and_then(|n| n.as_str())
                 .unwrap_or_default()
                 .to_string(),
-            input: value.get("input").cloned().unwrap_or(serde_json::Value::Null),
+            input: value
+                .get("input")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
         },
         Some("tool_result") => StreamEvent::ToolResult {
             content: value

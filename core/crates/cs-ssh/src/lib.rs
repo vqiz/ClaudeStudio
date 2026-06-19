@@ -217,7 +217,10 @@ mod tests {
         assert!(argv.contains(&"-P".to_string()));
         assert!(argv.contains(&"2222".to_string()));
         assert_eq!(argv[argv.len() - 2], "./build.tar.gz");
-        assert_eq!(argv.last().unwrap(), "deploy@example.com:/srv/app/build.tar.gz");
+        assert_eq!(
+            argv.last().unwrap(),
+            "deploy@example.com:/srv/app/build.tar.gz"
+        );
     }
 
     #[test]

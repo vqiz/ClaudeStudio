@@ -86,7 +86,12 @@ impl InMemoryExporter {
 
     /// Read the current value of a counter.
     pub fn counter(&self, name: &str) -> u64 {
-        self.counters.lock().unwrap().get(name).copied().unwrap_or(0)
+        self.counters
+            .lock()
+            .unwrap()
+            .get(name)
+            .copied()
+            .unwrap_or(0)
     }
 
     /// Read all observations recorded for a histogram.
@@ -112,7 +117,12 @@ impl InMemoryExporter {
 
 impl MetricsExporter for InMemoryExporter {
     fn record_counter(&self, name: &str, value: u64, _attrs: &[(&str, &str)]) {
-        *self.counters.lock().unwrap().entry(name.to_string()).or_insert(0) += value;
+        *self
+            .counters
+            .lock()
+            .unwrap()
+            .entry(name.to_string())
+            .or_insert(0) += value;
     }
 
     fn record_histogram(&self, name: &str, value: f64, _attrs: &[(&str, &str)]) {
