@@ -68,8 +68,15 @@ final class AppState {
     var activeSession: AgentSession?
     var sessions: [AgentSession]
 
-    /// Global trust posture shown in the title-bar badge.
-    var globalTrustMode: TrustMode = .guarded
+    /// Global trust posture shown in the title-bar badge. Changing it persists
+    /// the new posture to the core when connected.
+    var globalTrustMode: TrustMode = .guarded {
+        didSet {
+            guard oldValue != globalTrustMode, core.isConnected else { return }
+            let coreValue = globalTrustMode.coreValue
+            Task { await core.setTrustMode(coreValue) }
+        }
+    }
 
     /// The selected appearance. Persisted across launches.
     var theme: AppTheme = .load() {

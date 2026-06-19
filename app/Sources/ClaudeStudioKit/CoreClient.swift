@@ -98,6 +98,68 @@ public struct ContextBudget: Sendable, Equatable {
     }
 }
 
+/// A persisted session from the archive (`session.list` / `session.get`).
+public struct CoreSession: Sendable, Identifiable, Equatable {
+    public let id: String
+    public let title: String
+    public let cwd: String
+    public let branch: String?
+    public let model: String?
+    public let createdAt: Int
+    public let updatedAt: Int
+
+    /// Wall-clock creation time (millis → `Date`).
+    public var createdDate: Date { Date(timeIntervalSince1970: Double(createdAt) / 1000) }
+
+    public init?(value: MsgPackValue) {
+        guard let id = value["id"]?.stringValue,
+              let title = value["title"]?.stringValue else { return nil }
+        self.id = id
+        self.title = title
+        self.cwd = value["cwd"]?.stringValue ?? ""
+        self.branch = value["branch"]?.stringValue
+        self.model = value["model"]?.stringValue
+        self.createdAt = Int(value["created_at"]?.intValue ?? 0)
+        self.updatedAt = Int(value["updated_at"]?.intValue ?? 0)
+    }
+}
+
+/// A task from the shipped Task Library (`tasks.list`).
+public struct LibraryTask: Sendable, Identifiable, Equatable {
+    public var id: String { path }
+    public let path: String
+    public let name: String
+    public let category: String
+    public let summary: String
+    public let tags: [String]
+
+    public init?(value: MsgPackValue) {
+        guard let path = value["path"]?.stringValue else { return nil }
+        self.path = path
+        self.name = value["name"]?.stringValue ?? "Untitled task"
+        self.category = value["category"]?.stringValue ?? ""
+        self.summary = value["description"]?.stringValue ?? ""
+        self.tags = (value["tags"]?.arrayValue ?? []).compactMap { $0.stringValue }
+    }
+}
+
+/// A definition from the Definition Library (`definitions.list`).
+public struct LibraryDefinition: Sendable, Identifiable, Equatable {
+    public var id: String { path }
+    public let path: String
+    public let name: String
+    public let category: String
+    public let scope: String
+
+    public init?(value: MsgPackValue) {
+        guard let path = value["path"]?.stringValue else { return nil }
+        self.path = path
+        self.name = value["name"]?.stringValue ?? ""
+        self.category = value["category"]?.stringValue ?? ""
+        self.scope = value["scope"]?.stringValue ?? ""
+    }
+}
+
 /// A small, typed facade over [`IpcClient`] exposing the Rust core's RPC surface
 /// as `async` Swift methods. It owns the underlying connection actor and decodes
 /// MessagePack payloads into the value types above so the UI layer never touches
@@ -157,5 +219,49 @@ public final class CoreClient: Sendable {
             throw IpcError.decodeFailed("context.budget: malformed payload")
         }
         return budget
+    }
+
+    /// Update one or more configuration fields, persisting them, and return the
+    /// new effective config. Pass only the fields you want to change.
+    public func setConfig(
+        trustMode: String? = nil,
+        defaultModel: String? = nil,
+        dailyBudgetUSD: Double? = nil,
+        contextTokenBudget: Int? = nil
+    ) async throws -> CoreConfig {
+        var payload: [String: MsgPackValue] = [:]
+        if let trustMode { payload["trust_mode"] = .string(trustMode) }
+        if let defaultModel { payload["default_model"] = .string(defaultModel) }
+        if let dailyBudgetUSD { payload["daily_budget_usd"] = .double(dailyBudgetUSD) }
+        if let contextTokenBudget { payload["context_token_budget"] = .int(Int64(contextTokenBudget)) }
+        let response = try await call("config.set", .map(payload))
+        guard let p = response.payload, let config = CoreConfig(payload: p) else {
+            throw IpcError.decodeFailed("config.set: malformed payload")
+        }
+        return config
+    }
+
+    /// List archived sessions, newest first.
+    public func listSessions(limit: Int = 100, offset: Int = 0) async throws -> [CoreSession] {
+        let response = try await call("session.list", .map([
+            "limit": .int(Int64(limit)),
+            "offset": .int(Int64(offset)),
+        ]))
+        let rows = response.payload?["sessions"]?.arrayValue ?? []
+        return rows.compactMap(CoreSession.init(value:))
+    }
+
+    /// Load the shipped Task Library.
+    public func fetchTasks() async throws -> [LibraryTask] {
+        let response = try await call("tasks.list")
+        let rows = response.payload?["tasks"]?.arrayValue ?? []
+        return rows.compactMap(LibraryTask.init(value:))
+    }
+
+    /// Load the shipped Definition Library.
+    public func fetchDefinitions() async throws -> [LibraryDefinition] {
+        let response = try await call("definitions.list")
+        let rows = response.payload?["definitions"]?.arrayValue ?? []
+        return rows.compactMap(LibraryDefinition.init(value:))
     }
 }

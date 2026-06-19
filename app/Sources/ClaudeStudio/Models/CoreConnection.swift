@@ -25,6 +25,11 @@ final class CoreConnection {
     private(set) var config: CoreConfig?
     private(set) var budget: ContextBudget?
 
+    /// Live data loaded from the core on connect.
+    private(set) var sessions: [CoreSession] = []
+    private(set) var tasks: [LibraryTask] = []
+    private(set) var definitions: [LibraryDefinition] = []
+
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
 
@@ -55,14 +60,37 @@ final class CoreConnection {
             let budget = try await client.fetchContextBudget()
             self.config = config
             self.budget = budget
+            // Best-effort live data; failure of any one of these must not drop
+            // the connection.
+            self.sessions = (try? await client.listSessions()) ?? []
+            self.tasks = (try? await client.fetchTasks()) ?? []
+            self.definitions = (try? await client.fetchDefinitions()) ?? []
             self.status = .online
         } catch {
             await client.disconnect()
             self.client = nil
             self.config = nil
             self.budget = nil
+            self.sessions = []
+            self.tasks = []
+            self.definitions = []
             self.status = .failed(Self.describe(error))
         }
+    }
+
+    /// Persist a new trust mode (core wire identifier) and adopt the returned
+    /// config. No-op when offline.
+    func setTrustMode(_ coreValue: String) async {
+        guard isConnected, let client else { return }
+        if let updated = try? await client.setConfig(trustMode: coreValue) {
+            self.config = updated
+        }
+    }
+
+    /// Reload the session archive (e.g. after creating a session).
+    func reloadSessions() async {
+        guard isConnected, let client else { return }
+        self.sessions = (try? await client.listSessions()) ?? sessions
     }
 
     /// Re-fetch config and budget over an existing connection, reconnecting if the
@@ -83,6 +111,9 @@ final class CoreConnection {
     func disconnect() async {
         if let client { await client.disconnect() }
         client = nil
+        sessions = []
+        tasks = []
+        definitions = []
         if status != .offline { status = .offline }
     }
 
