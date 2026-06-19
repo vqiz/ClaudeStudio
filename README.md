@@ -31,13 +31,15 @@
 
 The foundation is real and verified end-to-end, not a mockup:
 
+- **Run real Claude sessions** — `session.start` spawns the `claude` CLI, streams its output back token-by-token as it parses the stream-JSON, and records the whole transcript to the archive. (Verified end-to-end against a fake CLI; the real CLI emits the identical format.)
 - **Native SwiftUI app ⇄ Rust sidecar** over a length-prefixed MessagePack Unix-socket protocol — connection status, live config, and the context budget render from the actual core.
-- **Working RPCs**, each covered by tests: `config.get`/`config.set`, `context.budget`, `session.{list,get,search,create,stats}` (SQLite archive, FTS5 search), `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`.
-- **Live UI data** when connected: the Archive shows the real persisted session history; the Task Library lists the shipped one-click workflows.
+- **Live event streaming** — `events.subscribe` pushes the Agentic-OS event bus to the OS View in real time.
+- **Working RPCs**, each verified: `config.get`/`config.set`, `context.budget`, `session.{start,list,get,search,create,stats}` (SQLite archive + FTS5 search), `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`, `mcp.list`.
+- **Live UI data** when connected: the Archive shows real session history, the Task Library lists the shipped workflows, the Context view shows the Definition Library, and the MCP view lists your configured servers.
 - **Light / Dark / Transparent** theming with native behind-window vibrancy.
 - **Green CI**: `cargo fmt` + `clippy -D warnings` + tests, plus a macOS job that runs the cross-language bridge test against the real sidecar.
 
-Still scaffolding: live Claude session streaming, the Brain View graph, the Voice assistant, and the Agentic-OS supervisor loop. See the [roadmap](docs/roadmap.md).
+Still scaffolding: the Brain View graph, the Voice assistant, and the Agentic-OS supervisor loop. See the [roadmap](docs/roadmap.md).
 
 <br />
 

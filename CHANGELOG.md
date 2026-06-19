@@ -12,9 +12,16 @@ a tagged release.
 - **Swift ⇄ Rust bridge.** A typed `CoreClient` / `CoreConnection` over a
   length-prefixed MessagePack Unix-socket protocol, with live connection status
   and config/budget surfaced in the UI.
+- **Live Claude sessions**: `session.start` spawns the `claude` CLI (cwd +
+  model aware), streams parsed `StreamEvent`s back as `session.event` frames,
+  and records the transcript to the archive. The Session panel runs them with a
+  prompt composer and a streamed transcript.
 - **Real RPC surface** in the Rust sidecar: `config.get`/`config.set`,
-  `context.budget`, `session.{list,get,search,create,stats}`,
-  `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`.
+  `context.budget`, `session.{start,list,get,search,create,stats}`,
+  `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`,
+  `mcp.list`.
+- **MCP Manager** and a live **Definition Library** view, both reading from the
+  core when connected.
 - **Live UI data**: the Archive shows the persisted SQLite session archive and
   the Task Library lists the shipped one-click workflows when connected.
 - **Live event streaming**: a client sends `events.subscribe` and the core
