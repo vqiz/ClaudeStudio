@@ -151,50 +151,36 @@ git clone https://github.com/vqiz/ClaudeStudio.git
 cd ClaudeStudio
 ```
 
-### Fastest path — one command
+### 2. Run it — just launch the app
 
-```bash
-./scripts/dev.sh            # builds + runs the core and the app together
-./scripts/dev.sh --release  # optimized build
-```
-
-It builds and starts the Rust core, waits for the IPC socket, launches the app,
-wires up your `claude` CLI (so live sessions use your CLI login / subscription),
-and stops the core when you quit. Prefer the manual steps below? Read on.
-
-### 2. Build the Rust core
-
-```bash
-cd core
-cargo build --release
-```
-
-### 3. Run the core sidecar
-
-```bash
-cargo run --release
-# The core listens on a local Unix domain socket and waits for the app to connect.
-```
-
-### 4. Build & run the macOS app
-
-In a second terminal, either open the Xcode project (recommended — a real
-`.app` with the app icon) or use the command line:
+**The app starts (and stops) the Rust core itself** — no second terminal.
 
 ```bash
 cd app
-open ClaudeStudio.xcodeproj   # ⌘R to run, ⌘U to test
-# …or, without Xcode project:
+open ClaudeStudio.xcodeproj    # then press ⌘R   (recommended — real .app + icon, ⌘U runs tests)
+# …or, from the command line:
 swift run ClaudeStudio
 ```
 
-The app connects to the running core over `~/.claudestudio/core.sock` — the title
-bar shows **Core connected**. Then run a prompt in the Session panel, or open
-**Settings → Appearance** to try the Light/Dark/Transparent themes.
+On launch the app builds/locates the `claudestudio-core` sidecar, starts it,
+connects over `~/.claudestudio/core.sock` (title bar → **Core connected**), and
+shuts it down when you quit. Then run a prompt in the Session panel (it uses your
+`claude` CLI login / subscription) or try **Settings → Appearance**.
 
-> The Xcode project is generated from `app/project.yml` with
-> [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`cd app && xcodegen generate`
-> to regenerate). `Package.swift` remains the source of truth for the CLI and CI.
+<details>
+<summary>Alternatives & notes</summary>
+
+- **One-command dev loop with live core logs:** `./scripts/dev.sh` (or
+  `--release`) from the repo root builds + runs the core and the app together.
+- **Build the core by hand:** `cd core && cargo build --release && cargo run --release`,
+  then launch the app — it reuses an already-running core.
+- The Xcode project is generated from `app/project.yml` with
+  [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`cd app && xcodegen generate`
+  to regenerate). `Package.swift` stays the source of truth for the CLI and CI.
+- Override the core binary with `CLAUDESTUDIO_CORE_BIN`, or the `claude` binary
+  with `CLAUDESTUDIO_CLAUDE_BIN`.
+
+</details>
 
 <br />
 

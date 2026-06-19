@@ -60,7 +60,9 @@ cargo build --release
 ```
 
 This produces `claudestudio-core` (from the `cs-cli` crate) — the sidecar binary
-the app connects to. Run it in its own terminal:
+the app talks to. **You normally don't run this yourself: the app starts it
+automatically** (and stops it on quit). Run it manually only if you want live
+core logs in a terminal:
 
 ```bash
 cargo run --release -p cs-cli            # binds ~/.claudestudio/core.sock
