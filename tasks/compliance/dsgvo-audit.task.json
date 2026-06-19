@@ -1,0 +1,77 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "dsgvo-audit",
+  "name": "DSGVO-Audit",
+  "description": "Durchsucht eine Codebasis nach Verarbeitung personenbezogener Daten, prüft Rechtsgrundlagen, Drittland-Transfers, Logging und Einwilligungen und erstellt einen DSGVO-Auditbericht inklusive Maßnahmenliste.",
+  "icon": "checkmark.shield",
+  "category": "compliance",
+  "tags": ["dsgvo", "gdpr", "datenschutz", "privacy", "audit", "personenbezogene-daten"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Compliance Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 3.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "target_dir",
+      "label": "Zu prüfendes Verzeichnis",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "verarbeitungszweck",
+      "label": "Verarbeitungszweck / Produktkontext",
+      "help": "Kurze Beschreibung, was die Anwendung tut und welche Nutzerdaten typischerweise anfallen.",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "fokus",
+      "label": "Prüfschwerpunkte",
+      "type": "multiselect",
+      "required": true,
+      "default": ["pii", "drittland", "logging", "einwilligung"],
+      "options": [
+        { "value": "pii", "label": "Personenbezogene Daten im Code/Schema" },
+        { "value": "drittland", "label": "Drittland-Transfers (z. B. US-Cloud, Tracking)" },
+        { "value": "logging", "label": "Logging & Aufbewahrung" },
+        { "value": "einwilligung", "label": "Einwilligung & Cookies" },
+        { "value": "betroffenenrechte", "label": "Betroffenenrechte (Auskunft/Löschung)" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "inventar",
+        "title": "Dateninventar erstellen",
+        "model": "claude-sonnet-4-5",
+        "prompt": "Du bist DSGVO-Auditor. Kontext der Verarbeitung: {{verarbeitungszweck}}. Durchsuche {{target_dir}} (Quellcode, Datenbankschemata, Migrationsdateien, .env-Beispiele, Konfigurationen) und erstelle ein Inventar aller Stellen, an denen personenbezogene Daten im Sinne des Art. 4 Nr. 1 DSGVO verarbeitet, gespeichert oder übertragen werden (Namen, E-Mail, IP-Adressen, Standort, Geräte-IDs, Zahlungsdaten, Gesundheitsdaten etc.). Gib je Fund Datei, Zeile und Datenkategorie an. Markiere besondere Kategorien nach Art. 9 DSGVO gesondert."
+      },
+      {
+        "id": "rechtsgrundlagen",
+        "title": "Rechtsgrundlagen & Risiken bewerten",
+        "prompt": "Bewerte das Dateninventar entlang der gewählten Schwerpunkte {{fokus}}. Für jede relevante Verarbeitung: mögliche Rechtsgrundlage nach Art. 6 DSGVO, erkennbare Drittland-Transfers (Art. 44 ff. DSGVO, z. B. US-SaaS ohne Garantien), Logging personenbezogener Daten ohne erkennbare Aufbewahrungsbegrenzung, fehlende Einwilligungsmechanismen vor Tracking/Cookies sowie fehlende technische Vorkehrungen für Betroffenenrechte (Auskunft, Löschung, Datenportabilität). Stufe jedes Risiko als niedrig/mittel/hoch ein und begründe knapp."
+      },
+      {
+        "id": "bericht",
+        "title": "Auditbericht & Maßnahmen",
+        "prompt": "Erstelle einen Markdown-Auditbericht mit den Abschnitten: 'Zusammenfassung', 'Dateninventar', 'Risikobewertung' (sortiert nach Schwere), 'Konkrete Maßnahmen' (umsetzbare To-dos mit Dateiverweis), 'Offene Fragen für den Datenschutzbeauftragten' und 'Rechtlicher Hinweis'. Der Bericht ersetzt keine Rechtsberatung; vermerke dies ausdrücklich. Nutze eine Risiko-Heatmap als Tabelle (Kategorie x Schwere)."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "compliance/dsgvo-audit-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "cron",
+    "cron": "0 6 1 * *",
+    "enabled": false
+  }
+}

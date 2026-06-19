@@ -1,0 +1,95 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "eu-ai-act-readiness",
+  "name": "EU AI Act Readiness-Check",
+  "description": "Bewertet ein KI-System nach der EU-Verordnung (EU) 2024/1689 (AI Act): Rollen- und Risikoklassifizierung, Transparenz- und Kennzeichnungspflichten, Anforderungen für GPAI-Modelle sowie offene Pflichten mit Zeitplan.",
+  "icon": "brain.head.profile",
+  "category": "compliance",
+  "tags": ["ai-act", "eu-ai-act", "ki-verordnung", "risk-classification", "gpai", "transparenz", "compliance"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Compliance Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 3.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "target_dir",
+      "label": "Projektverzeichnis",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "systembeschreibung",
+      "label": "Beschreibung des KI-Systems",
+      "help": "Was tut das System, in welchem Kontext wird es eingesetzt, wer sind die Nutzer?",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "rolle",
+      "label": "Eigene Rolle",
+      "type": "select",
+      "required": true,
+      "default": "anbieter",
+      "options": [
+        { "value": "anbieter", "label": "Anbieter (Provider)" },
+        { "value": "betreiber", "label": "Betreiber (Deployer)" },
+        { "value": "importeur", "label": "Importeur / Händler" }
+      ]
+    },
+    {
+      "key": "einsatzgebiet",
+      "label": "Einsatzgebiete",
+      "type": "multiselect",
+      "required": true,
+      "default": ["allgemein"],
+      "options": [
+        { "value": "allgemein", "label": "Allgemeine Anwendung / Produktivität" },
+        { "value": "biometrie", "label": "Biometrische Identifizierung" },
+        { "value": "kritische_infrastruktur", "label": "Kritische Infrastruktur" },
+        { "value": "bildung", "label": "Bildung / Prüfungen" },
+        { "value": "beschaeftigung", "label": "Beschäftigung / HR-Auswahl" },
+        { "value": "kreditscoring", "label": "Kreditwürdigkeit / Versicherung" },
+        { "value": "justiz", "label": "Justiz / Strafverfolgung" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "klassifizierung",
+        "title": "Rolle & Risikoklasse bestimmen",
+        "prompt": "Du bist Compliance-Analyst für die EU-Verordnung (EU) 2024/1689 (AI Act). System: {{systembeschreibung}}. Eigene Rolle: {{rolle}}. Einsatzgebiete: {{einsatzgebiet}}. Bestimme die Risikoklasse: verbotene Praktik (Art. 5), Hochrisiko-System (Art. 6 i. V. m. Anhang III), System mit Transparenzpflichten (Art. 50) oder minimales Risiko. Begründe die Einordnung anhand der Einsatzgebiete und ordne die sich daraus ergebenden Pflichtenträger zu."
+      },
+      {
+        "id": "code_scan",
+        "title": "Technische Indikatoren scannen",
+        "model": "claude-sonnet-4-5",
+        "prompt": "Durchsuche {{target_dir}} nach technischen Indikatoren mit AI-Act-Relevanz: Einbindung von Foundation-/GPAI-Modellen und deren Anbieter, Logging und Nachvollziehbarkeit von KI-Entscheidungen, vorhandene oder fehlende Kennzeichnung KI-generierter Inhalte (Art. 50, z. B. Wasserzeichen/Hinweise bei synthetischen Inhalten), menschliche Aufsicht (human oversight), Datensätze für Training/Validierung sowie vorhandene Modell- oder Systemdokumentation. Liste Funde mit Datei/Zeile."
+      },
+      {
+        "id": "pflichten",
+        "title": "Pflichten & Lücken ableiten",
+        "prompt": "Leite aus Risikoklasse und Codebefunden die konkreten Pflichten ab. Für Hochrisiko-Systeme u. a.: Risikomanagementsystem (Art. 9), Daten-Governance (Art. 10), technische Dokumentation (Art. 11/Anhang IV), Protokollierung (Art. 12), Transparenz für Betreiber (Art. 13), menschliche Aufsicht (Art. 14), Genauigkeit/Robustheit/Cybersicherheit (Art. 15), Konformitätsbewertung und CE. Für GPAI: technische Dokumentation und Pflichten nach Art. 53 ff. Für Transparenzfälle: Kennzeichnungspflichten nach Art. 50. Stelle je Pflicht 'erfüllt / teilweise / offen' fest."
+      },
+      {
+        "id": "bericht",
+        "title": "Readiness-Bericht & Fahrplan",
+        "prompt": "Erstelle einen Markdown-Readiness-Bericht: 'Klassifizierung', 'Pflichten-Matrix' (Pflicht / Status / Fundstelle / Maßnahme), 'Offene Maßnahmen mit Priorität', 'Zeitplan' (mit Verweis auf die gestaffelte Anwendbarkeit des AI Act, u. a. Verbote ab Februar 2025, GPAI-Pflichten ab August 2025, Hochrisiko-Pflichten gestaffelt bis 2026/2027) und 'Rechtlicher Hinweis' (keine Rechtsberatung). Schließe mit einem Ampel-Gesamtstatus."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "compliance/eu-ai-act-readiness-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

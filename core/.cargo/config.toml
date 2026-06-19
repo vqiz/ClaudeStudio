@@ -1,0 +1,12 @@
+# Cargo configuration for the ClaudeStudio Rust core workspace.
+#
+# This file intentionally keeps things minimal so that a plain `cargo build`
+# works with default features and no external system libraries.
+
+[build]
+# Keep incremental builds snappy during development.
+incremental = true
+
+[net]
+# Use the git CLI for fetching dependencies; avoids libgit2 native linking.
+git-fetch-with-cli = true

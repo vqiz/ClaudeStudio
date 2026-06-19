@@ -1,0 +1,74 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "release-notes",
+  "name": "Release Notes Writer",
+  "description": "Turns the merged changes of a release into polished, audience-facing release notes with highlights, upgrade notes and a thank-you section, ready to publish to GitHub Releases or a blog.",
+  "icon": "megaphone",
+  "category": "deployment",
+  "tags": ["release-notes", "release", "announcement", "git", "github"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Deployment Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
+    "budget_usd": 2.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "version",
+      "label": "Release version",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "from_ref",
+      "label": "Previous release ref / tag",
+      "help": "Leave empty to use the latest tag.",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "audience",
+      "label": "Audience",
+      "type": "select",
+      "required": true,
+      "default": "users",
+      "options": [
+        { "value": "users", "label": "End users (benefit-focused)" },
+        { "value": "developers", "label": "Developers (technical)" },
+        { "value": "mixed", "label": "Mixed (highlights + technical detail)" }
+      ]
+    },
+    {
+      "key": "product_name",
+      "label": "Product name",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "collect",
+        "title": "Collect merged changes",
+        "model": "claude-sonnet-4-5",
+        "prompt": "Use git to gather the commits and merged PR titles between {{from_ref}} (default: latest tag if empty) and HEAD. Identify the user-meaningful changes: new features, notable improvements, fixes, and anything that changes behavior or requires action on upgrade."
+      },
+      {
+        "id": "write",
+        "title": "Write release notes",
+        "prompt": "Write release notes for {{product_name}} {{version}} aimed at {{audience}}. Lead with a short intro and 'Highlights' (the 3-5 most impactful changes phrased as benefits). Then 'What's New', 'Improvements', 'Bug Fixes', and — only if relevant — an 'Upgrade Notes' section calling out breaking changes and required migration steps. Close with a brief thanks to contributors. Keep it skimmable with bold lead-ins. Do not invent changes that are not supported by the git history."
+      }
+    ]
+  },
+  "output": {
+    "type": "markdown",
+    "path": "releases/release-notes-{{version}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

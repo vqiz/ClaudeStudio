@@ -1,0 +1,69 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "test-coverage-report",
+  "name": "Test Coverage Report",
+  "description": "Runs the project's coverage tooling, summarizes coverage by module, identifies the riskiest under-tested areas, and proposes concrete test cases to close the most important gaps.",
+  "icon": "chart.bar.doc.horizontal",
+  "category": "code-quality",
+  "tags": ["testing", "coverage", "quality", "ci", "test-gaps"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Code Quality Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
+    "budget_usd": 2.5,
+    "isolation": "worktree"
+  },
+  "inputs": [
+    {
+      "key": "coverage_cmd",
+      "label": "Coverage command",
+      "help": "Command that runs the test suite with coverage, e.g. 'npm run test:coverage', 'pytest --cov', 'cargo tarpaulin'.",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "coverage_file",
+      "label": "Coverage output file (optional)",
+      "help": "Path to a machine-readable report (lcov.info, coverage.xml, coverage-final.json) if the command emits one.",
+      "type": "path",
+      "required": false
+    },
+    {
+      "key": "target_pct",
+      "label": "Target line coverage (%)",
+      "type": "number",
+      "required": true,
+      "default": 80
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "run",
+        "title": "Run coverage",
+        "prompt": "Run the coverage command `{{coverage_cmd}}` from the repository root. Capture the summary output. If it fails, surface the error and stop before reporting. Note the overall line and branch coverage."
+      },
+      {
+        "id": "analyze",
+        "title": "Analyze gaps",
+        "prompt": "Parse the coverage results (use {{coverage_file}} if provided, otherwise the command output). Build a per-module/per-file table of line and branch coverage. Cross-reference low-coverage files with their apparent importance (core logic, error handling, security-relevant code, recently changed files) to identify the highest-risk gaps relative to the {{target_pct}}% target."
+      },
+      {
+        "id": "report",
+        "title": "Report & suggested tests",
+        "prompt": "Write a Markdown report: 'Overall Coverage' (line/branch vs {{target_pct}}% target with pass/fail), 'Coverage by Module' (table), 'Highest-Risk Gaps' (ranked), and 'Suggested Test Cases' — for the top gaps, list concrete test cases (function, scenario, expected behavior, edge cases) a developer can implement directly. Do not write test files; only propose them."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "reports/coverage/coverage-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "cron",
+    "cron": "0 4 * * 1",
+    "enabled": false
+  }
+}

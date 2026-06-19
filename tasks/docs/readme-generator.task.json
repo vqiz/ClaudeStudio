@@ -1,0 +1,77 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "readme-generator",
+  "name": "README Generator",
+  "description": "Analyzes a repository and generates a complete, accurate README: description, features, install, usage, configuration, and contribution sections derived from the actual code and manifests.",
+  "icon": "doc.richtext",
+  "category": "docs",
+  "tags": ["readme", "documentation", "onboarding", "markdown"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Docs Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 2.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "target_dir",
+      "label": "Project directory",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "project_name",
+      "label": "Project name (optional)",
+      "help": "Override the inferred name.",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "tone",
+      "label": "Tone",
+      "type": "select",
+      "required": true,
+      "default": "professional",
+      "options": [
+        { "value": "professional", "label": "Professional & concise" },
+        { "value": "friendly", "label": "Friendly & welcoming" },
+        { "value": "minimal", "label": "Minimal / reference-style" }
+      ]
+    },
+    {
+      "key": "badges",
+      "label": "Include status badges",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "analyze",
+        "title": "Analyze repository",
+        "prompt": "Analyze {{target_dir}}: read the package manifest, entry points, scripts, config files, existing docs, and the directory layout. Determine the project's purpose, primary language/framework, how it is installed, how it is run, its main features, configuration/env vars, and how to run tests. Capture concrete, verifiable facts only; do not invent features."
+      },
+      {
+        "id": "write",
+        "title": "Write the README",
+        "model": "claude-opus-4-8",
+        "prompt": "Write a complete README.md in a {{tone}} tone for the project (name: {{project_name}} if provided, otherwise the inferred name). Include, where applicable: a one-line description, optional status badges (include = {{badges}}), Features, Requirements, Installation, Quick Start / Usage with real commands, Configuration, Project Structure, Testing, Contributing, and License. Use accurate commands taken from the analysis. Mark anything you could not verify with a clearly labeled TODO rather than guessing."
+      }
+    ]
+  },
+  "output": {
+    "type": "markdown",
+    "path": "README.generated.md",
+    "post_hook": "open README.generated.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

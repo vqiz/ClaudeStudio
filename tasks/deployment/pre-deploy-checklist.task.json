@@ -1,0 +1,83 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "pre-deploy-checklist",
+  "name": "Pre-Deploy Checklist",
+  "description": "Runs an automated go/no-go gate before a deployment: build, tests, lint, type checks, migration safety, secret leakage, and environment readiness, then issues a clear ship / hold verdict.",
+  "icon": "checklist",
+  "category": "deployment",
+  "tags": ["deploy", "ci", "release-gate", "checklist", "go-no-go"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Deployment Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
+    "budget_usd": 3.0,
+    "isolation": "worktree"
+  },
+  "inputs": [
+    {
+      "key": "environment",
+      "label": "Target environment",
+      "type": "select",
+      "required": true,
+      "default": "production",
+      "options": [
+        { "value": "staging", "label": "Staging" },
+        { "value": "production", "label": "Production" }
+      ]
+    },
+    {
+      "key": "build_cmd",
+      "label": "Build command",
+      "type": "string",
+      "required": false,
+      "default": "npm run build"
+    },
+    {
+      "key": "test_cmd",
+      "label": "Test command",
+      "type": "string",
+      "required": false,
+      "default": "npm test"
+    },
+    {
+      "key": "checks",
+      "label": "Checks to run",
+      "type": "multiselect",
+      "required": true,
+      "default": ["build", "tests", "lint", "secrets", "migrations"],
+      "options": [
+        { "value": "build", "label": "Build succeeds" },
+        { "value": "tests", "label": "Tests pass" },
+        { "value": "lint", "label": "Lint & type checks" },
+        { "value": "secrets", "label": "No leaked secrets in diff" },
+        { "value": "migrations", "label": "Migration safety review" },
+        { "value": "env", "label": "Required env vars present" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "verify",
+        "title": "Run gating checks",
+        "prompt": "Run the selected checks {{checks}} for a deploy to {{environment}}. For 'build' run `{{build_cmd}}`; for 'tests' run `{{test_cmd}}`; for 'lint' run the project's lint/type-check scripts if present. For 'secrets' grep the pending diff and tracked config for API keys, tokens, private keys and passwords. For 'migrations' inspect pending DB migrations for destructive or non-reversible operations (drop column/table, non-nullable column without default, large table rewrites). For 'env' confirm the variables referenced in config exist for the {{environment}} target. Record each as pass/warn/fail with evidence."
+      },
+      {
+        "id": "verdict",
+        "title": "Go / no-go verdict",
+        "prompt": "Produce a Markdown deployment gate report for {{environment}}: a results table (check / status / detail), a 'Blockers' list (any fail), a 'Warnings' list, and a final bold verdict: SHIP if no blockers, otherwise HOLD with the reasons. Be conservative for production: any unresolved secret leak or destructive migration is an automatic HOLD."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "reports/deploy/pre-deploy-{{environment}}-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "on_event",
+    "event": "deploy.requested",
+    "enabled": false
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "cs-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Git + worktree manager for ClaudeStudio that shells out to the system git binary (no native git library)."
+
+[dependencies]
+cs-types = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }

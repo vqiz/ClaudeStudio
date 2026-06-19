@@ -1,0 +1,69 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "dead-code-detector",
+  "name": "Dead Code Detector",
+  "description": "Finds unused exports, unreachable functions, orphaned files and stale feature flags, verifies each candidate to avoid false positives, and produces a safe, reviewable removal plan.",
+  "icon": "trash.slash",
+  "category": "code-quality",
+  "tags": ["dead-code", "cleanup", "refactor", "unused", "maintainability"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Code Quality Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
+    "budget_usd": 2.5,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "target_dir",
+      "label": "Directory to analyze",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "entrypoints",
+      "label": "Known entry points",
+      "help": "Comma-separated list of entry files / exported public API surfaces that must be treated as 'used' (e.g. src/main.ts, public API, CLI commands).",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "include_tests",
+      "label": "Count test files as usage",
+      "help": "If true, a symbol referenced only by tests still counts as used.",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "candidates",
+        "title": "Collect candidates",
+        "prompt": "Analyze {{target_dir}}. Build a symbol/reference graph from the entry points {{entrypoints}} (plus conventional entry points if none given). Identify candidate dead code: exported functions/classes/constants with no references, unreachable private functions, files imported nowhere, and feature flags or config keys that are defined but never read. Honor include_tests = {{include_tests}} when deciding whether test-only references count."
+      },
+      {
+        "id": "verify",
+        "title": "Verify candidates",
+        "prompt": "For each candidate, reduce false positives: check for dynamic usage (reflection, string-based imports, dependency injection, route registration, framework conventions), public API exposure, re-exports, and references from config or build files. Classify each as 'confirmed dead', 'likely dead (needs review)', or 'keep (false positive)' with the evidence."
+      },
+      {
+        "id": "report",
+        "title": "Removal plan",
+        "prompt": "Write a Markdown report: 'Summary' (counts and estimated lines removable), 'Confirmed Dead Code' (file, symbol, evidence), 'Needs Human Review', and a 'Safe Removal Plan' ordered so each removal compiles independently. Do not delete anything; only recommend. Note any change that would alter the public API."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "reports/dead-code-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

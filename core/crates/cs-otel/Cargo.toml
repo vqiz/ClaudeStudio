@@ -1,0 +1,21 @@
+[package]
+name = "cs-otel"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "ClaudeStudio telemetry: MetricsExporter trait, tracing-backed default exporter, productivity metrics."
+
+[features]
+default = []
+# Real OTLP export, gated off by default. Enabling pulls in the heavy
+# opentelemetry stack; the default build needs none of it.
+otlp = []
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

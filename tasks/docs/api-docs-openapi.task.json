@@ -1,0 +1,73 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "api-docs-openapi",
+  "name": "API Docs from OpenAPI",
+  "description": "Reads an OpenAPI/Swagger specification (or infers endpoints from route code) and generates human-readable Markdown API documentation with endpoints, parameters, schemas, and example requests and responses.",
+  "icon": "network",
+  "category": "docs",
+  "tags": ["api", "openapi", "swagger", "rest", "documentation"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Docs Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 2.5,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "spec_path",
+      "label": "OpenAPI spec file (optional)",
+      "help": "Path to openapi.yaml/json. If empty, endpoints are inferred from route code under the source directory.",
+      "type": "path",
+      "required": false
+    },
+    {
+      "key": "source_dir",
+      "label": "Source directory (fallback)",
+      "help": "Used to infer routes when no spec is provided.",
+      "type": "path",
+      "required": false,
+      "default": "."
+    },
+    {
+      "key": "base_url",
+      "label": "Base URL for examples",
+      "type": "string",
+      "required": false,
+      "default": "https://api.example.com"
+    },
+    {
+      "key": "include_examples",
+      "label": "Include request/response examples",
+      "type": "boolean",
+      "required": false,
+      "default": true
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "load",
+        "title": "Load API surface",
+        "prompt": "If {{spec_path}} is provided, parse the OpenAPI/Swagger document. Otherwise scan {{source_dir}} for route definitions (controllers, decorators, router registrations) and reconstruct the endpoint list. For each endpoint capture: method, path, summary, parameters (path/query/header), request body schema, response schemas per status code, and auth requirements."
+      },
+      {
+        "id": "write",
+        "title": "Write API docs",
+        "model": "claude-opus-4-8",
+        "prompt": "Generate Markdown API documentation using {{base_url}} in examples. Structure: an overview, an authentication section, then one section per resource grouping endpoints. For each endpoint document the method+path, description, parameters table, request body schema, and response table. If include_examples = {{include_examples}}, add a realistic curl request and a JSON response example per endpoint. Add a 'Schemas' appendix for shared models. Only document what the spec/code supports; flag gaps with TODO."
+      }
+    ]
+  },
+  "output": {
+    "type": "markdown",
+    "path": "docs/api/API.md"
+  },
+  "schedule": {
+    "trigger": "on_event",
+    "event": "file.changed",
+    "enabled": false
+  }
+}

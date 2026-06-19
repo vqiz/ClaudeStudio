@@ -1,0 +1,82 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "kleinunternehmer-check",
+  "name": "Kleinunternehmer-Check (§19 UStG)",
+  "description": "Prüft anhand der Vorjahres- und laufenden Umsätze, ob die Kleinunternehmerregelung nach §19 UStG genutzt werden kann, und prüft Rechnungen auf korrekte Behandlung der Umsatzsteuer.",
+  "icon": "eurosign.circle",
+  "category": "compliance",
+  "tags": ["kleinunternehmer", "ustg", "umsatzsteuer", "steuern", "rechnung", "deutschland"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Compliance Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 1.5,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "umsatz_vorjahr",
+      "label": "Gesamtumsatz Vorjahr (EUR)",
+      "help": "Steuerbarer Bruttoumsatz des vorangegangenen Kalenderjahres.",
+      "type": "number",
+      "required": true,
+      "default": 0
+    },
+    {
+      "key": "umsatz_prognose",
+      "label": "Voraussichtlicher Umsatz laufendes Jahr (EUR)",
+      "help": "Erwarteter Gesamtumsatz im laufenden Kalenderjahr.",
+      "type": "number",
+      "required": true,
+      "default": 0
+    },
+    {
+      "key": "rechnungen_pfad",
+      "label": "Verzeichnis mit Rechnungen / Belegen",
+      "help": "Optionaler Pfad zu Rechnungsdateien (Text, Markdown, CSV), die auf USt-Ausweis geprüft werden.",
+      "type": "path",
+      "required": false,
+      "default": "."
+    },
+    {
+      "key": "rechtsstand",
+      "label": "Rechtsstand der Grenzwerte",
+      "type": "select",
+      "required": true,
+      "default": "2025",
+      "options": [
+        { "value": "2025", "label": "Ab 2025 (25.000 EUR Vorjahr / 100.000 EUR laufend)" },
+        { "value": "bis_2024", "label": "Bis 2024 (22.000 EUR Vorjahr / 50.000 EUR laufend)" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "schwellen",
+        "title": "Schwellenwerte prüfen",
+        "prompt": "Du bist Steuer-Assistent für deutsche Kleinunternehmer. Prüfe die Kleinunternehmerregelung nach §19 UStG für den Rechtsstand {{rechtsstand}}. Gegeben: Vorjahresumsatz {{umsatz_vorjahr}} EUR, Prognose laufendes Jahr {{umsatz_prognose}} EUR. Verwende für Rechtsstand '2025' die Grenzen 25.000 EUR (Vorjahr) und 100.000 EUR (laufendes Jahr, bei Überschreitung Wechsel ab dem Überschreitungsumsatz), für 'bis_2024' die Grenzen 22.000 EUR und 50.000 EUR. Stelle fest, ob die Regelung anwendbar ist, ob ein Wechsel zur Regelbesteuerung droht und ab wann. Rechne die Beträge transparent vor. Weise ausdrücklich darauf hin, dass dies keine Steuerberatung ist."
+      },
+      {
+        "id": "rechnungen",
+        "title": "Rechnungen auf USt-Behandlung prüfen",
+        "prompt": "Falls unter {{rechnungen_pfad}} Rechnungsdateien vorhanden sind, lies sie ein und prüfe: (1) Wird Umsatzsteuer ausgewiesen, obwohl als Kleinunternehmer nach Ergebnis aus dem vorherigen Schritt kein USt-Ausweis erfolgen darf? (2) Fehlt bei Kleinunternehmer-Rechnungen der vorgeschriebene Hinweis (z. B. 'Gemäß §19 UStG wird keine Umsatzsteuer berechnet.')? (3) Sind unzulässig hohe oder fehlende Steuerausweise erkennbar? Liste jede betroffene Datei mit konkreter Fundstelle und Empfehlung. Wenn keine Rechnungen gefunden werden, vermerke das."
+      },
+      {
+        "id": "bericht",
+        "title": "Ergebnisbericht erstellen",
+        "prompt": "Fasse die Ergebnisse aus den vorherigen Schritten zu einem strukturierten Markdown-Bericht zusammen: Abschnitte 'Status der Kleinunternehmerregelung', 'Schwellenwert-Berechnung', 'Rechnungsprüfung', 'Handlungsempfehlungen' und 'Rechtlicher Hinweis'. Verwende eine Ampel-Bewertung (grün/gelb/rot) für den Gesamtstatus."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "compliance/kleinunternehmer-check-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

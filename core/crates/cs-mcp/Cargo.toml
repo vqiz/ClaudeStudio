@@ -1,0 +1,20 @@
+[package]
+name = "cs-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "ClaudeStudio MCP server lifecycle: config parsing, stdio/sse/http transports, status tracking."
+
+[dependencies]
+cs-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

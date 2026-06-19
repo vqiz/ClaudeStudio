@@ -1,0 +1,85 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "security-scan-owasp",
+  "name": "OWASP Top 10 Security Scan",
+  "description": "Performs a source-level security review against the OWASP Top 10, classifies findings by severity and CWE, and produces a prioritized remediation report with concrete code references.",
+  "icon": "lock.shield",
+  "category": "code-quality",
+  "tags": ["security", "owasp", "owasp-top-10", "vulnerability", "cwe", "appsec"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Code Quality Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 4.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "target_dir",
+      "label": "Source directory to scan",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "language",
+      "label": "Primary language / stack",
+      "type": "select",
+      "required": true,
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": "Auto-detect" },
+        { "value": "javascript", "label": "JavaScript / TypeScript" },
+        { "value": "python", "label": "Python" },
+        { "value": "java", "label": "Java / Kotlin" },
+        { "value": "go", "label": "Go" },
+        { "value": "php", "label": "PHP" },
+        { "value": "rust", "label": "Rust" }
+      ]
+    },
+    {
+      "key": "min_severity",
+      "label": "Minimum severity to report",
+      "type": "select",
+      "required": true,
+      "default": "low",
+      "options": [
+        { "value": "low", "label": "Low and above" },
+        { "value": "medium", "label": "Medium and above" },
+        { "value": "high", "label": "High and above" },
+        { "value": "critical", "label": "Critical only" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "map",
+        "title": "Map attack surface",
+        "model": "claude-sonnet-4-5",
+        "prompt": "Detect the stack ({{language}}, 'auto' = infer from files) in {{target_dir}} and map the attack surface: HTTP routes/controllers, input boundaries (request bodies, query params, headers, file uploads), database access, authentication/session handling, secrets/config, deserialization, template rendering, and outbound calls. List the relevant files and entry points."
+      },
+      {
+        "id": "scan",
+        "title": "Scan against OWASP Top 10",
+        "prompt": "Review the mapped code for the OWASP Top 10 (2021): A01 Broken Access Control, A02 Cryptographic Failures, A03 Injection (SQL/NoSQL/command/template), A04 Insecure Design, A05 Security Misconfiguration, A06 Vulnerable/Outdated Components, A07 Identification & Authentication Failures, A08 Software & Data Integrity Failures (incl. insecure deserialization), A09 Security Logging & Monitoring Failures, A10 Server-Side Request Forgery. For each finding give: OWASP category, CWE id, file and line, a short proof-of-concept or trigger condition, and a severity (critical/high/medium/low) with CVSS-style reasoning. Suppress findings below {{min_severity}}."
+      },
+      {
+        "id": "report",
+        "title": "Remediation report",
+        "prompt": "Produce a Markdown security report: 'Executive Summary' with a severity count table, 'Findings' (sorted by severity, each with category, CWE, location, impact, and a concrete remediation including a corrected code snippet), 'Quick Wins', and 'Methodology & Scope'. State clearly that this is a static, best-effort review and not a substitute for a full penetration test."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "reports/security/owasp-scan-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "on_event",
+    "event": "pr.opened",
+    "enabled": false
+  }
+}

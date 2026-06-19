@@ -1,0 +1,51 @@
+# ---- Rust (core/) ----
+/core/target/
+**/target/
+**/*.rs.bk
+*.pdb
+
+# ---- Swift (app/) ----
+/app/.build/
+**/.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+.swift-version
+
+# ---- macOS ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# ---- Editors / IDE ----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.fleet/
+
+# ---- Environment / secrets ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+*.p12
+
+# ---- ClaudeStudio runtime data (never commit) ----
+*.sock
+qdrant-data/
+sessions.db
+sessions.db-*
+~/.claudestudio/
+
+# ---- Logs / misc ----
+*.log
+node_modules/
+dist/
+tmp/

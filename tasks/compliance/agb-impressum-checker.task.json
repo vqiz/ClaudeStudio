@@ -1,0 +1,90 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "agb-impressum-checker",
+  "name": "AGB- & Impressum-Checker",
+  "description": "Prüft eine Website oder Quelltext auf ein vollständiges Impressum nach §5 DDG (vormals §5 TMG), eine Datenschutzerklärung und gängige AGB-/Pflichtangaben für Online-Shops und gewerbliche Websites in Deutschland.",
+  "icon": "doc.text.magnifyingglass",
+  "category": "compliance",
+  "tags": ["impressum", "agb", "ddg", "tmg", "datenschutzerklaerung", "website", "deutschland"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Compliance Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob", "WebFetch"],
+    "budget_usd": 2.0,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "quelle",
+      "label": "Prüfquelle",
+      "type": "select",
+      "required": true,
+      "default": "url",
+      "options": [
+        { "value": "url", "label": "Live-Website (URL)" },
+        { "value": "code", "label": "Lokaler Quelltext (Verzeichnis)" }
+      ]
+    },
+    {
+      "key": "website_url",
+      "label": "Website-URL",
+      "help": "Erforderlich, wenn Prüfquelle = Live-Website. Startseite genügt; Unterseiten werden mitgeprüft.",
+      "type": "url",
+      "required": false
+    },
+    {
+      "key": "code_pfad",
+      "label": "Quelltext-Verzeichnis",
+      "help": "Erforderlich, wenn Prüfquelle = Lokaler Quelltext.",
+      "type": "path",
+      "required": false,
+      "default": "."
+    },
+    {
+      "key": "geschaeftsart",
+      "label": "Art des Angebots",
+      "type": "select",
+      "required": true,
+      "default": "shop",
+      "options": [
+        { "value": "shop", "label": "Online-Shop (B2C)" },
+        { "value": "dienstleistung", "label": "Dienstleistung / Agentur" },
+        { "value": "blog", "label": "Blog / redaktionelles Angebot" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "erfassen",
+        "title": "Pflichtseiten erfassen",
+        "prompt": "Erfasse die rechtlich relevanten Seiten. Wenn {{quelle}} = 'url', rufe {{website_url}} ab und suche Links/Inhalte zu Impressum, Datenschutzerklärung, AGB und Widerrufsbelehrung. Wenn {{quelle}} = 'code', durchsuche {{code_pfad}} nach entsprechenden Dateien/Routen (z. B. impressum, datenschutz, agb, terms, privacy). Liste, welche Pflichtseiten existieren und wo."
+      },
+      {
+        "id": "impressum",
+        "title": "Impressum nach §5 DDG prüfen",
+        "prompt": "Prüfe das Impressum auf Vollständigkeit nach §5 DDG (Digitale-Dienste-Gesetz, vormals §5 TMG): Name/Firma und Rechtsform, ladungsfähige Anschrift (kein Postfach), schnelle elektronische Kontaktaufnahme (E-Mail) und Telefon, Vertretungsberechtigte, Registereintrag und Registernummer (HRB/Vereinsregister), Umsatzsteuer-ID nach §27a UStG sofern vorhanden, bei bestimmten Berufen die Aufsichtsbehörde und Kammer, sowie bei journalistisch-redaktionellen Angeboten ein Verantwortlicher nach §18 Abs. 2 MStV. Liste fehlende und vorhandene Pflichtangaben getrennt auf."
+      },
+      {
+        "id": "datenschutz_agb",
+        "title": "Datenschutz & AGB prüfen",
+        "prompt": "Prüfe die Datenschutzerklärung auf die Pflichtinformationen nach Art. 13 DSGVO (Verantwortlicher, Zwecke, Rechtsgrundlagen, Empfänger, Drittlandtransfers, Speicherdauer, Betroffenenrechte, Beschwerderecht). Prüfe abhängig von der Angebotsart {{geschaeftsart}}: bei 'shop' zusätzlich AGB, Widerrufsbelehrung mit Muster-Widerrufsformular, Preisangaben inkl. USt und Versandkosten, Hinweis auf die EU-Streitschlichtungsplattform bzw. §36 VSBG. Benenne konkrete Lücken."
+      },
+      {
+        "id": "bericht",
+        "title": "Checkliste & Bericht",
+        "prompt": "Erstelle einen Markdown-Bericht mit einer Pflichtangaben-Checkliste (Spalten: Anforderung / Status / Fundstelle / Empfehlung), getrennt nach 'Impressum', 'Datenschutzerklärung' und 'AGB/Widerruf'. Schließe mit einer priorisierten Mängelliste und dem Hinweis, dass dies eine technische Vorprüfung und keine Rechtsberatung ist."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "compliance/agb-impressum-check-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

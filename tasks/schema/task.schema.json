@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vqiz/ClaudeStudio/tasks/schema/task.schema.json",
+  "title": "ClaudeStudio Task",
+  "description": "A ClaudeStudio Task: a packaged, parameterized, agent-driven workflow that the 6-tab Task Builder reads and writes. A .task.json file is the single source of truth for one task and is rendered into the builder UI, executed by the agentic Supervisor layer, and optionally scheduled.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "icon", "category", "tags", "scope", "agent", "inputs", "workflow", "output"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional reference to this schema for editor tooling."
+    },
+    "id": {
+      "type": "string",
+      "description": "Stable, globally unique identifier. Lowercase kebab-case, used for storage keys, memory indexing and deep links.",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+      "minLength": 3,
+      "maxLength": 64
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable task name shown in the library and run history.",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "description": {
+      "type": "string",
+      "description": "One or two sentence summary shown as a subtitle in the library card and the Builder 'Overview' tab.",
+      "maxLength": 400
+    },
+    "icon": {
+      "type": "string",
+      "description": "SF Symbols name (preferred on macOS) or an emoji. Rendered on the library card.",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "category": {
+      "type": "string",
+      "description": "Primary grouping used for the library sidebar.",
+      "enum": ["compliance", "code-quality", "docs", "deployment", "research", "automation", "data", "other"]
+    },
+    "tags": {
+      "type": "array",
+      "description": "Free-form searchable tags used by the library filter and by semantic memory.",
+      "items": { "type": "string", "minLength": 1, "maxLength": 40 },
+      "uniqueItems": true,
+      "maxItems": 24
+    },
+    "scope": {
+      "type": "string",
+      "description": "Visibility / availability of the task. 'project' tasks live in the project's .claudestudio dir; 'user' tasks are personal and available across projects; 'global' tasks ship with the app or an installed pack.",
+      "enum": ["project", "user", "global"]
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the task definition, for community packs and update detection.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "author": {
+      "type": "string",
+      "description": "Optional author or maintainer attribution for community-contributed tasks.",
+      "maxLength": 120
+    },
+    "agent": {
+      "type": "object",
+      "description": "Agent execution envelope. Maps to the Builder 'Agent' tab and constrains how the Supervisor runs the workflow.",
+      "additionalProperties": false,
+      "required": ["model", "allowed_tools", "isolation"],
+      "properties": {
+        "model": {
+          "type": "string",
+          "description": "Default Claude model id for the run. Individual steps may override.",
+          "enum": ["claude-opus-4-8", "claude-sonnet-4-5", "claude-haiku-4-5", "inherit"]
+        },
+        "allowed_tools": {
+          "type": "array",
+          "description": "Allow-list of tools the agent may use. Maps directly to Claude Code permission settings. Empty array means no tools (pure reasoning).",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "uniqueItems": true
+        },
+        "budget_usd": {
+          "type": "number",
+          "description": "Soft spend cap in USD for a single run. The Supervisor pauses and asks for confirmation when exceeded. Omit for no cap.",
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "isolation": {
+          "type": "string",
+          "description": "Execution environment. 'worktree' runs in a dedicated git worktree; 'sandbox' runs read-only/no-network; 'inplace' runs directly in the working directory.",
+          "enum": ["worktree", "sandbox", "inplace"]
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Parameters collected before a run. Each input is rendered as a form field in the Builder 'Inputs' tab and the run dialog. Values are substituted into workflow prompts as {{key}}.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "type"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Placeholder key. Referenced in prompts as {{key}}.",
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 48
+          },
+          "label": {
+            "type": "string",
+            "description": "Field label shown in the form.",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "help": {
+            "type": "string",
+            "description": "Optional helper text shown below the field.",
+            "maxLength": 300
+          },
+          "type": {
+            "type": "string",
+            "description": "Widget / data type. 'select' and 'multiselect' require 'options'.",
+            "enum": ["string", "text", "number", "boolean", "select", "multiselect", "path", "url", "date"]
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether the run dialog blocks until a value is provided. Defaults to false.",
+            "default": false
+          },
+          "default": {
+            "description": "Default value, type must match the field 'type'.",
+            "type": ["string", "number", "boolean", "array", "null"]
+          },
+          "options": {
+            "type": "array",
+            "description": "Allowed values for select/multiselect fields.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["value", "label"],
+              "properties": {
+                "value": { "type": "string", "minLength": 1 },
+                "label": { "type": "string", "minLength": 1 }
+              }
+            },
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "description": "The ordered chain of agent steps. Maps to the Builder 'Workflow' tab.",
+      "additionalProperties": false,
+      "required": ["steps"],
+      "properties": {
+        "steps": {
+          "type": "array",
+          "description": "Ordered steps. Each step is a single agent turn whose prompt may reference {{input}} placeholders and outputs of prior steps.",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["prompt"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Optional step id, referenced by later steps.",
+                "pattern": "^[a-z][a-z0-9_]*$",
+                "maxLength": 48
+              },
+              "title": {
+                "type": "string",
+                "description": "Short label for the step shown in the run timeline.",
+                "maxLength": 120
+              },
+              "prompt": {
+                "type": "string",
+                "description": "Instruction sent to the agent for this step. May contain {{key}} placeholders.",
+                "minLength": 1
+              },
+              "model": {
+                "type": "string",
+                "description": "Optional per-step model override.",
+                "enum": ["claude-opus-4-8", "claude-sonnet-4-5", "claude-haiku-4-5", "inherit"]
+              },
+              "tools": {
+                "type": "array",
+                "description": "Optional per-step tool allow-list. Must be a subset of agent.allowed_tools.",
+                "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "uniqueItems": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "description": "What the task produces and what happens afterwards. Maps to the Builder 'Output' tab.",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Primary artifact type produced by the final step.",
+          "enum": ["markdown", "json", "report", "file", "patch", "comment", "none"]
+        },
+        "path": {
+          "type": "string",
+          "description": "Optional output path template (may contain {{key}} placeholders).",
+          "maxLength": 300
+        },
+        "post_hook": {
+          "type": "string",
+          "description": "Optional shell command or Claude Code hook id run after the artifact is produced (e.g. open the file, run a formatter, post a notification).",
+          "maxLength": 500
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "description": "Optional automation. When present, the task can be registered with the cron/trigger system. Maps to the Builder 'Schedule' tab.",
+      "additionalProperties": false,
+      "required": ["trigger"],
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "description": "How the task fires. 'cron' uses a cron expression; 'on_event' subscribes to an Event-Bus topic; 'manual' is run-on-demand only.",
+          "enum": ["manual", "cron", "on_event"]
+        },
+        "cron": {
+          "type": "string",
+          "description": "Standard 5-field cron expression. Required when trigger is 'cron'.",
+          "maxLength": 100
+        },
+        "event": {
+          "type": "string",
+          "description": "Event-Bus topic to subscribe to (e.g. 'git.post_commit', 'file.changed'). Required when trigger is 'on_event'.",
+          "maxLength": 100
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether the schedule is currently active.",
+          "default": false
+        }
+      }
+    }
+  }
+}

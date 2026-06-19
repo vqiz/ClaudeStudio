@@ -1,0 +1,79 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "changelog-generator",
+  "name": "Changelog Generator",
+  "description": "Generates a Keep a Changelog style entry from git history between two refs, grouping commits into Added / Changed / Fixed / Removed / Security and flagging breaking changes.",
+  "icon": "list.bullet.rectangle",
+  "category": "docs",
+  "tags": ["changelog", "keep-a-changelog", "git", "release", "semver"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Docs Pack",
+  "agent": {
+    "model": "claude-sonnet-4-5",
+    "allowed_tools": ["Read", "Grep", "Glob", "Bash"],
+    "budget_usd": 1.5,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "from_ref",
+      "label": "From ref / tag",
+      "help": "Starting point, e.g. the previous release tag. Leave empty to use the latest tag.",
+      "type": "string",
+      "required": false
+    },
+    {
+      "key": "to_ref",
+      "label": "To ref",
+      "type": "string",
+      "required": true,
+      "default": "HEAD"
+    },
+    {
+      "key": "version",
+      "label": "Version to label this entry",
+      "help": "e.g. 1.4.0. Used as the section heading.",
+      "type": "string",
+      "required": true
+    },
+    {
+      "key": "style",
+      "label": "Commit convention",
+      "type": "select",
+      "required": true,
+      "default": "conventional",
+      "options": [
+        { "value": "conventional", "label": "Conventional Commits (feat/fix/...)" },
+        { "value": "freeform", "label": "Free-form (infer from message)" }
+      ]
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "collect",
+        "title": "Collect commits",
+        "prompt": "Run git to list commits between {{from_ref}} (default: the most recent tag if empty) and {{to_ref}}, including subjects, bodies, and merged PR titles where available. Use a format that exposes each commit message in full."
+      },
+      {
+        "id": "classify",
+        "title": "Classify changes",
+        "prompt": "Classify each commit into Keep a Changelog categories: Added, Changed, Deprecated, Removed, Fixed, Security. If style = {{style}} is 'conventional', map types (feat -> Added, fix -> Fixed, perf/refactor -> Changed, etc.) and detect breaking changes via '!' or 'BREAKING CHANGE'. Otherwise infer from wording. Drop noise (merge commits, formatting-only, dependency bumps unless security-relevant). Rewrite each entry as a clear, user-facing line."
+      },
+      {
+        "id": "write",
+        "title": "Write changelog entry",
+        "prompt": "Produce a Markdown changelog entry headed '## [{{version}}] - {{date}}', grouped by category in Keep a Changelog order, listing only non-empty categories. Put a clearly marked 'Breaking Changes' callout at the top if any exist. Output only the new entry so it can be prepended to CHANGELOG.md."
+      }
+    ]
+  },
+  "output": {
+    "type": "markdown",
+    "path": "CHANGELOG.entry.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}

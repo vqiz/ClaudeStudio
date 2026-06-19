@@ -1,0 +1,21 @@
+[package]
+name = "cs-agentic-os"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "ClaudeStudio Agentic OS core: event bus, priority queue, supervisor, A2A router, and visual rules."
+
+[dependencies]
+cs-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

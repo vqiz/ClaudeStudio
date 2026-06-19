@@ -1,0 +1,74 @@
+{
+  "$schema": "../schema/task.schema.json",
+  "id": "reverse-charge-eu-b2b",
+  "name": "Reverse-Charge EU-B2B-Prüfung",
+  "description": "Prüft grenzüberschreitende B2B-Leistungen innerhalb der EU auf korrekte Anwendung des Reverse-Charge-Verfahrens nach §13b UStG: USt-IdNr.-Pflicht, Rechnungshinweis und Meldepflichten (Zusammenfassende Meldung).",
+  "icon": "arrow.left.arrow.right.circle",
+  "category": "compliance",
+  "tags": ["reverse-charge", "ustg", "13b", "eu", "b2b", "umsatzsteuer", "ust-idnr", "zusammenfassende-meldung"],
+  "scope": "global",
+  "version": "1.0.0",
+  "author": "ClaudeStudio Compliance Pack",
+  "agent": {
+    "model": "claude-opus-4-8",
+    "allowed_tools": ["Read", "Grep", "Glob"],
+    "budget_usd": 1.5,
+    "isolation": "sandbox"
+  },
+  "inputs": [
+    {
+      "key": "rechnungen_pfad",
+      "label": "Verzeichnis mit Ausgangsrechnungen",
+      "help": "Pfad zu Rechnungsdateien (Text, Markdown, CSV, PDF-Export als Text).",
+      "type": "path",
+      "required": true,
+      "default": "."
+    },
+    {
+      "key": "leistungsart",
+      "label": "Überwiegende Leistungsart",
+      "type": "select",
+      "required": true,
+      "default": "dienstleistung",
+      "options": [
+        { "value": "dienstleistung", "label": "Sonstige Leistung (B2B, Grundregel §3a Abs. 2 UStG)" },
+        { "value": "lieferung", "label": "Innergemeinschaftliche Lieferung" }
+      ]
+    },
+    {
+      "key": "eigene_ustid",
+      "label": "Eigene USt-IdNr.",
+      "help": "Zur Kontrolle, ob sie auf den Rechnungen korrekt angegeben ist.",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "workflow": {
+    "steps": [
+      {
+        "id": "extrahieren",
+        "title": "Rechnungsdaten extrahieren",
+        "model": "claude-sonnet-4-5",
+        "prompt": "Lies die Rechnungen unter {{rechnungen_pfad}} ein. Extrahiere je Rechnung: Leistungsempfänger und dessen Sitzland, dessen angegebene USt-IdNr., die eigene USt-IdNr., ob Umsatzsteuer ausgewiesen wird, ob ein Reverse-Charge-Hinweis vorhanden ist und der Rechnungsbetrag. Gib eine Tabelle aus."
+      },
+      {
+        "id": "pruefen",
+        "title": "Reverse-Charge-Voraussetzungen prüfen",
+        "prompt": "Prüfe für die Leistungsart {{leistungsart}} je Rechnung an einen Empfänger in einem anderen EU-Mitgliedstaat: (1) Liegt eine gültige USt-IdNr. des Empfängers vor (Formatcheck pro Land)? (2) Ist die eigene USt-IdNr. (falls angegeben: {{eigene_ustid}}) auf der Rechnung enthalten? (3) Wurde korrekterweise KEINE deutsche Umsatzsteuer ausgewiesen, weil die Steuerschuld nach §13b UStG bzw. dem EU-Reverse-Charge auf den Leistungsempfänger übergeht? (4) Enthält die Rechnung den vorgeschriebenen Hinweis (z. B. 'Steuerschuldnerschaft des Leistungsempfängers' / 'Reverse charge')? Markiere fehlerhafte Rechnungen mit konkretem Mangel."
+      },
+      {
+        "id": "meldung",
+        "title": "Meldepflichten & Bericht",
+        "prompt": "Weise auf die resultierenden Meldepflichten hin: Erfassung in der Zusammenfassenden Meldung (ZM) für innergemeinschaftliche sonstige Leistungen und Lieferungen sowie die korrekte Angabe in der Umsatzsteuer-Voranmeldung. Erstelle einen Markdown-Bericht: 'Zusammenfassung', 'Rechnungsprüfung' (Tabelle mit Status), 'Fehlerhafte Rechnungen mit Korrekturempfehlung', 'Meldepflichten' und 'Rechtlicher Hinweis' (keine Steuerberatung)."
+      }
+    ]
+  },
+  "output": {
+    "type": "report",
+    "path": "compliance/reverse-charge-check-{{date}}.md"
+  },
+  "schedule": {
+    "trigger": "manual",
+    "enabled": false
+  }
+}
