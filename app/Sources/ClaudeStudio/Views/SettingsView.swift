@@ -14,6 +14,17 @@ struct SettingsView: View {
         @Bindable var appState = appState
 
         Form {
+            Section("Appearance") {
+                Picker("Theme", selection: $appState.theme) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Label(theme.label, systemImage: theme.symbol).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Text(appState.theme.blurb)
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
             Section("Trust") {
                 Picker("Default trust mode", selection: $appState.globalTrustMode) {
                     ForEach(TrustMode.allCases) { mode in

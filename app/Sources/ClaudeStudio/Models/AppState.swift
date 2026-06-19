@@ -71,6 +71,11 @@ final class AppState {
     /// Global trust posture shown in the title-bar badge.
     var globalTrustMode: TrustMode = .guarded
 
+    /// The selected appearance. Persisted across launches.
+    var theme: AppTheme = .load() {
+        didSet { theme.save() }
+    }
+
     /// Whether the voice assistant is actively listening.
     var isListening = false
 

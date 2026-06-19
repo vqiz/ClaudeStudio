@@ -17,6 +17,7 @@ struct RootView: View {
             detailColumn
         }
         .toolbar { titleBarItems }
+        .themedChrome(appState.theme)
     }
 
     @ViewBuilder
@@ -122,11 +123,9 @@ struct SidebarView: View {
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) {
             HStack(spacing: 8) {
-                Image(systemName: "command.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(.tint)
+                BrandMark(size: 26)
                 VStack(alignment: .leading, spacing: 0) {
-                    Text("Claude Studio").font(.headline)
+                    Text("ClaudeStudio").font(.headline)
                     Text("Agentic OS").font(.caption2).foregroundStyle(.secondary)
                 }
                 Spacer()
