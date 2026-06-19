@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The Claude Studio macOS application entry point.
 ///
@@ -7,6 +8,7 @@ import SwiftUI
 /// every view reads from the same observable model.
 @main
 struct ClaudeStudioApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
     var body: some Scene {
@@ -44,5 +46,21 @@ struct ClaudeStudioApp: App {
                 .environment(appState)
                 .frame(width: 560, height: 480)
         }
+    }
+}
+
+/// When launched as a bare SwiftPM executable (`swift run`) there is no `.app`
+/// bundle, so macOS would otherwise run ClaudeStudio as a background tool with no
+/// Dock icon and no foreground window. This promotes it to a regular app and
+/// brings its window to the front, and quits when the last window closes so the
+/// dev launcher can tear the core down.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 }

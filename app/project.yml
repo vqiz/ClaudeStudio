@@ -1,0 +1,73 @@
+# XcodeGen spec for the ClaudeStudio macOS app.
+#
+# Regenerate the .xcodeproj after editing this file:
+#     cd app && xcodegen generate
+#
+# The SwiftPM Package.swift remains the source of truth for `swift build` and CI;
+# this project is for GUI development/testing in Xcode (real .app bundle + icon).
+name: ClaudeStudio
+options:
+  bundleIdPrefix: dev.claudestudio
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  # The transport/protocol layer, built as a framework so `import ClaudeStudioKit`
+  # resolves exactly as it does under SwiftPM.
+  ClaudeStudioKit:
+    type: framework
+    platform: macOS
+    sources:
+      - Sources/ClaudeStudioKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.claudestudio.kit
+        DEFINES_MODULE: "YES"
+
+  # The SwiftUI app. Produces ClaudeStudio.app with the generated app icon.
+  ClaudeStudio:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/ClaudeStudio
+      - Resources/Assets.xcassets
+    dependencies:
+      - target: ClaudeStudioKit
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.claudestudio.app
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: ClaudeStudio
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
+
+  # Unit tests (run with ⌘U in Xcode, where XCTest is available).
+  ClaudeStudioKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/ClaudeStudioKitTests
+    dependencies:
+      - target: ClaudeStudioKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.claudestudio.kit.tests
+        GENERATE_INFOPLIST_FILE: "YES"
+
+schemes:
+  ClaudeStudio:
+    build:
+      targets:
+        ClaudeStudio: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ClaudeStudioKitTests
