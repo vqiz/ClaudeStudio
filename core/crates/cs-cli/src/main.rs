@@ -37,6 +37,21 @@ use tokio::sync::Mutex;
 /// forwarder task spawned by `events.subscribe`.
 type SharedWriter = Arc<Mutex<FrameWriter<OwnedWriteHalf>>>;
 
+/// Owns a connection's event-forwarder tasks and aborts them when the connection
+/// ends. Without this, a forwarder parked on `rx.recv().await` would never wake
+/// on client disconnect (the bus `Sender` lives for the whole process), leaking
+/// the task and the socket write half it holds.
+#[derive(Default)]
+struct ForwarderGuard(Vec<tokio::task::JoinHandle<()>>);
+
+impl Drop for ForwarderGuard {
+    fn drop(&mut self) {
+        for handle in &self.0 {
+            handle.abort();
+        }
+    }
+}
+
 /// Default directory under the user's home where state and the socket live.
 const STATE_DIR: &str = ".claudestudio";
 /// Default socket file name within the state directory. Must match the Swift
@@ -128,6 +143,9 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
     let (read_half, write_half) = stream.into_split();
     let mut reader = FrameReader::new(read_half);
     let writer: SharedWriter = Arc::new(Mutex::new(FrameWriter::new(write_half)));
+    // Aborts any event forwarders when this function returns (clean EOF or
+    // error), so a parked forwarder + its write-half fd never leak.
+    let mut forwarders = ForwarderGuard::default();
 
     while let Some(request) = reader.read_frame::<IpcEnvelope>().await? {
         tracing::debug!(method = %request.method, id = %request.id, "request");
@@ -138,7 +156,9 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
             let rx = router.event_bus().subscribe();
             let ack = request.response_to(serde_json::json!({ "subscribed": true }));
             writer.lock().await.write_frame(&ack).await?;
-            spawn_event_forwarder(rx, Arc::clone(&writer));
+            forwarders
+                .0
+                .push(spawn_event_forwarder(rx, Arc::clone(&writer)));
             continue;
         }
 
@@ -149,8 +169,12 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
 }
 
 /// Forward `SystemEvent`s from `rx` to the client as `event` frames until the
-/// connection closes or the bus is dropped.
-fn spawn_event_forwarder(mut rx: broadcast::Receiver<SystemEvent>, writer: SharedWriter) {
+/// connection closes or the bus is dropped. The returned handle is aborted by
+/// [`ForwarderGuard`] when the connection ends.
+fn spawn_event_forwarder(
+    mut rx: broadcast::Receiver<SystemEvent>,
+    writer: SharedWriter,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         loop {
             match rx.recv().await {
@@ -167,7 +191,7 @@ fn spawn_event_forwarder(mut rx: broadcast::Receiver<SystemEvent>, writer: Share
                 Err(broadcast::error::RecvError::Closed) => break,
             }
         }
-    });
+    })
 }
 
 /// Initialize the tracing subscriber, honoring `RUST_LOG`.
