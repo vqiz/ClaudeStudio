@@ -31,7 +31,7 @@
 
 The foundation is real and verified end-to-end, not a mockup:
 
-- **Run real Claude sessions** — `session.start` spawns the `claude` CLI, streams its output back token-by-token as it parses the stream-JSON, and records the whole transcript to the archive. (Verified end-to-end against a fake CLI; the real CLI emits the identical format.)
+- **Run real Claude sessions** — `session.start` spawns the `claude` CLI, streams its output back token-by-token as it parses the stream-JSON, and records the whole transcript to the archive. It uses **your existing `claude` login (e.g. a Pro/Max subscription)** — ClaudeStudio never calls the Anthropic API or injects an API key. (Verified end-to-end against a fake CLI; the real CLI emits the identical format.)
 - **Native SwiftUI app ⇄ Rust sidecar** over a length-prefixed MessagePack Unix-socket protocol — connection status, live config, and the context budget render from the actual core.
 - **Live event streaming** — `events.subscribe` pushes the Agentic-OS event bus to the OS View in real time.
 - **Working RPCs**, each verified: `config.get`/`config.set`, `context.budget`, `session.{start,list,get,search,create,stats}` (SQLite archive + FTS5 search), `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`, `mcp.list`.

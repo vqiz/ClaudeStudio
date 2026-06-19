@@ -15,9 +15,12 @@
 //! - chooses an appropriate [`cs_types::ModelTier`] for a [`TaskKind`] via the
 //!   [`ModelRouter`], complete with a fallback chain.
 //!
-//! Nothing here requires the network or any native library; spawning is gated
-//! through `tokio::process` only when [`ClaudeSession::run`] is actually
-//! called.
+//! This crate never talks to the Anthropic API or the network directly and
+//! never injects an API key: it only spawns the `claude` binary via
+//! `tokio::process` (when [`ClaudeSession::run`] is called). A run therefore
+//! uses whatever the `claude` CLI is authenticated with — e.g. your Claude
+//! Pro/Max **subscription** via `claude /login` — exactly like running `claude`
+//! in a terminal yourself.
 
 use std::path::PathBuf;
 use std::process::Stdio;

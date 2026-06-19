@@ -15,7 +15,7 @@ ClaudeStudio targets **macOS** (the front-end is native SwiftUI/AppKit).
 | macOS | 14 (Sonoma) or later | Apple Silicon recommended; Intel supported. |
 | Xcode | 16+ | The app targets **Swift 6**. Command-Line-Tools-only works for `swift build` but can't run `swift test` (no XCTest). |
 | Rust | stable | Install via [rustup](https://rustup.rs); the workspace pins the version via `core/rust-toolchain.toml`. |
-| Claude Code CLI | latest | ClaudeStudio drives the official Claude Code CLI. Install and authenticate it first. |
+| Claude Code CLI | latest | ClaudeStudio drives the official `claude` CLI — it never calls the Anthropic API or injects a key, so a session uses **your CLI login (e.g. a Pro/Max subscription)**. Run `claude /login` first; confirm `claude -p "hi"` works in a terminal. |
 | Qdrant | 1.9+ | For semantic memory. Run locally via Docker or the native binary. **(optional at first run)** |
 | Ollama or local embed model | latest | Hosts `nomic-embed` for local embeddings. A remote embedding API is the fallback. **(optional)** |
 
