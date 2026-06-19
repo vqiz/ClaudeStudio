@@ -25,7 +25,19 @@
 <br />
 
 > [!WARNING]
-> **Project status: pre-alpha scaffold.** ClaudeStudio is in early, active development. The architecture and vision below describe where the project is heading — many features are partially implemented or still on the drawing board. Expect breaking changes, rough edges, and missing pieces. This is **not** production-ready. Stars, issues, and PRs are hugely appreciated as we build toward the first milestone.
+> **Project status: pre-alpha.** ClaudeStudio is in early, active development. The full vision below describes where the project is heading — many features are still scaffolding. Expect breaking changes and rough edges. Stars, issues, and PRs are hugely appreciated as we build toward the first milestone.
+
+### ✅ What works today
+
+The foundation is real and verified end-to-end, not a mockup:
+
+- **Native SwiftUI app ⇄ Rust sidecar** over a length-prefixed MessagePack Unix-socket protocol — connection status, live config, and the context budget render from the actual core.
+- **Working RPCs**, each covered by tests: `config.get`/`config.set`, `context.budget`, `session.{list,get,search,create,stats}` (SQLite archive, FTS5 search), `git.{status,branch,worktrees,diff,log}`, `tasks.list`, `definitions.list`.
+- **Live UI data** when connected: the Archive shows the real persisted session history; the Task Library lists the shipped one-click workflows.
+- **Light / Dark / Transparent** theming with native behind-window vibrancy.
+- **Green CI**: `cargo fmt` + `clippy -D warnings` + tests, plus a macOS job that runs the cross-language bridge test against the real sidecar.
+
+Still scaffolding: live Claude session streaming, the Brain View graph, the Voice assistant, and the Agentic-OS supervisor loop. See the [roadmap](docs/roadmap.md).
 
 <br />
 
