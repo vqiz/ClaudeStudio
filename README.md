@@ -178,16 +178,23 @@ cargo run --release
 
 ### 4. Build & run the macOS app
 
-In a second terminal, from the repo root:
+In a second terminal, either open the Xcode project (recommended — a real
+`.app` with the app icon) or use the command line:
 
 ```bash
 cd app
+open ClaudeStudio.xcodeproj   # ⌘R to run, ⌘U to test
+# …or, without Xcode project:
 swift run ClaudeStudio
 ```
 
-The app will connect to the running core, detect your Claude Code CLI, and open the workspace.
+The app connects to the running core over `~/.claudestudio/core.sock` — the title
+bar shows **Core connected**. Then run a prompt in the Session panel, or open
+**Settings → Appearance** to try the Light/Dark/Transparent themes.
 
-> First run? Open **Settings → MCP & Hooks** to point ClaudeStudio at your existing MCP servers, and **Settings → Trust** to pick a default permission mode.
+> The Xcode project is generated from `app/project.yml` with
+> [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`cd app && xcodegen generate`
+> to regenerate). `Package.swift` remains the source of truth for the CLI and CI.
 
 <br />
 

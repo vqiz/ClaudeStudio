@@ -78,8 +78,20 @@ cargo test --workspace
 
 ## 4. Build & run the macOS app
 
-The app is a Swift Package (Swift 6). With the core from step 3 still running in
-another terminal:
+With the core from step 3 still running in another terminal, pick one:
+
+**A — Xcode (recommended for GUI work).** A real app target with the app icon:
+
+```bash
+cd ../app
+open ClaudeStudio.xcodeproj     # then press ⌘R to run, ⌘U to test
+```
+
+If you ever edit the project layout, regenerate it with
+[`XcodeGen`](https://github.com/yonaskolb/XcodeGen): `cd app && xcodegen generate`
+(the `project.yml` is the source of truth).
+
+**B — Command line (SwiftPM).** No Xcode project needed:
 
 ```bash
 cd ../app
@@ -87,13 +99,12 @@ swift build              # compile
 swift run ClaudeStudio   # launch
 ```
 
-The app connects to the running core over the local Unix socket at
+Either way the app connects to the running core over the local Unix socket at
 `~/.claudestudio/core.sock` (see [ARCHITECTURE.md](../ARCHITECTURE.md#4-the-ipc-bridge)).
 The title bar shows **Core connected** once the handshake succeeds.
 
-> A bundled Xcode project (for a signed `.app` with the app icon from
-> `app/Resources/`) and app-managed auto-spawn of the core are planned; for now,
-> run the core yourself and launch the app with `swift run`.
+> Tip: `./scripts/dev.sh` from the repo root does steps 3 + 4 (option B) in one
+> command. App-managed auto-spawn of the core is still planned.
 
 ---
 
