@@ -104,6 +104,15 @@ impl Router {
             "definitions.create" => self.library_create(p, "definitions"),
             "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
             "skills.list" => self.skills_list(p),
+            "skills.create" => self.skills_create(p),
+            "skills.install" => self.skills_install(p),
+            "skills.uninstall" => self.skills_uninstall(p),
+            "plugins.list" => self.plugins_list(),
+            "plugins.install" => self.plugins_install(p),
+            "plugins.uninstall" => self.plugins_uninstall(p),
+            "plugins.set_enabled" => self.plugins_set_enabled(p),
+            "plugins.marketplace_list" => self.plugins_marketplace_list(),
+            "plugins.marketplace_add" => self.plugins_marketplace_add(p),
             "mcp.list" => self.mcp_list(p),
             "mcp.upsert" => self.mcp_upsert(p),
             "mcp.remove" => self.mcp_remove(p),
@@ -743,6 +752,214 @@ impl Router {
         });
         Ok(json!({ "skills": skills }))
     }
+
+    /// Scaffold a new skill at `<root>/.claude/skills/<slug>/SKILL.md` (root =
+    /// `cwd` for project scope, `$HOME` for user scope) with starter frontmatter.
+    fn skills_create(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("New Skill");
+        let command = slugify(name);
+        let root = skills_root_for_scope(p)?;
+        let dir = root.join(&command);
+        if dir.exists() {
+            return Err(format!("a skill named '{command}' already exists"));
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let body = format!(
+            "---\nname: {command}\ndescription: {name} — describe when Claude should use this skill.\n---\n\n# {name}\n\nWrite the instructions Claude should follow when this skill runs.\n"
+        );
+        let skill_md = dir.join("SKILL.md");
+        std::fs::write(&skill_md, body).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": skill_md.to_string_lossy(), "command": command }))
+    }
+
+    /// Install one or more skills from a `source` (a git URL or a local path)
+    /// into the chosen scope's `.claude/skills/` directory. Git sources are
+    /// shallow-cloned with the system `git`; never the network API.
+    fn skills_install(&self, p: &Value) -> HandlerResult {
+        let source = p
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or("missing 'source'")?;
+        let dest_root = skills_root_for_scope(p)?;
+        std::fs::create_dir_all(&dest_root).map_err(|e| e.to_string())?;
+
+        // Resolve the source to a local directory to copy skill folders from.
+        let temp_holder;
+        let source_dir: PathBuf = if looks_like_git_url(source) {
+            let tmp = std::env::temp_dir().join(format!("cs-skill-clone-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&tmp);
+            let out = std::process::Command::new("git")
+                .args(["clone", "--depth", "1", source])
+                .arg(&tmp)
+                .output()
+                .map_err(|e| format!("git not available: {e}"))?;
+            if !out.status.success() {
+                return Err(format!(
+                    "git clone failed: {}",
+                    String::from_utf8_lossy(&out.stderr).trim()
+                ));
+            }
+            temp_holder = tmp;
+            temp_holder.clone()
+        } else {
+            let dir = PathBuf::from(source);
+            if !dir.is_dir() {
+                return Err("source is neither a git URL nor an existing directory".to_string());
+            }
+            dir
+        };
+
+        // Collect skill directories: any folder containing SKILL.md (including
+        // the source root itself).
+        let mut skill_dirs: Vec<PathBuf> = Vec::new();
+        if source_dir.join("SKILL.md").is_file() {
+            skill_dirs.push(source_dir.clone());
+        }
+        if let Ok(entries) = std::fs::read_dir(&source_dir) {
+            for entry in entries.flatten() {
+                let d = entry.path();
+                if d.is_dir() && d.join("SKILL.md").is_file() {
+                    skill_dirs.push(d);
+                }
+            }
+        }
+        if skill_dirs.is_empty() {
+            return Err("no SKILL.md found in the source".to_string());
+        }
+
+        let mut installed = Vec::new();
+        for src in &skill_dirs {
+            let Some(name) = src.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            let dest = dest_root.join(name);
+            let _ = std::fs::remove_dir_all(&dest);
+            copy_dir_recursive(src, &dest).map_err(|e| e.to_string())?;
+            installed.push(name.to_string());
+        }
+        Ok(json!({ "ok": true, "installed": installed }))
+    }
+
+    /// Remove an installed skill directory. The path must live inside a
+    /// `.claude/skills/` directory (guarding against deleting anything else).
+    fn skills_uninstall(&self, p: &Value) -> HandlerResult {
+        let path = p
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("missing 'path'")?;
+        // The path may be the SKILL.md file or the skill directory.
+        let mut dir = PathBuf::from(path);
+        if dir.is_file() {
+            dir = dir
+                .parent()
+                .map(Path::to_path_buf)
+                .ok_or("invalid skill path")?;
+        }
+        let inside_skills = dir
+            .components()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|w| w[0].as_os_str() == ".claude" && w[1].as_os_str() == "skills");
+        if !inside_skills {
+            return Err("only skills under a .claude/skills directory can be removed".to_string());
+        }
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true }))
+    }
+
+    // MARK: Plugins (delegated to the `claude plugin` CLI)
+
+    /// List installed Claude Code plugins via `claude plugin list --json`.
+    fn plugins_list(&self) -> HandlerResult {
+        let out = run_claude(&["plugin", "list", "--json"])?;
+        let parsed: Value = serde_json::from_str(out.trim()).unwrap_or(json!([]));
+        let list: Vec<Value> = parsed
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .map(|r| {
+                        let id = r.get("id").and_then(Value::as_str).unwrap_or_default();
+                        let (name, marketplace) = id.split_once('@').unwrap_or((id, ""));
+                        json!({
+                            "id": id,
+                            "name": name,
+                            "marketplace": marketplace,
+                            "version": r.get("version").and_then(Value::as_str).unwrap_or("unknown"),
+                            "scope": r.get("scope").and_then(Value::as_str).unwrap_or("user"),
+                            "enabled": r.get("enabled").and_then(Value::as_bool).unwrap_or(false),
+                            "has_mcp": r.get("mcpServers").map(|m| m.is_object()).unwrap_or(false),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(json!({ "plugins": list }))
+    }
+
+    /// Install a plugin (`plugin@marketplace`) at the given scope.
+    fn plugins_install(&self, p: &Value) -> HandlerResult {
+        let source = p
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or("missing 'source'")?;
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
+        let out = run_claude(&["plugin", "install", source, "--scope", scope])?;
+        Ok(json!({ "ok": true, "output": out.trim() }))
+    }
+
+    /// Uninstall a plugin by name (`plugin@marketplace` or `plugin`).
+    fn plugins_uninstall(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("missing 'name'")?;
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
+        let out = run_claude(&["plugin", "uninstall", name, "--scope", scope, "-y"])?;
+        Ok(json!({ "ok": true, "output": out.trim() }))
+    }
+
+    /// Enable or disable an installed plugin.
+    fn plugins_set_enabled(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("missing 'name'")?;
+        let enabled = p
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .ok_or("missing 'enabled'")?;
+        let verb = if enabled { "enable" } else { "disable" };
+        let out = run_claude(&["plugin", verb, name])?;
+        Ok(json!({ "ok": true, "output": out.trim() }))
+    }
+
+    /// List configured marketplaces via `claude plugin marketplace list --json`.
+    fn plugins_marketplace_list(&self) -> HandlerResult {
+        let out = run_claude(&["plugin", "marketplace", "list", "--json"])?;
+        let parsed: Value = serde_json::from_str(out.trim()).unwrap_or(json!([]));
+        Ok(json!({ "marketplaces": parsed }))
+    }
+
+    /// Add a marketplace from a URL, path, or GitHub repo.
+    fn plugins_marketplace_add(&self, p: &Value) -> HandlerResult {
+        let source = p
+            .get("source")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or("missing 'source'")?;
+        let out = run_claude(&["plugin", "marketplace", "add", source])?;
+        Ok(json!({ "ok": true, "output": out.trim() }))
+    }
 }
 
 fn config_to_json(cfg: &AppConfig) -> Value {
@@ -804,6 +1021,75 @@ fn parse_frontmatter(content: &str) -> HashMap<String, String> {
         }
     }
     map
+}
+
+/// The `claude` binary to invoke (honors `CLAUDESTUDIO_CLAUDE_BIN`).
+fn claude_bin() -> String {
+    std::env::var("CLAUDESTUDIO_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string())
+}
+
+/// Run the `claude` CLI with `args`, capturing stdout. Returns a useful error
+/// (including stderr) on failure. Never touches the Anthropic API — this only
+/// shells out to the locally-authenticated `claude` binary.
+fn run_claude(args: &[&str]) -> std::result::Result<String, String> {
+    let out = std::process::Command::new(claude_bin())
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("could not run claude: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let msg = if stderr.trim().is_empty() {
+            stdout.trim()
+        } else {
+            stderr.trim()
+        };
+        Err(format!("claude {} failed: {msg}", args.join(" ")))
+    }
+}
+
+/// True if `source` looks like a git/remote URL rather than a local path.
+fn looks_like_git_url(source: &str) -> bool {
+    source.contains("://") || source.starts_with("git@") || source.ends_with(".git")
+}
+
+/// The `.claude/skills` directory for the requested scope: `project` → `<cwd>`,
+/// anything else → `$HOME`.
+fn skills_root_for_scope(p: &Value) -> std::result::Result<PathBuf, String> {
+    let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
+    let base = if scope == "project" {
+        let cwd = p
+            .get("cwd")
+            .and_then(Value::as_str)
+            .ok_or("project scope requires a 'cwd'")?;
+        PathBuf::from(cwd)
+    } else {
+        PathBuf::from(std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?)
+    };
+    Ok(base.join(".claude").join("skills"))
+}
+
+/// Recursively copy a directory tree from `src` to `dst`.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if from.is_dir() {
+            // Skip VCS metadata so an installed skill isn't a nested repo.
+            if entry.file_name() == ".git" {
+                continue;
+            }
+            copy_dir_recursive(&from, &to)?;
+        } else {
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
 }
 
 /// Turn a human name into a filesystem-safe kebab slug for a library filename.
@@ -992,6 +1278,89 @@ mod tests {
             .expect("graphify skill found");
         assert_eq!(s["scope"], json!("project"));
         assert_eq!(s["description"], json!("Turn input into a knowledge graph"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skill_create_then_list_and_uninstall() {
+        let (r, base) = router_in("skill-crud");
+        let cwd = base.join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let cwd_str = cwd.to_string_lossy().to_string();
+
+        let created = r
+            .dispatch(&new_request(
+                "skills.create",
+                json!({ "scope": "project", "cwd": cwd_str, "name": "My Helper" }),
+            ))
+            .await;
+        assert_eq!(created.payload["ok"], json!(true));
+        assert_eq!(created.payload["command"], json!("my-helper"));
+        let path = created.payload["path"].as_str().unwrap().to_string();
+        assert!(path.ends_with("/.claude/skills/my-helper/SKILL.md"));
+
+        let listed = r
+            .dispatch(&new_request("skills.list", json!({ "cwd": cwd_str })))
+            .await;
+        assert!(listed.payload["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["command"] == json!("my-helper")));
+
+        let removed = r
+            .dispatch(&new_request("skills.uninstall", json!({ "path": path })))
+            .await;
+        assert_eq!(removed.payload["ok"], json!(true));
+
+        let after = r
+            .dispatch(&new_request("skills.list", json!({ "cwd": cwd_str })))
+            .await;
+        assert!(!after.payload["skills"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s["command"] == json!("my-helper")));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skill_uninstall_rejects_paths_outside_skills_dir() {
+        let (r, base) = router_in("skill-guard");
+        let res = r
+            .dispatch(&new_request(
+                "skills.uninstall",
+                json!({ "path": "/tmp/not-a-skill" }),
+            ))
+            .await;
+        assert_eq!(res.kind, cs_types::IpcKind::Error);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skill_install_from_local_directory() {
+        let (r, base) = router_in("skill-install");
+        // A local "source" containing one skill folder.
+        let src = base.join("src");
+        let pack = src.join("cool-skill");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("SKILL.md"),
+            "---\nname: cool-skill\ndescription: demo\n---\nbody\n",
+        )
+        .unwrap();
+        let cwd = base.join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let res = r
+            .dispatch(&new_request(
+                "skills.install",
+                json!({ "scope": "project", "cwd": cwd.to_string_lossy(),
+                        "source": src.to_string_lossy() }),
+            ))
+            .await;
+        assert_eq!(res.payload["ok"], json!(true));
+        assert!(cwd.join(".claude/skills/cool-skill/SKILL.md").is_file());
         let _ = std::fs::remove_dir_all(&base);
     }
 
