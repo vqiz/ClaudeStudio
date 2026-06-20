@@ -34,10 +34,27 @@ jobs:
             dist/ClaudeStudio.dmg
             dist/ClaudeStudio.app.zip
 
-      - name: Attach to the GitHub release
+      - name: Publish the GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          name: ClaudeStudio ${{ github.ref_name }}
+          # Tags with a pre-release suffix (e.g. -alpha, -beta) ship as a prerelease.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          body: |
+            **ClaudeStudio — a native macOS app + Rust core that gives Claude Code a full GUI.** Alpha.
+
+            ### Install
+            1. Download **`ClaudeStudio.dmg`** below, open it, and drag **ClaudeStudio** to Applications.
+            2. First launch: right-click the app → **Open** (the build is ad-hoc signed, not notarized, so Gatekeeper asks once).
+            3. The app starts its Rust core itself — no terminal needed.
+
+            ### Requirements
+            - You must have the **`claude` CLI installed and logged in** (`claude /login`). ClaudeStudio drives that CLI with your subscription — it never uses the Anthropic API.
+
+            ### Alpha notes
+            Most features work end-to-end (projects, live sessions with continue/resume, skills & MCP & plugins, agent monitor, voice assistant, archive). It's unsigned/un-notarized and rough in places — please file issues.
           files: |
             dist/ClaudeStudio.dmg
             dist/ClaudeStudio.app.zip
