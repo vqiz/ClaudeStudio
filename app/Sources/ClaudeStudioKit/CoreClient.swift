@@ -188,6 +188,46 @@ public struct LibrarySkill: Sendable, Identifiable, Equatable {
     }
 }
 
+/// An installed Claude Code plugin (`plugins.list`, via the `claude` CLI).
+public struct Plugin: Sendable, Identifiable, Equatable {
+    public var id: String { fullId }
+    /// The full `name@marketplace` identifier.
+    public let fullId: String
+    public let name: String
+    public let marketplace: String
+    public let version: String
+    public let scope: String
+    public let enabled: Bool
+    /// Whether the plugin ships an MCP server.
+    public let hasMcp: Bool
+
+    public init?(value: MsgPackValue) {
+        guard let id = value["id"]?.stringValue else { return nil }
+        self.fullId = id
+        self.name = value["name"]?.stringValue ?? id
+        self.marketplace = value["marketplace"]?.stringValue ?? ""
+        self.version = value["version"]?.stringValue ?? "unknown"
+        self.scope = value["scope"]?.stringValue ?? "user"
+        self.enabled = value["enabled"]?.boolValue ?? false
+        self.hasMcp = value["has_mcp"]?.boolValue ?? false
+    }
+}
+
+/// A configured plugin marketplace (`plugins.marketplace_list`).
+public struct PluginMarketplace: Sendable, Identifiable, Equatable {
+    public var id: String { name }
+    public let name: String
+    public let source: String
+    public let repo: String
+
+    public init?(value: MsgPackValue) {
+        guard let name = value["name"]?.stringValue else { return nil }
+        self.name = name
+        self.source = value["source"]?.stringValue ?? ""
+        self.repo = value["repo"]?.stringValue ?? ""
+    }
+}
+
 /// A configured MCP server from the Claude config (`mcp.list`).
 public struct McpServer: Sendable, Identifiable, Equatable {
     public var id: String { scope + "/" + name }
@@ -398,6 +438,76 @@ public final class CoreClient: Sendable {
         let response = try await call("skills.list", .map(payload))
         let rows = response.payload?["skills"]?.arrayValue ?? []
         return rows.compactMap(LibrarySkill.init(value:))
+    }
+
+    /// Scaffold a new skill in the given scope (`project` needs `cwd`). Returns
+    /// the new SKILL.md path.
+    public func createSkill(name: String, scope: String, cwd: String? = nil) async throws -> String {
+        var payload: [String: MsgPackValue] = ["name": .string(name), "scope": .string(scope)]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("skills.create", .map(payload))
+        return response.payload?["path"]?.stringValue ?? ""
+    }
+
+    /// Install skills from a git URL or local directory into the given scope.
+    /// Returns the names installed.
+    public func installSkills(source: String, scope: String, cwd: String? = nil) async throws -> [String] {
+        var payload: [String: MsgPackValue] = ["source": .string(source), "scope": .string(scope)]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("skills.install", .map(payload))
+        return (response.payload?["installed"]?.arrayValue ?? []).compactMap { $0.stringValue }
+    }
+
+    /// Uninstall a skill by its SKILL.md path or directory.
+    @discardableResult
+    public func uninstallSkill(path: String) async throws -> Bool {
+        let response = try await call("skills.uninstall", .map(["path": .string(path)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// List installed Claude Code plugins.
+    public func fetchPlugins() async throws -> [Plugin] {
+        let response = try await call("plugins.list")
+        let rows = response.payload?["plugins"]?.arrayValue ?? []
+        return rows.compactMap(Plugin.init(value:))
+    }
+
+    /// Install a plugin (`plugin@marketplace`) at the given scope.
+    @discardableResult
+    public func installPlugin(source: String, scope: String = "user") async throws -> Bool {
+        let response = try await call("plugins.install",
+                                      .map(["source": .string(source), "scope": .string(scope)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// Uninstall a plugin by name.
+    @discardableResult
+    public func uninstallPlugin(name: String, scope: String = "user") async throws -> Bool {
+        let response = try await call("plugins.uninstall",
+                                      .map(["name": .string(name), "scope": .string(scope)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// Enable or disable an installed plugin.
+    @discardableResult
+    public func setPluginEnabled(name: String, enabled: Bool) async throws -> Bool {
+        let response = try await call("plugins.set_enabled",
+                                      .map(["name": .string(name), "enabled": .bool(enabled)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// List configured plugin marketplaces.
+    public func fetchMarketplaces() async throws -> [PluginMarketplace] {
+        let response = try await call("plugins.marketplace_list")
+        let rows = response.payload?["marketplaces"]?.arrayValue ?? []
+        return rows.compactMap(PluginMarketplace.init(value:))
+    }
+
+    /// Add a plugin marketplace from a URL, path, or GitHub repo.
+    @discardableResult
+    public func addMarketplace(source: String) async throws -> Bool {
+        let response = try await call("plugins.marketplace_add", .map(["source": .string(source)]))
+        return response.payload?["ok"]?.boolValue ?? false
     }
 
     /// List configured MCP servers (project `<cwd>/.mcp.json` + user config).

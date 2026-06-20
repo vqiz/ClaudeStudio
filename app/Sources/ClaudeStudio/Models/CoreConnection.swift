@@ -210,6 +210,65 @@ final class CoreConnection {
         return (try? await client.fetchSkills(cwd: cwd)) ?? []
     }
 
+    /// Scaffold a new skill; returns its SKILL.md path (nil when offline/failed).
+    func createSkill(name: String, scope: String, cwd: String?) async -> String? {
+        guard isConnected, let client else { return nil }
+        return try? await client.createSkill(name: name, scope: scope, cwd: cwd)
+    }
+
+    /// Install skills from a git URL or local directory; returns the names added.
+    func installSkills(source: String, scope: String, cwd: String?) async -> [String] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.installSkills(source: source, scope: scope, cwd: cwd)) ?? []
+    }
+
+    /// Uninstall a skill by SKILL.md path or directory.
+    @discardableResult
+    func uninstallSkill(path: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.uninstallSkill(path: path)) ?? false
+    }
+
+    /// Installed Claude Code plugins.
+    func plugins() async -> [Plugin] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchPlugins()) ?? []
+    }
+
+    /// Install a plugin (`plugin@marketplace`).
+    @discardableResult
+    func installPlugin(source: String, scope: String = "user") async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.installPlugin(source: source, scope: scope)) ?? false
+    }
+
+    /// Uninstall a plugin by name.
+    @discardableResult
+    func uninstallPlugin(name: String, scope: String = "user") async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.uninstallPlugin(name: name, scope: scope)) ?? false
+    }
+
+    /// Enable or disable an installed plugin.
+    @discardableResult
+    func setPluginEnabled(name: String, enabled: Bool) async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.setPluginEnabled(name: name, enabled: enabled)) ?? false
+    }
+
+    /// Configured plugin marketplaces.
+    func marketplaces() async -> [PluginMarketplace] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchMarketplaces()) ?? []
+    }
+
+    /// Add a plugin marketplace from a URL, path, or GitHub repo.
+    @discardableResult
+    func addMarketplace(source: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.addMarketplace(source: source)) ?? false
+    }
+
     /// MCP servers for a project (`<cwd>/.mcp.json`) plus the user config.
     func mcpServers(cwd: String?) async -> [McpServer] {
         guard isConnected, let client else { return [] }
