@@ -143,10 +143,10 @@ private struct AgentDetail: View {
         guard let project = appState.selectedProject else { return }
         let userTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !userTask.isEmpty else { return }
-        let prompt = draft.systemPrompt.isEmpty
-            ? userTask
-            : "\(draft.systemPrompt)\n\nTask: \(userTask)"
         task = ""
-        Task { await appState.core.startSession(prompt: prompt, cwd: project.path, model: draft.model) }
+        Task {
+            await appState.core.startSession(prompt: userTask, cwd: project.path,
+                                             model: draft.model, systemPrompt: draft.systemPrompt)
+        }
     }
 }
