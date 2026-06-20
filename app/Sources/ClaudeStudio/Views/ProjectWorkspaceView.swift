@@ -127,13 +127,19 @@ private struct ProjectOverviewTab: View {
                     .background(Color.brandViolet.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 Text("MODEL · EFFORT").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).tracking(0.5)
             }
-            Picker("", selection: Binding(
+            Picker("Model", selection: Binding(
                 get: { project.model },
                 set: { appState.projectStore.setModel(project.id, model: $0) }
             )) {
                 ForEach(ModelTierOption.allCases) { Text($0.label).tag($0.rawValue) }
             }
-            .labelsHidden()
+            Picker("Effort", selection: Binding(
+                get: { project.effort },
+                set: { appState.projectStore.setEffort(project.id, effort: $0) }
+            )) {
+                ForEach(EffortOption.allCases) { Text($0.label).tag($0.rawValue) }
+            }
+            .font(.caption)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(padding: DS.s3, radius: DS.rMd, elevated: false)
@@ -194,6 +200,8 @@ private struct ProjectSessionTab: View {
             .frame(minWidth: 230, idealWidth: 270, maxWidth: 340, maxHeight: .infinity)
 
             VStack(spacing: 0) {
+                ModelEffortBar(project: project)
+                Divider()
                 if appState.core.liveRunOrigin == "agent" {
                     ContentUnavailableView("An agent is working in the Agents tab",
                                            systemImage: "person.crop.rectangle.stack",
@@ -287,14 +295,14 @@ private struct ProjectSessionTab: View {
         prompt = ""
         Task { await appState.core.startSession(prompt: text, cwd: project.path,
                                                 model: project.model, systemPrompt: appliedSystemPrompt,
-                                                origin: "session") }
+                                                effort: project.effort, origin: "session") }
     }
 
     private func runSkill(_ command: String) {
         guard appState.core.runningSessionId == nil else { return }
         Task { await appState.core.startSession(prompt: "/\(command)", cwd: project.path,
                                                 model: project.model, systemPrompt: appliedSystemPrompt,
-                                                origin: "skill") }
+                                                effort: project.effort, origin: "skill") }
     }
 
     private func runTask(_ task: LibraryTask) {
@@ -302,7 +310,61 @@ private struct ProjectSessionTab: View {
         let detail = task.summary.isEmpty ? "" : " \(task.summary)"
         Task { await appState.core.startSession(prompt: "Run the \"\(task.name)\" task on this project.\(detail)",
                                                 cwd: project.path, model: project.model,
-                                                systemPrompt: appliedSystemPrompt, origin: "task") }
+                                                systemPrompt: appliedSystemPrompt, effort: project.effort,
+                                                origin: "task") }
+    }
+}
+
+/// A compact bar to change the model tier and reasoning effort for this
+/// project's sessions, live. Both persist to the project immediately.
+struct ModelEffortBar: View {
+    @Environment(AppState.self) private var appState
+    let project: Project
+
+    var body: some View {
+        HStack(spacing: 10) {
+            menu(title: "Model", symbol: "cpu", value: project.model,
+                 options: ModelTierOption.allCases.map { ($0.rawValue, $0.label, $0.short) },
+                 set: { appState.projectStore.setModel(project.id, model: $0) })
+            menu(title: "Effort", symbol: "gauge.with.dots.needle.67percent", value: project.effort,
+                 options: EffortOption.allCases.map { ($0.rawValue, $0.label, $0.short) },
+                 set: { appState.projectStore.setEffort(project.id, effort: $0) })
+            Spacer()
+        }
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func menu(title: String, symbol: String, value: String,
+                      options: [(id: String, label: String, short: String)],
+                      set: @escaping (String) -> Void) -> some View {
+        Menu {
+            ForEach(options, id: \.id) { opt in
+                Button { set(opt.id) } label: {
+                    if value == opt.id {
+                        Label(opt.label, systemImage: "checkmark")
+                    } else {
+                        Text(opt.label)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol).foregroundStyle(.brandRich)
+                Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text(options.first { $0.id == value }?.short ?? value.capitalized)
+                    .font(.caption.weight(.semibold))
+                Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(.background.secondary, in: Capsule())
+            .overlay(Capsule().strokeBorder(.primary.opacity(0.08), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Change \(title.lowercased()) for this project's sessions")
     }
 }
 
@@ -601,7 +663,7 @@ private struct ProjectAgentsTab: View {
         Task {
             await appState.core.startSession(prompt: text, cwd: project.path,
                                              model: agent.model, systemPrompt: agent.systemPrompt,
-                                             origin: "agent")
+                                             effort: project.effort, origin: "agent")
         }
     }
 }

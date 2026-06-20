@@ -8,16 +8,34 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     var name: String
     /// Absolute folder path (the session working directory).
     var path: String
-    /// Per-project model / reasoning effort: `haiku`, `sonnet`, or `opus`.
+    /// Per-project model tier: `haiku`, `sonnet`, or `opus`.
     var model: String
+    /// Per-project reasoning effort (`--effort`): low/medium/high/xhigh/max.
+    var effort: String
     var addedAt: Date
 
-    init(id: UUID = UUID(), name: String, path: String, model: String = "sonnet", addedAt: Date = .now) {
+    init(id: UUID = UUID(), name: String, path: String,
+         model: String = "sonnet", effort: String = "medium", addedAt: Date = .now) {
         self.id = id
         self.name = name
         self.path = path
         self.model = model
+        self.effort = effort
         self.addedAt = addedAt
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, path, model, effort, addedAt }
+
+    /// Tolerant decoder so projects saved before `effort` existed still load
+    /// (the missing field defaults instead of failing the whole list).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        path = try c.decode(String.self, forKey: .path)
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? "sonnet"
+        effort = try c.decodeIfPresent(String.self, forKey: .effort) ?? "medium"
+        addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt) ?? .now
     }
 
     /// `~`-abbreviated path for display.
@@ -65,6 +83,12 @@ final class ProjectStore {
         save()
     }
 
+    func setEffort(_ id: Project.ID, effort: String) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].effort = effort
+        save()
+    }
+
     private func save() {
         if let data = try? JSONEncoder().encode(projects) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
@@ -85,7 +109,7 @@ struct ProjectWorktree: Identifiable, Sendable, Hashable {
     let path: String
 }
 
-/// The model tiers offered as a project's effort level.
+/// The model tiers offered for a project / session.
 enum ModelTierOption: String, CaseIterable, Identifiable {
     case haiku, sonnet, opus
     var id: String { rawValue }
@@ -94,6 +118,28 @@ enum ModelTierOption: String, CaseIterable, Identifiable {
         case .haiku: return "Haiku · fast"
         case .sonnet: return "Sonnet · balanced"
         case .opus: return "Opus · deep"
+        }
+    }
+    var short: String { rawValue.capitalized }
+}
+
+/// The reasoning-effort levels the `claude` CLI accepts (`--effort`).
+enum EffortOption: String, CaseIterable, Identifiable {
+    case low, medium, high, xhigh, max
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .low: return "Low · quickest"
+        case .medium: return "Medium · default"
+        case .high: return "High · deeper"
+        case .xhigh: return "X-High · harder"
+        case .max: return "Max · exhaustive"
+        }
+    }
+    var short: String {
+        switch self {
+        case .xhigh: return "X-High"
+        default: return rawValue.capitalized
         }
     }
 }

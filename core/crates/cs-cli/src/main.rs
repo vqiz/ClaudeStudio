@@ -227,6 +227,12 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .filter(|s| !s.trim().is_empty());
+            // Optional reasoning effort (`--effort`: low/medium/high/xhigh/max).
+            let effort = p
+                .get("effort")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
             let binary = p
                 .get("binary")
                 .and_then(|v| v.as_str())
@@ -259,6 +265,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 binary,
                 model,
                 system_prompt,
+                effort,
                 Arc::clone(&writer),
             ));
             continue;
@@ -304,6 +311,7 @@ fn spawn_claude_forwarder(
     binary: String,
     model: ModelTier,
     system_prompt: Option<String>,
+    effort: Option<String>,
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -313,6 +321,9 @@ fn spawn_claude_forwarder(
         }
         if let Some(system) = system_prompt {
             session = session.with_system_prompt(system);
+        }
+        if let Some(level) = effort {
+            session = session.with_effort(level);
         }
 
         let mut stream = match session.run(&prompt).await {

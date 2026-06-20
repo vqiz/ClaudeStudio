@@ -452,7 +452,8 @@ final class CoreConnection {
     /// Start a live Claude session. Streamed output lands in ``liveSession`` and
     /// the run is archived by the core. No-op when offline.
     func startSession(prompt: String, cwd: String? = nil, model: String? = nil,
-                      systemPrompt: String? = nil, origin: String = "session") async {
+                      systemPrompt: String? = nil, effort: String? = nil,
+                      origin: String = "session") async {
         guard isConnected, let client else { return }
         // Echo the user's own message into the transcript so the session reads
         // like a conversation.
@@ -460,7 +461,7 @@ final class CoreConnection {
         liveRunOrigin = origin
         runningSessionId = nil
         if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
-                                                   systemPrompt: systemPrompt), !id.isEmpty {
+                                                   systemPrompt: systemPrompt, effort: effort), !id.isEmpty {
             runningSessionId = id
         }
         // Refresh the archive so the new session appears in the list.

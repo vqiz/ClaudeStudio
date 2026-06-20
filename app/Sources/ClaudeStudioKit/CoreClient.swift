@@ -594,6 +594,7 @@ public final class CoreClient: Sendable {
         cwd: String? = nil,
         model: String? = nil,
         systemPrompt: String? = nil,
+        effort: String? = nil,
         binary: String? = nil
     ) async throws -> String {
         var payload: [String: MsgPackValue] = ["prompt": .string(prompt)]
@@ -602,6 +603,7 @@ public final class CoreClient: Sendable {
         if let systemPrompt, !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             payload["system_prompt"] = .string(systemPrompt)
         }
+        if let effort, !effort.isEmpty { payload["effort"] = .string(effort) }
         if let binary { payload["binary"] = .string(binary) }
         let response = try await call("session.start", .map(payload))
         return response.payload?["session_id"]?.stringValue ?? ""

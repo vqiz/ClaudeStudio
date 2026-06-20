@@ -49,7 +49,10 @@ pub enum Error {
 /// Convenient result alias for this crate.
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Map a [`ModelTier`] to the CLI model identifier the `claude` binary expects.
+/// Reasoning-effort levels the `claude` CLI accepts for `--effort`.
+pub const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Map a [`ModelTier`] to the CLI model identifier the `binary` expects.
 pub fn model_flag(tier: ModelTier) -> &'static str {
     match tier {
         ModelTier::Haiku => "haiku",
@@ -71,6 +74,7 @@ pub fn build_args(
     append_system_prompt: Option<&str>,
     mcp_config: Option<&str>,
     allowed_tools: &[String],
+    effort: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         "--model".to_string(),
@@ -82,6 +86,14 @@ pub fn build_args(
         // stdout, so the UI would show an empty transcript.
         "--verbose".to_string(),
     ];
+    // Reasoning effort for this run (`--effort`), if one of the levels the CLI
+    // accepts. Anything else is ignored so we never pass garbage.
+    if let Some(level) = effort {
+        if EFFORT_LEVELS.contains(&level) {
+            args.push("--effort".to_string());
+            args.push(level.to_string());
+        }
+    }
     if let Some(system) = append_system_prompt {
         let trimmed = system.trim();
         if !trimmed.is_empty() {
@@ -311,6 +323,9 @@ pub struct ClaudeSession {
     /// When true (the default), the run is given default access to the core's
     /// session database via the built-in `claudestudio` MCP server.
     pub database_access: bool,
+    /// Reasoning effort (`--effort`): one of [`EFFORT_LEVELS`], or `None` for the
+    /// CLI default.
+    pub effort: Option<String>,
 }
 
 impl ClaudeSession {
@@ -323,7 +338,17 @@ impl ClaudeSession {
             cwd: None,
             append_system_prompt: None,
             database_access: true,
+            effort: None,
         }
+    }
+
+    /// Set the reasoning effort for this run (ignored unless it's a valid level).
+    pub fn with_effort(mut self, effort: impl Into<String>) -> Self {
+        let effort = effort.into();
+        if EFFORT_LEVELS.contains(&effort.as_str()) {
+            self.effort = Some(effort);
+        }
+        self
     }
 
     /// Disable the built-in session-database MCP server for this run.
@@ -377,6 +402,7 @@ impl ClaudeSession {
             self.append_system_prompt.as_deref(),
             mcp_config,
             allowed_tools,
+            self.effort.as_deref(),
         );
         let mut command = Command::new(&self.binary);
         command
@@ -488,7 +514,7 @@ mod tests {
 
     #[test]
     fn build_args_requests_stream_json() {
-        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[]);
+        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[], None);
         assert!(args.contains(&"stream-json".to_string()));
         // --print + stream-json requires --verbose, or the CLI errors out.
         assert!(args.contains(&"--verbose".to_string()));
@@ -498,6 +524,20 @@ mod tests {
         // No DB access requested → no MCP/allowlist flags.
         assert!(!args.contains(&"--mcp-config".to_string()));
         assert!(!args.contains(&"--allowedTools".to_string()));
+        assert!(!args.contains(&"--effort".to_string()));
+    }
+
+    #[test]
+    fn build_args_passes_valid_effort_and_ignores_invalid() {
+        let args = build_args(ModelTier::Opus, "go", None, None, &[], Some("high"));
+        let i = args
+            .iter()
+            .position(|a| a == "--effort")
+            .expect("--effort present");
+        assert_eq!(args[i + 1], "high");
+        // Unknown levels are dropped rather than passed through.
+        let bad = build_args(ModelTier::Opus, "go", None, None, &[], Some("turbo"));
+        assert!(!bad.contains(&"--effort".to_string()));
     }
 
     #[test]
@@ -508,6 +548,7 @@ mod tests {
             Some("You are a careful reviewer."),
             None,
             &[],
+            None,
         );
         let i = args
             .iter()
@@ -515,7 +556,7 @@ mod tests {
             .expect("flag present");
         assert_eq!(args[i + 1], "You are a careful reviewer.");
         // Blank/whitespace system prompts are omitted.
-        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[]);
+        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[], None);
         assert!(!none.contains(&"--append-system-prompt".to_string()));
     }
 
@@ -531,6 +572,7 @@ mod tests {
             None,
             Some("/home/u/.claudestudio/mcp-claudestudio.json"),
             &tools,
+            None,
         );
         let ci = args
             .iter()
