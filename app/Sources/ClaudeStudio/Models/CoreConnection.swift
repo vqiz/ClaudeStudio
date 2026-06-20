@@ -163,6 +163,31 @@ final class CoreConnection {
         self.sessions = (try? await client.listSessions()) ?? sessions
     }
 
+    /// Read a text file via the core (`nil` when offline). `exists` is false for
+    /// a missing file.
+    func readFile(_ path: String) async -> (content: String, exists: Bool)? {
+        guard isConnected, let client else { return nil }
+        return try? await client.readFile(path)
+    }
+
+    /// Write a text file via the core. Returns false when offline or on error.
+    @discardableResult
+    func writeFile(_ path: String, content: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.writeFile(path, content: content)) ?? false
+    }
+
+    /// Current branch + number of changed files for a git repo at `cwd`
+    /// (`nil` when offline or not a repo).
+    func gitInfo(cwd: String) async -> (branch: String, changes: Int)? {
+        guard isConnected, let client else { return nil }
+        guard let branchRes = try? await client.call("git.branch", .map(["cwd": .string(cwd)])),
+              let branch = branchRes.payload?["branch"]?.stringValue else { return nil }
+        let statusRes = try? await client.call("git.status", .map(["cwd": .string(cwd)]))
+        let changes = statusRes?.payload?["entries"]?.arrayValue?.count ?? 0
+        return (branch, changes)
+    }
+
     /// Re-fetch config and budget over an existing connection, reconnecting if the
     /// link has dropped.
     func refresh() async {

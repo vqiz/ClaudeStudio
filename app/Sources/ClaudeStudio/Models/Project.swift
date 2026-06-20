@@ -1,111 +1,92 @@
 import Foundation
+import Observation
 
-/// A workspace Claude Studio manages: a git repository, its worktrees, and the
-/// agentic configuration (skills, hooks, MCP servers) attached to it.
-struct Project: Identifiable, Hashable, Sendable {
+/// A workspace ClaudeStudio manages: a real folder on disk plus the model/effort
+/// to run sessions there. Persisted across launches via ``ProjectStore``.
+struct Project: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     var name: String
+    /// Absolute folder path (the session working directory).
     var path: String
-    var branch: String
-    var trustMode: TrustMode
-    var worktrees: [Worktree]
-    var activeSessionCount: Int
-    var skills: [String]
-    var mcpServers: [String]
-    var lastActivity: Date
+    /// Per-project model / reasoning effort: `haiku`, `sonnet`, or `opus`.
+    var model: String
+    var addedAt: Date
 
-    init(id: UUID = UUID(),
-         name: String,
-         path: String,
-         branch: String,
-         trustMode: TrustMode,
-         worktrees: [Worktree] = [],
-         activeSessionCount: Int = 0,
-         skills: [String] = [],
-         mcpServers: [String] = [],
-         lastActivity: Date = .now) {
+    init(id: UUID = UUID(), name: String, path: String, model: String = "sonnet", addedAt: Date = .now) {
         self.id = id
         self.name = name
         self.path = path
-        self.branch = branch
-        self.trustMode = trustMode
-        self.worktrees = worktrees
-        self.activeSessionCount = activeSessionCount
-        self.skills = skills
-        self.mcpServers = mcpServers
-        self.lastActivity = lastActivity
+        self.model = model
+        self.addedAt = addedAt
+    }
+
+    /// `~`-abbreviated path for display.
+    var displayPath: String {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        return path.hasPrefix(home) ? "~" + path.dropFirst(home.count) : path
+    }
+
+    /// Conventional context-file paths under this project.
+    var claudeMdPath: String { (path as NSString).appendingPathComponent("CLAUDE.md") }
+    var agentsMdPath: String { (path as NSString).appendingPathComponent("AGENTS.md") }
+}
+
+/// Persists the user's projects (real folders) to `UserDefaults`. No sample data:
+/// the list starts empty and the user adds their own folders.
+@Observable
+@MainActor
+final class ProjectStore {
+    private(set) var projects: [Project]
+
+    private static let storageKey = "claudestudio.projects"
+
+    init() {
+        self.projects = Self.load()
+    }
+
+    /// Add a folder as a project (de-duplicated by path); returns the project.
+    @discardableResult
+    func add(path: String) -> Project {
+        if let existing = projects.first(where: { $0.path == path }) { return existing }
+        let project = Project(name: URL(fileURLWithPath: path).lastPathComponent, path: path)
+        projects.append(project)
+        save()
+        return project
+    }
+
+    func remove(_ id: Project.ID) {
+        projects.removeAll { $0.id == id }
+        save()
+    }
+
+    func setModel(_ id: Project.ID, model: String) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].model = model
+        save()
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(projects) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    private static func load() -> [Project] {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let list = try? JSONDecoder().decode([Project].self, from: data) else { return [] }
+        return list
     }
 }
 
-/// A git worktree under a project, where an isolated agent session can run.
-struct Worktree: Identifiable, Hashable, Sendable {
-    let id: UUID
-    var branch: String
-    var path: String
-    var isDirty: Bool
-    var aheadBy: Int
-
-    init(id: UUID = UUID(), branch: String, path: String, isDirty: Bool = false, aheadBy: Int = 0) {
-        self.id = id
-        self.branch = branch
-        self.path = path
-        self.isDirty = isDirty
-        self.aheadBy = aheadBy
+/// The model tiers offered as a project's effort level.
+enum ModelTierOption: String, CaseIterable, Identifiable {
+    case haiku, sonnet, opus
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .haiku: return "Haiku · fast"
+        case .sonnet: return "Sonnet · balanced"
+        case .opus: return "Opus · deep"
+        }
     }
-}
-
-extension Project {
-    /// Representative sample projects so the UI is populated on first launch
-    /// before the Rust core streams real data over IPC.
-    static let samples: [Project] = [
-        Project(
-            name: "claude-studio",
-            path: "~/dev/claude-studio",
-            branch: "main",
-            trustMode: .guarded,
-            worktrees: [
-                Worktree(branch: "feat/brain-view", path: "~/dev/.wt/brain", isDirty: true, aheadBy: 4),
-                Worktree(branch: "fix/ipc-framing", path: "~/dev/.wt/ipc", aheadBy: 1)
-            ],
-            activeSessionCount: 2,
-            skills: ["graphify", "code-review", "tdd"],
-            mcpServers: ["qdrant", "filesystem", "github"],
-            lastActivity: Date(timeIntervalSinceNow: -120)
-        ),
-        Project(
-            name: "atlas-api",
-            path: "~/dev/atlas-api",
-            branch: "release/2.4",
-            trustMode: .autonomous,
-            worktrees: [
-                Worktree(branch: "chore/migrate-axum", path: "~/dev/.wt/axum", isDirty: true, aheadBy: 12)
-            ],
-            activeSessionCount: 1,
-            skills: ["security-review", "diagnose"],
-            mcpServers: ["postgres", "sentry"],
-            lastActivity: Date(timeIntervalSinceNow: -900)
-        ),
-        Project(
-            name: "marketing-site",
-            path: "~/dev/marketing-site",
-            branch: "main",
-            trustMode: .readOnly,
-            skills: ["web-design", "seo-audit"],
-            mcpServers: ["vercel"],
-            lastActivity: Date(timeIntervalSinceNow: -7_200)
-        ),
-        Project(
-            name: "research-notebook",
-            path: "~/dev/research-notebook",
-            branch: "exp/embeddings",
-            trustMode: .unleashed,
-            worktrees: [
-                Worktree(branch: "exp/embeddings", path: "~/dev/research-notebook", isDirty: true, aheadBy: 31)
-            ],
-            activeSessionCount: 1,
-            skills: ["deep-research"],
-            mcpServers: ["qdrant", "arxiv"],
-            lastActivity: Date(timeIntervalSinceNow: -45)
-        )
-    ]
 }

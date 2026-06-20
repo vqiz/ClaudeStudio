@@ -86,3 +86,32 @@ struct PageHeader: View {
         }
     }
 }
+
+/// A wrapping grid of small labelled chips.
+struct ChipFlow: View {
+    let items: [String]
+    var symbol: String
+
+    var body: some View {
+        if items.isEmpty {
+            Text("None")
+                .font(.callout).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+        } else {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 8, alignment: .leading)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(items, id: \.self) { item in
+                    Label(item, systemImage: symbol)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.quaternary, in: Capsule())
+                }
+            }
+            .padding(6)
+        }
+    }
+}

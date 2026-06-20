@@ -303,6 +303,21 @@ public final class CoreClient: Sendable {
         return rows.compactMap(McpServer.init(value:))
     }
 
+    /// Read a UTF-8 text file. `exists` is false for a missing file (content "").
+    public func readFile(_ path: String) async throws -> (content: String, exists: Bool) {
+        let response = try await call("file.read", .map(["path": .string(path)]))
+        return (response.payload?["content"]?.stringValue ?? "",
+                response.payload?["exists"]?.boolValue ?? false)
+    }
+
+    /// Write a UTF-8 text file, creating parent directories as needed.
+    @discardableResult
+    public func writeFile(_ path: String, content: String) async throws -> Bool {
+        let response = try await call("file.write",
+                                      .map(["path": .string(path), "content": .string(content)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
     /// Start a live Claude session and return its new id. The core spawns the
     /// `claude` CLI and streams its output back as `session.event` frames on
     /// ``events`` (subscribe by iterating `events`). `binary` overrides the

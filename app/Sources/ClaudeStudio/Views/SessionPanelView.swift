@@ -86,7 +86,8 @@ struct SessionPanelView: View {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
         prompt = ""
-        Task { await appState.core.startSession(prompt: text) }
+        let project = appState.selectedProject
+        Task { await appState.core.startSession(prompt: text, cwd: project?.path, model: project?.model) }
     }
 
     private func header(_ session: AgentSession) -> some View {

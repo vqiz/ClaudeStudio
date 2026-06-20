@@ -101,6 +101,10 @@ impl Router {
             "definitions.list" => self.definitions_list(),
             "mcp.list" => self.mcp_list(p),
 
+            // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
+            "file.read" => self.file_read(p),
+            "file.write" => self.file_write(p),
+
             other => Err(format!("unknown method: {other}")),
         }
     }
@@ -226,6 +230,47 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let stats = store.stats().map_err(|e| e.to_string())?;
         Ok(serde_json::to_value(stats).unwrap_or(Value::Null))
+    }
+
+    // MARK: Editable files
+
+    /// Read a UTF-8 text file. A missing file returns `exists: false` with empty
+    /// content (so the UI can create it on first save). Files over 4 MiB are
+    /// rejected to keep the editor responsive.
+    fn file_read(&self, p: &Value) -> HandlerResult {
+        let path = p
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("missing 'path'")?;
+        match std::fs::read_to_string(path) {
+            Ok(content) => {
+                if content.len() > 4 * 1024 * 1024 {
+                    return Err("file too large to edit".to_string());
+                }
+                Ok(json!({ "path": path, "content": content, "exists": true }))
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Ok(json!({ "path": path, "content": "", "exists": false }))
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    /// Write a UTF-8 text file, creating parent directories as needed.
+    fn file_write(&self, p: &Value) -> HandlerResult {
+        let path = p
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("missing 'path'")?;
+        let content = p
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or("missing 'content'")?;
+        if let Some(parent) = std::path::Path::new(path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(path, content).map_err(|e| e.to_string())?;
+        Ok(json!({ "path": path, "ok": true, "bytes": content.len() }))
     }
 
     // MARK: Live Claude session recording (called by the connection forwarder)
@@ -598,6 +643,37 @@ mod tests {
         assert_eq!(servers[0]["name"], json!("fs"));
         assert_eq!(servers[0]["transport"], json!("stdio"));
         assert_eq!(servers[0]["target"], json!("npx"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn file_write_then_read_roundtrips() {
+        let dir = std::env::temp_dir().join(format!("cs-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("nested/CLAUDE.md");
+        let path_str = path.to_string_lossy().to_string();
+        let r = router();
+
+        let miss = r
+            .dispatch(&new_request("file.read", json!({ "path": path_str })))
+            .await;
+        assert_eq!(miss.payload["exists"], json!(false));
+        assert_eq!(miss.payload["content"], json!(""));
+
+        let w = r
+            .dispatch(&new_request(
+                "file.write",
+                json!({ "path": path_str, "content": "# Project\n" }),
+            ))
+            .await;
+        assert_eq!(w.payload["ok"], json!(true));
+
+        let rd = r
+            .dispatch(&new_request("file.read", json!({ "path": path_str })))
+            .await;
+        assert_eq!(rd.payload["exists"], json!(true));
+        assert_eq!(rd.payload["content"], json!("# Project\n"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

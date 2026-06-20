@@ -63,7 +63,10 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
 @Observable
 @MainActor
 final class AppState {
-    var projects: [Project]
+    /// The user's real projects (folders they added), persisted.
+    let projectStore = ProjectStore()
+    var projects: [Project] { projectStore.projects }
+
     var selectedSidebarItem: SidebarItem? = .projects
     var selectedProjectID: Project.ID?
 
@@ -101,9 +104,7 @@ final class AppState {
     private var busTask: Task<Void, Never>?
 
     init() {
-        let projects = Project.samples
-        self.projects = projects
-        self.selectedProjectID = projects.first?.id
+        self.selectedProjectID = projectStore.projects.first?.id
         let session = AgentSession(
             title: "Refactor IPC framing",
             projectName: "claude-studio",
