@@ -122,12 +122,15 @@ pub fn build_args(
 /// session-database tools exist and use them.
 const DB_SYSTEM_PROMPT: &str = "\
 You have read access to the ClaudeStudio session database through the built-in \
-`claudestudio` MCP server. Whenever the request concerns past sessions, history, \
-cost, or stored project activity, use its tools: \
-mcp__claudestudio__list_sessions, mcp__claudestudio__get_session, \
-mcp__claudestudio__search_sessions, and mcp__claudestudio__session_stats. \
-Any sub-agents you spawn (via the Task tool) should use these same tools when \
-relevant — the MCP server is available to them too.";
+`claudestudio` MCP server. This database spans **every ClaudeStudio project** — \
+not just the current one — so you can recall past work, results, costs, and \
+decisions across all of the user's projects. Whenever the request concerns past \
+sessions, history, cost, cross-project context, or stored project activity, use \
+its tools to look it up rather than guessing: mcp__claudestudio__list_sessions, \
+mcp__claudestudio__get_session, mcp__claudestudio__search_sessions, and \
+mcp__claudestudio__session_stats. Any sub-agents you spawn (via the Task tool) \
+should use these same tools when relevant — the MCP server is available to them \
+too.";
 
 /// Read-only session-database tools the built-in `claudestudio` MCP server
 /// exposes. Kept in sync with `cs_cli::mcp_server::DB_TOOLS`.

@@ -353,6 +353,20 @@ final class CoreConnection {
         return (try? await client.fetchMcpServers(cwd: cwd)) ?? []
     }
 
+    /// Every MCP server the `claude` CLI knows about (all scopes + plugin /
+    /// connector servers), with live status. The complete, authoritative list.
+    func allMcpServers(cwd: String? = nil) async -> [McpServer] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchAllMcpServers(cwd: cwd)) ?? []
+    }
+
+    /// Remove an MCP server via `claude mcp remove` (any CLI-managed scope).
+    @discardableResult
+    func cliRemoveMcpServer(name: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        return (try? await client.cliRemoveMcpServer(name: name)) ?? false
+    }
+
     /// Add or update an MCP server, then refresh the global list.
     @discardableResult
     func upsertMcpServer(

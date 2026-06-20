@@ -37,7 +37,6 @@ struct MCPManagerView: View {
             } else {
                 ForEach(servers) { server in
                     MCPServerRow(server: server,
-                                 onEdit: { editor = EditorState(existing: server, defaultScope: server.scope) },
                                  onDelete: { Task { await remove(server) } })
                 }
             }
@@ -50,13 +49,15 @@ struct MCPManagerView: View {
     }
 
     private func reload() async {
-        servers = await appState.core.mcpServers(cwd: cwd)
+        // The complete, authoritative list — every server the `claude` CLI sees
+        // (user + project + plugin + claude.ai connectors), with live status.
+        servers = await appState.core.allMcpServers(cwd: cwd)
         loaded = true
     }
 
     private func remove(_ server: McpServer) async {
-        _ = await appState.core.removeMcpServer(name: server.name, scope: server.scope,
-                                                cwd: server.scope == "project" ? cwd : nil)
+        // `claude mcp remove` handles whichever scope the CLI manages it in.
+        _ = await appState.core.cliRemoveMcpServer(name: server.name)
         await reload()
     }
 }
@@ -70,7 +71,6 @@ struct EditorState: Identifiable {
 
 private struct MCPServerRow: View {
     let server: McpServer
-    let onEdit: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
@@ -82,12 +82,10 @@ private struct MCPServerRow: View {
                     .lineLimit(1).truncationMode(.middle)
             }
             Spacer()
+            if !server.status.isEmpty { statusBadge }
             tag(server.transport.uppercased(), color: .blue)
-            tag(server.scope.capitalized, color: server.scope == "project" ? .purple : .secondary)
-            Button(action: onEdit) { Image(systemName: "pencil") }
-                .buttonStyle(.borderless).help("Edit")
             Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
-                .buttonStyle(.borderless).help("Remove")
+                .buttonStyle(.borderless).help("Remove (claude mcp remove)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(padding: 14, radius: DS.rMd, elevated: false)
@@ -98,6 +96,23 @@ private struct MCPServerRow: View {
             return ([server.target] + server.args).joined(separator: " ")
         }
         return server.url.isEmpty ? server.target : server.url
+    }
+
+    private var statusBadge: some View {
+        let (text, color): (String, Color)
+        switch server.status {
+        case "connected": (text, color) = ("connected", .green)
+        case "failed": (text, color) = ("failed", .red)
+        case "needs-auth": (text, color) = ("needs auth", .orange)
+        case "pending": (text, color) = ("pending", .yellow)
+        default: (text, color) = (server.status, .secondary)
+        }
+        return HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(text).font(.caption2.weight(.semibold)).foregroundStyle(color)
+        }
+        .padding(.horizontal, 7).padding(.vertical, 2)
+        .background(color.opacity(0.14), in: Capsule())
     }
 
     private var transportSymbol: String {

@@ -236,7 +236,7 @@ public struct McpServer: Sendable, Identifiable, Equatable {
     public let transport: String
     /// The command (stdio) or URL (sse/http).
     public let target: String
-    /// Visibility scope: `"project"` or `"user"`.
+    /// Visibility scope: `"project"` or `"user"` (empty for CLI-listed servers).
     public let scope: String
     /// Arguments for a stdio server.
     public let args: [String]
@@ -244,6 +244,9 @@ public struct McpServer: Sendable, Identifiable, Equatable {
     public let env: [String: String]
     /// The endpoint URL for an sse/http server.
     public let url: String
+    /// Live connection status from `claude mcp list`: `connected`, `failed`,
+    /// `needs-auth`, `pending`, `unknown`, or empty (file-only listing).
+    public let status: String
 
     public init?(value: MsgPackValue) {
         guard let name = value["name"]?.stringValue else { return nil }
@@ -258,10 +261,12 @@ public struct McpServer: Sendable, Identifiable, Equatable {
         }
         self.env = env
         self.url = value["url"]?.stringValue ?? ""
+        self.status = value["status"]?.stringValue ?? ""
     }
 
     public init(name: String, transport: String, target: String, scope: String,
-                args: [String] = [], env: [String: String] = [:], url: String = "") {
+                args: [String] = [], env: [String: String] = [:], url: String = "",
+                status: String = "") {
         self.name = name
         self.transport = transport
         self.target = target
@@ -269,6 +274,7 @@ public struct McpServer: Sendable, Identifiable, Equatable {
         self.args = args
         self.env = env
         self.url = url
+        self.status = status
     }
 }
 
@@ -526,6 +532,23 @@ public final class CoreClient: Sendable {
         let response = try await call("mcp.list", .map(payload))
         let rows = response.payload?["servers"]?.arrayValue ?? []
         return rows.compactMap(McpServer.init(value:))
+    }
+
+    /// List **every** MCP server the `claude` CLI knows about — across all
+    /// scopes plus plugin / claude.ai connector servers — with live status.
+    public func fetchAllMcpServers(cwd: String? = nil) async throws -> [McpServer] {
+        var payload: [String: MsgPackValue] = [:]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("mcp.list_all", .map(payload))
+        let rows = response.payload?["servers"]?.arrayValue ?? []
+        return rows.compactMap(McpServer.init(value:))
+    }
+
+    /// Remove an MCP server via `claude mcp remove <name>` (any CLI-managed scope).
+    @discardableResult
+    public func cliRemoveMcpServer(name: String) async throws -> Bool {
+        let response = try await call("mcp.cli_remove", .map(["name": .string(name)]))
+        return response.payload?["ok"]?.boolValue ?? false
     }
 
     /// Add or update an MCP server in the project (`scope: "project"`, needs

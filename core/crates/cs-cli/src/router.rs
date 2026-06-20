@@ -158,8 +158,10 @@ impl Router {
             "plugins.marketplace_list" => self.plugins_marketplace_list(),
             "plugins.marketplace_add" => self.plugins_marketplace_add(p),
             "mcp.list" => self.mcp_list(p),
+            "mcp.list_all" => self.mcp_list_all(p),
             "mcp.upsert" => self.mcp_upsert(p),
             "mcp.remove" => self.mcp_remove(p),
+            "mcp.cli_remove" => self.mcp_cli_remove(p),
             "hooks.list" => self.hooks_list(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
@@ -578,6 +580,30 @@ impl Router {
         let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
         atomic_write(Path::new(&path), &format!("{pretty}\n"))?;
         Ok(json!({ "ok": true, "path": path, "name": name }))
+    }
+
+    /// List **every** MCP server the `claude` CLI knows about — across all scopes
+    /// *and* plugin / claude.ai connector servers (which never appear in
+    /// `~/.claude.json`) — by parsing `claude mcp list`, including each server's
+    /// live connection status. This is the authoritative, complete list.
+    fn mcp_list_all(&self, p: &Value) -> HandlerResult {
+        // Run in the project dir (if given) so its `.mcp.json` servers are
+        // included alongside user, plugin, and connector servers.
+        let cwd = p.get("cwd").and_then(Value::as_str);
+        let out = run_claude_in(cwd, &["mcp", "list"]).unwrap_or_default();
+        Ok(json!({ "servers": parse_claude_mcp_list(&out) }))
+    }
+
+    /// Remove an MCP server via `claude mcp remove <name>` (handles whichever
+    /// scope the CLI manages it in). Used for servers not editable as a plain
+    /// `.mcp.json` / `~/.claude.json` entry.
+    fn mcp_cli_remove(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("missing 'name'")?;
+        let output = run_claude(&["mcp", "remove", name])?;
+        Ok(json!({ "ok": true, "name": name, "output": output.trim() }))
     }
 
     /// List configured Claude hooks parsed from `settings.json` — the project's
@@ -1100,9 +1126,18 @@ fn claude_bin() -> String {
 /// (including stderr) on failure. Never touches the Anthropic API — this only
 /// shells out to the locally-authenticated `claude` binary.
 fn run_claude(args: &[&str]) -> std::result::Result<String, String> {
-    let out = std::process::Command::new(claude_bin())
-        .args(args)
-        .stdin(std::process::Stdio::null())
+    run_claude_in(None, args)
+}
+
+/// Like [`run_claude`] but runs in `cwd` when given (so directory-scoped config,
+/// e.g. a project's `.mcp.json`, is picked up).
+fn run_claude_in(cwd: Option<&str>, args: &[&str]) -> std::result::Result<String, String> {
+    let mut cmd = std::process::Command::new(claude_bin());
+    cmd.args(args).stdin(std::process::Stdio::null());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let out = cmd
         .output()
         .map_err(|e| format!("could not run claude: {e}"))?;
     if out.status.success() {
@@ -1158,6 +1193,55 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Parse the human-readable output of `claude mcp list` into server entries.
+/// Each row looks like `name: target [(HTTP)] - <icon> <status>` — names may
+/// contain `:` (e.g. `plugin:github:github`) or spaces (`claude.ai Gmail`), so we
+/// split on the first `": "` (which only precedes the target).
+fn parse_claude_mcp_list(out: &str) -> Vec<Value> {
+    let mut servers = Vec::new();
+    for line in out.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with("Checking") {
+            continue;
+        }
+        let Some((name, rest)) = line.split_once(": ") else {
+            continue;
+        };
+        let (target_part, status_text) = match rest.rsplit_once(" - ") {
+            Some((t, s)) => (t.trim(), s.trim()),
+            None => (rest.trim(), ""),
+        };
+        let (target, transport) = if let Some(idx) = target_part.rfind(" (") {
+            let t = target_part[..idx].trim();
+            let marker = target_part[idx + 2..].trim_end_matches(')').to_lowercase();
+            (t, marker)
+        } else if target_part.starts_with("http") {
+            (target_part, "http".to_string())
+        } else {
+            (target_part, "stdio".to_string())
+        };
+        let status = if status_text.contains("Connected") {
+            "connected"
+        } else if status_text.contains("Failed") {
+            "failed"
+        } else if status_text.to_lowercase().contains("auth") {
+            "needs-auth"
+        } else if status_text.contains("Pending") {
+            "pending"
+        } else {
+            "unknown"
+        };
+        servers.push(json!({
+            "name": name,
+            "target": target,
+            "transport": transport,
+            "status": status,
+            "scope": "",
+        }));
+    }
+    servers
 }
 
 /// Turn a human name into a filesystem-safe kebab slug for a library filename.
@@ -1268,6 +1352,46 @@ mod tests {
         let res = r.dispatch(&req).await;
         assert_eq!(res.payload["pong"], json!(true));
         assert_eq!(res.id, req.id);
+    }
+
+    #[test]
+    fn parse_claude_mcp_list_handles_all_shapes() {
+        let out = "Checking MCP server health…\n\n\
+            claude.ai Indeed: https://mcp.indeed.com/claude/mcp - ✔ Connected\n\
+            claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ! Needs authentication\n\
+            plugin:github:github: https://api.githubcopilot.com/mcp/ (HTTP) - ✘ Failed to connect\n\
+            ae-mcp: node /Users/u/after-effects-mcp/dist/index.js - ✘ Failed to connect\n\
+            fal-ai: https://mcp.fal.ai/mcp (HTTP) - ✔ Connected\n\
+            blender: /opt/homebrew/bin/uvx blender-mcp - ✔ Connected\n";
+        let servers = parse_claude_mcp_list(out);
+        assert_eq!(servers.len(), 6);
+
+        let by_name = |n: &str| {
+            servers
+                .iter()
+                .find(|s| s["name"] == json!(n))
+                .unwrap()
+                .clone()
+        };
+
+        let gh = by_name("plugin:github:github");
+        assert_eq!(gh["target"], json!("https://api.githubcopilot.com/mcp/"));
+        assert_eq!(gh["transport"], json!("http"));
+        assert_eq!(gh["status"], json!("failed"));
+
+        let gd = by_name("claude.ai Google Drive");
+        assert_eq!(gd["status"], json!("needs-auth"));
+
+        let ae = by_name("ae-mcp");
+        assert_eq!(ae["transport"], json!("stdio"));
+        assert_eq!(
+            ae["target"],
+            json!("node /Users/u/after-effects-mcp/dist/index.js")
+        );
+
+        let fal = by_name("fal-ai");
+        assert_eq!(fal["status"], json!("connected"));
+        assert_eq!(fal["transport"], json!("http"));
     }
 
     #[test]
