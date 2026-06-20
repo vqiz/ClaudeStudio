@@ -1,14 +1,19 @@
 import SwiftUI
 
-/// Settings — global trust posture, core connection, memory, and voice options.
-/// Rendered both in the sidebar detail and the macOS Settings scene.
+/// Settings — appearance, default agent behaviour, and the core connection.
+/// Only real, functional settings are shown; model and context budget are
+/// persisted to the core via `config.set`.
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
 
     @State private var socketPath = IpcSocketDefaults.path
-    @State private var qdrantURL = "http://127.0.0.1:6334"
-    @State private var enableVoice = true
-    @State private var autoConsolidateMemory = true
+    @State private var contextBudgetText = ""
+
+    private static let models: [(id: String, label: String)] = [
+        ("haiku", "Haiku — fastest, lightest"),
+        ("sonnet", "Sonnet — balanced (default)"),
+        ("opus", "Opus — most capable"),
+    ]
 
     var body: some View {
         @Bindable var appState = appState
@@ -25,22 +30,42 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
-            Section("Trust") {
-                Picker("Default trust mode", selection: $appState.globalTrustMode) {
+            Section("Default agent behaviour") {
+                Picker("Trust mode", selection: $appState.globalTrustMode) {
                     ForEach(TrustMode.allCases) { mode in
                         Label(mode.label, systemImage: mode.symbol).tag(mode)
                     }
                 }
                 Text(appState.globalTrustMode.blurb)
                     .font(.caption).foregroundStyle(.secondary)
+
+                if appState.core.config != nil {
+                    Picker("Default model", selection: modelBinding) {
+                        ForEach(Self.models, id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    Text("The reasoning tier for new sessions. You can override it per project.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Connect the core to edit the default model.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
 
-            Section("Rust Core (IPC)") {
-                LabeledContent("Socket") {
-                    TextField("Socket path", text: $socketPath)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 320)
+            if let config = appState.core.config {
+                Section("Context window") {
+                    LabeledContent("Token budget") {
+                        TextField("tokens", text: $contextBudgetText)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(maxWidth: 140)
+                            .onSubmit(saveContextBudget)
+                            .multilineTextAlignment(.trailing)
+                    }
+                    Text("How many tokens of CLAUDE.md, memory and retrieval the core assembles per prompt. Currently \(config.contextTokenBudget.formatted()).")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
+            }
+
+            Section("Rust core") {
                 LabeledContent("Status") {
                     HStack(spacing: 6) {
                         Circle().fill(coreStatusColor).frame(width: 8, height: 8)
@@ -54,33 +79,39 @@ struct SettingsView: View {
                     Label(appState.core.isConnected ? "Reconnect" : "Connect",
                           systemImage: "bolt.horizontal.circle")
                 }
-                if let config = appState.core.config {
-                    LabeledContent("Default model", value: config.defaultModel.capitalized)
-                    LabeledContent("Daily budget",
-                                   value: config.dailyBudgetUSD > 0 ? Format.usd(config.dailyBudgetUSD) : "No limit")
-                    LabeledContent("Context budget", value: "\(config.contextTokenBudget.formatted()) tokens")
-                }
-                Text("The app speaks length-prefixed MessagePack over this Unix socket.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Memory") {
-                LabeledContent("Qdrant") {
-                    TextField("Qdrant URL", text: $qdrantURL)
+                LabeledContent("Socket") {
+                    TextField("Socket path", text: $socketPath)
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 320)
                 }
-                Toggle("Auto-consolidate memory after each session", isOn: $autoConsolidateMemory)
-            }
-
-            Section("Voice") {
-                Toggle("Enable voice assistant", isOn: $enableVoice)
-                Toggle("Listening now", isOn: $appState.isListening)
-                    .disabled(!enableVoice)
+                Text("The app starts and stops the core automatically — no terminal needed. Sessions run through your `claude` CLI login (subscription), never the API.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
+        .onAppear(perform: syncFromConfig)
+        .onChange(of: appState.core.config?.contextTokenBudget) { _, _ in syncFromConfig() }
+    }
+
+    // MARK: Bindings & actions
+
+    private var modelBinding: Binding<String> {
+        Binding(
+            get: { appState.core.config?.defaultModel ?? "sonnet" },
+            set: { newValue in Task { await appState.core.updateConfig(defaultModel: newValue) } }
+        )
+    }
+
+    private func saveContextBudget() {
+        guard let value = Int(contextBudgetText.filter(\.isNumber)), value > 0 else { return }
+        Task { await appState.core.updateConfig(contextTokenBudget: value) }
+    }
+
+    private func syncFromConfig() {
+        if let budget = appState.core.config?.contextTokenBudget {
+            contextBudgetText = String(budget)
+        }
     }
 
     private var coreStatusText: String {

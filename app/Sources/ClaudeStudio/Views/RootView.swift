@@ -49,19 +49,90 @@ struct RootView: View {
     @ToolbarContentBuilder
     private var titleBarItems: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(appState.coreConnected ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(appState.coreConnected ? "Core connected" : "Core offline")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            CoreStatusButton()
         }
         ToolbarItemGroup(placement: .primaryAction) {
             VoiceMicIndicator()
+            TrustModeMenu()
+        }
+    }
+}
+
+/// Title-bar connection control: a status pill that is itself a menu —
+/// connect / reconnect / disconnect, plus the socket / last error.
+struct CoreStatusButton: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Menu {
+            Button(appState.coreConnected ? "Reconnect" : "Connect", systemImage: "bolt.horizontal.circle") {
+                Task { await appState.connectCore() }
+            }
+            if appState.coreConnected {
+                Button("Disconnect", systemImage: "xmark.circle", role: .destructive) {
+                    Task { await appState.core.disconnect() }
+                }
+            }
+            Divider()
+            Text(detail).font(.caption)
+        } label: {
+            HStack(spacing: 6) {
+                Circle().fill(color).frame(width: 8, height: 8)
+                Text(label).font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(color.opacity(0.14), in: Capsule())
+            .overlay(Capsule().strokeBorder(color.opacity(0.3), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Core connection")
+    }
+
+    private var label: String {
+        switch appState.core.status {
+        case .online: return "Core connected"
+        case .connecting: return "Connecting…"
+        case .offline, .failed: return "Core offline"
+        }
+    }
+    private var color: Color {
+        switch appState.core.status {
+        case .online: return .green
+        case .connecting: return .yellow
+        case .offline, .failed: return .orange
+        }
+    }
+    private var detail: String {
+        if case .failed(let reason) = appState.core.status { return reason }
+        return appState.core.socketPath
+    }
+}
+
+/// Title-bar trust-mode control: the badge, clickable to change mode (the change
+/// is persisted to the core).
+struct TrustModeMenu: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        Menu {
+            ForEach(TrustMode.allCases) { mode in
+                Button {
+                    appState.globalTrustMode = mode
+                } label: {
+                    Label(mode.label,
+                          systemImage: appState.globalTrustMode == mode ? "checkmark" : mode.symbol)
+                }
+            }
+        } label: {
             TrustModeBadge(mode: appState.globalTrustMode)
         }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Change trust mode")
     }
 }
 

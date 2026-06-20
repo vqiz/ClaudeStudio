@@ -15,7 +15,7 @@ struct ClaudeStudioApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
-                .frame(minWidth: 1_040, minHeight: 680)
+                .frame(minWidth: 820, minHeight: 540)
                 .task {
                     appState.startEventBus()
                     appState.activeSession?.startSimulatedStream()

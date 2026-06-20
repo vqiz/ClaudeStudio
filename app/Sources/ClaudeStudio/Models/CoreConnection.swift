@@ -148,6 +148,15 @@ final class CoreConnection {
         }
     }
 
+    /// Persist one or more config fields and adopt the returned config.
+    func updateConfig(defaultModel: String? = nil, contextTokenBudget: Int? = nil) async {
+        guard isConnected, let client else { return }
+        if let updated = try? await client.setConfig(defaultModel: defaultModel,
+                                                     contextTokenBudget: contextTokenBudget) {
+            self.config = updated
+        }
+    }
+
     /// Reload the session archive (e.g. after creating a session).
     func reloadSessions() async {
         guard isConnected, let client else { return }
