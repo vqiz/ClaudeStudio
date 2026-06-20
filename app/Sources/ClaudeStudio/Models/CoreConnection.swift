@@ -201,6 +201,16 @@ final class CoreConnection {
         return ok
     }
 
+    /// Load the shipped default tasks & definitions into the user library, then
+    /// refresh. Returns how many of each were newly added.
+    @discardableResult
+    func loadDefaultTemplates() async -> (tasks: Int, definitions: Int)? {
+        guard isConnected, let client else { return nil }
+        let result = try? await client.loadDefaultTemplates()
+        await reloadLibraries()
+        return result
+    }
+
     /// Create a new editable definition; returns its path.
     func createDefinition(name: String) async -> String? {
         guard isConnected, let client else { return nil }

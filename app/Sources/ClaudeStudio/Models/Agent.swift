@@ -38,20 +38,27 @@ final class AgentStore {
     private static let storageKey = "claudestudio.agents"
 
     init() {
-        switch Self.loadStored() {
-        case .some(let stored):
-            // Stored data exists (even if empty) — adopt it verbatim.
-            self.agents = stored
-        case .none where UserDefaults.standard.data(forKey: Self.storageKey) == nil:
-            // Truly first launch: seed the starter presets and persist them.
-            self.agents = Self.defaults
-            save()
-        case .none:
-            // Data is present but undecodable (e.g. a schema change). Show the
-            // defaults in memory but DO NOT overwrite the stored bytes, so a
-            // future migration can still recover the user's real agents.
-            self.agents = Self.defaults
+        // Start with the user's stored agents, or **empty** on first launch —
+        // no agents are seeded automatically. The starter set is loaded on demand
+        // via Settings → "Load default templates" (``loadDefaults()``). On a
+        // decode failure we also show nothing and never overwrite the stored
+        // bytes (no `save()` here), so a future migration can recover them.
+        self.agents = Self.loadStored() ?? []
+    }
+
+    /// Append the shipped default agent templates that aren't already present
+    /// (matched by name). Returns how many were added.
+    @discardableResult
+    func loadDefaults() -> Int {
+        let existing = Set(agents.map(\.name))
+        let toAdd = AgentTemplates.all.filter { !existing.contains($0.name) }
+        for t in toAdd {
+            agents.append(AgentDefinition(name: t.name, role: t.role, symbol: t.symbol,
+                                          model: t.model, trustMode: t.trustMode,
+                                          systemPrompt: t.systemPrompt))
         }
+        if !toAdd.isEmpty { save() }
+        return toAdd.count
     }
 
     /// Add a new agent — a blank one, or an editable copy of a shipped template.
@@ -98,32 +105,4 @@ final class AgentStore {
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
         return try? JSONDecoder().decode([AgentDefinition].self, from: data)
     }
-
-    /// Sensible, runnable starter agents (not placeholders — real presets).
-    static let defaults: [AgentDefinition] = [
-        AgentDefinition(
-            name: "Implementer",
-            role: "Writes and edits code",
-            symbol: "hammer.fill",
-            model: "sonnet",
-            trustMode: .guarded,
-            systemPrompt: "You implement scoped changes with small, reviewable diffs. Run the relevant tests before declaring a task complete, and explain what you changed."
-        ),
-        AgentDefinition(
-            name: "Reviewer",
-            role: "Audits diffs for correctness & security",
-            symbol: "checkmark.shield.fill",
-            model: "opus",
-            trustMode: .readOnly,
-            systemPrompt: "Review the working diff for correctness, security, and simplification opportunities. Do not modify files — report concrete findings with file:line references."
-        ),
-        AgentDefinition(
-            name: "Researcher",
-            role: "Investigates and summarises",
-            symbol: "magnifyingglass",
-            model: "sonnet",
-            trustMode: .guarded,
-            systemPrompt: "Investigate the question across the codebase and summarise concisely. Cite files and line numbers; do not change anything."
-        ),
-    ]
 }

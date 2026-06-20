@@ -122,6 +122,12 @@ struct LibraryBrowser: View {
                               onDelete: { await remove(item) },
                               onDuplicate: { await duplicate(item) })
                 .id(item.path)
+        } else if items.isEmpty {
+            ContentUnavailableView {
+                Label("Your \(title.lowercased()) is empty", systemImage: symbol)
+            } description: {
+                Text("Create one with the + button, or load the shipped starter set from Settings → Templates → Load default templates.")
+            }
         } else {
             ContentUnavailableView("Select an item", systemImage: symbol)
         }

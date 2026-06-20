@@ -8,6 +8,8 @@ struct SettingsView: View {
 
     @State private var socketPath = IpcSocketDefaults.path
     @State private var contextBudgetText = ""
+    @State private var loadingDefaults = false
+    @State private var loadResult: String?
 
     private static let models: [(id: String, label: String)] = [
         ("haiku", "Haiku — fastest, lightest"),
@@ -65,6 +67,25 @@ struct SettingsView: View {
                 }
             }
 
+            Section("Templates") {
+                Button {
+                    Task { await loadDefaults() }
+                } label: {
+                    Label(loadingDefaults ? "Loading…" : "Load default templates",
+                          systemImage: "square.and.arrow.down.on.square")
+                }
+                .disabled(loadingDefaults || !appState.coreConnected)
+                if let loadResult {
+                    Text(loadResult).font(.caption).foregroundStyle(.secondary)
+                }
+                Text("The Task, Definition and Agent libraries start empty. Load the shipped starter set (tasks, definitions, and agent templates) as editable copies into your library. Re-running only adds what's missing.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !appState.coreConnected {
+                    Text("Connect the core to load task & definition templates.")
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+
             Section("Rust core") {
                 LabeledContent("Status") {
                     HStack(spacing: 6) {
@@ -101,6 +122,20 @@ struct SettingsView: View {
             get: { appState.core.config?.defaultModel ?? "sonnet" },
             set: { newValue in Task { await appState.core.updateConfig(defaultModel: newValue) } }
         )
+    }
+
+    /// Load the shipped defaults: tasks + definitions (via the core) and the
+    /// agent templates (locally), reporting what was added.
+    private func loadDefaults() async {
+        loadingDefaults = true
+        defer { loadingDefaults = false }
+        let lib = await appState.core.loadDefaultTemplates()
+        let agentsAdded = appState.agentStore.loadDefaults()
+        if let lib {
+            loadResult = "Loaded \(lib.tasks) task(s), \(lib.definitions) definition(s), \(agentsAdded) agent(s)."
+        } else {
+            loadResult = "Loaded \(agentsAdded) agent(s). Connect the core to also load tasks & definitions."
+        }
     }
 
     private func saveContextBudget() {

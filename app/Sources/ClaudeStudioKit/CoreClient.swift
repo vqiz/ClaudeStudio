@@ -424,6 +424,15 @@ public final class CoreClient: Sendable {
         return response.payload?["path"]?.stringValue ?? ""
     }
 
+    /// Copy the shipped default tasks & definitions into the user's editable
+    /// library (idempotent). Returns how many of each were newly added.
+    @discardableResult
+    public func loadDefaultTemplates() async throws -> (tasks: Int, definitions: Int) {
+        let response = try await call("library.load_defaults")
+        return (Int(response.payload?["tasks"]?.intValue ?? 0),
+                Int(response.payload?["definitions"]?.intValue ?? 0))
+    }
+
     /// Delete a user-library definition by path (shipped ones are protected).
     @discardableResult
     public func deleteDefinition(path: String) async throws -> Bool {

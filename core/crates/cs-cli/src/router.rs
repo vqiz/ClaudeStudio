@@ -100,6 +100,7 @@ impl Router {
             "tasks.list" => self.tasks_list(),
             "tasks.create" => self.library_create(p, "tasks"),
             "tasks.delete" => self.library_delete(p, "tasks", ".task.json"),
+            "library.load_defaults" => self.library_load_defaults(),
             "definitions.list" => self.definitions_list(),
             "definitions.create" => self.library_create(p, "definitions"),
             "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
@@ -603,28 +604,52 @@ impl Router {
         Ok(json!({ "definitions": defs }))
     }
 
-    /// Collect library files of a kind from both the writable user library
-    /// (`<state_dir>/<sub>`, always editable) and the shipped reference library
-    /// (`<library_dir>/<sub>`, read-only in the packaged app). Each entry is
-    /// tagged `writable`. When the two roots coincide (dev / default), the
-    /// shipped scan is skipped so nothing is listed twice.
+    /// Collect library files of a kind from the user's library
+    /// (`<state_dir>/<sub>`) only. The libraries start empty; the shipped
+    /// defaults are *not* listed automatically — the user loads them on demand
+    /// via `library.load_defaults` (Settings → Load default templates), which
+    /// copies them in as editable items. Everything listed is therefore
+    /// writable.
     fn library_files(&self, sub: &str, suffix: &str) -> Vec<(String, String, bool)> {
-        let user_dir = self.inner.state_dir.join(sub);
-        let shipped_dir = self.inner.library_dir.join(sub);
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-        let same = user_dir == shipped_dir;
-        for (dir, writable) in [(&user_dir, true), (&shipped_dir, false)] {
-            if !writable && same {
-                continue;
-            }
-            for (path, content) in read_files_with_suffix(dir, suffix) {
-                if seen.insert(path.clone()) {
-                    out.push((path, content, writable));
+        read_files_with_suffix(&self.inner.state_dir.join(sub), suffix)
+            .into_iter()
+            .map(|(path, content)| (path, content, true))
+            .collect()
+    }
+
+    /// Copy the shipped default tasks & definitions from the bundled library
+    /// (`<library_dir>`) into the user's editable library (`<state_dir>`),
+    /// preserving category subfolders and skipping files that already exist (so
+    /// the user's own edits are never clobbered). Returns how many of each were
+    /// newly added.
+    fn library_load_defaults(&self) -> HandlerResult {
+        let mut counts = serde_json::Map::new();
+        for (sub, suffix) in [("tasks", ".task.json"), ("definitions", ".def.md")] {
+            let src_root = self.inner.library_dir.join(sub);
+            let dst_root = self.inner.state_dir.join(sub);
+            let mut added = 0u64;
+            // Same dir (dev with no separate bundle): nothing to copy.
+            if src_root != dst_root {
+                for (abs, _content) in read_files_with_suffix(&src_root, suffix) {
+                    let src = Path::new(&abs);
+                    let Ok(rel) = src.strip_prefix(&src_root) else {
+                        continue;
+                    };
+                    let dst = dst_root.join(rel);
+                    if dst.exists() {
+                        continue;
+                    }
+                    if let Some(parent) = dst.parent() {
+                        std::fs::create_dir_all(parent).ok();
+                    }
+                    if std::fs::copy(src, &dst).is_ok() {
+                        added += 1;
+                    }
                 }
             }
+            counts.insert(sub.to_string(), json!(added));
         }
-        out
+        Ok(Value::Object(counts))
     }
 
     /// Create a new, editable library item (task or definition) in the user
@@ -1493,12 +1518,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn tasks_and_definitions_read_from_library() {
-        // Point the library at a temp dir with one task and one definition.
-        let lib = std::env::temp_dir().join(format!("cs-lib-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&lib);
+    async fn libraries_start_empty_and_load_defaults_on_demand() {
+        // A shipped library with one task and one definition…
+        let base = std::env::temp_dir().join(format!("cs-defaults-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let lib = base.join("shipped");
+        let state = base.join("state");
         std::fs::create_dir_all(lib.join("tasks/compliance")).unwrap();
         std::fs::create_dir_all(lib.join("definitions/loading")).unwrap();
+        std::fs::create_dir_all(&state).unwrap();
         std::fs::write(
             lib.join("tasks/compliance/check.task.json"),
             r#"{"name":"Kleinunternehmer-Check","category":"Compliance","tags":["de"]}"#,
@@ -1514,24 +1542,44 @@ mod tests {
             AppConfig::default(),
             SessionStore::open_in_memory().unwrap(),
             EventBus::new(),
-            std::env::temp_dir(),
+            state.clone(),
             lib.clone(),
         );
 
+        // …does NOT appear until loaded: the libraries start empty.
+        let before = r.dispatch(&new_request("tasks.list", json!({}))).await;
+        assert!(before.payload["tasks"].as_array().unwrap().is_empty());
+
+        // Load the defaults into the user library.
+        let loaded = r
+            .dispatch(&new_request("library.load_defaults", json!({})))
+            .await;
+        assert_eq!(loaded.payload["tasks"], json!(1));
+        assert_eq!(loaded.payload["definitions"], json!(1));
+
+        // Now they're listed, writable, and copied under the state dir.
         let tasks = r.dispatch(&new_request("tasks.list", json!({}))).await;
         let arr = tasks.payload["tasks"].as_array().unwrap();
         assert_eq!(arr.len(), 1);
         assert_eq!(arr[0]["name"], json!("Kleinunternehmer-Check"));
+        assert_eq!(arr[0]["writable"], json!(true));
+        assert!(arr[0]["path"]
+            .as_str()
+            .unwrap()
+            .contains(&*state.to_string_lossy()));
 
         let defs = r
             .dispatch(&new_request("definitions.list", json!({})))
             .await;
-        let darr = defs.payload["definitions"].as_array().unwrap();
-        assert_eq!(darr.len(), 1);
-        assert_eq!(darr[0]["name"], json!("Video Frame Loading"));
-        assert_eq!(darr[0]["scope"], json!("global"));
+        assert_eq!(defs.payload["definitions"].as_array().unwrap().len(), 1);
 
-        let _ = std::fs::remove_dir_all(&lib);
+        // Loading again is idempotent — nothing is added the second time.
+        let again = r
+            .dispatch(&new_request("library.load_defaults", json!({})))
+            .await;
+        assert_eq!(again.payload["tasks"], json!(0));
+
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[tokio::test]
