@@ -107,9 +107,14 @@ public struct CoreSession: Sendable, Identifiable, Equatable {
     public let model: String?
     public let createdAt: Int
     public let updatedAt: Int
+    /// The `claude` CLI's session id, if captured — non-nil means this archived
+    /// conversation can be continued via `--resume`.
+    public let claudeSessionId: String?
 
     /// Wall-clock creation time (millis → `Date`).
     public var createdDate: Date { Date(timeIntervalSince1970: Double(createdAt) / 1000) }
+    /// Whether this session can be resumed.
+    public var isResumable: Bool { !(claudeSessionId ?? "").isEmpty }
 
     public init?(value: MsgPackValue) {
         guard let id = value["id"]?.stringValue,
@@ -121,6 +126,7 @@ public struct CoreSession: Sendable, Identifiable, Equatable {
         self.model = value["model"]?.stringValue
         self.createdAt = Int(value["created_at"]?.intValue ?? 0)
         self.updatedAt = Int(value["updated_at"]?.intValue ?? 0)
+        self.claudeSessionId = value["claude_session_id"]?.stringValue
     }
 }
 
@@ -387,6 +393,17 @@ public final class CoreClient: Sendable {
         return config
     }
 
+    /// The stored transcript of a session (oldest first) as `(role, content)`.
+    public func fetchSessionMessages(id: String) async throws -> [(role: String, content: String)] {
+        let response = try await call("session.messages", .map(["id": .string(id)]))
+        let rows = response.payload?["messages"]?.arrayValue ?? []
+        return rows.compactMap { row in
+            guard let role = row["role"]?.stringValue,
+                  let content = row["content"]?.stringValue else { return nil }
+            return (role, content)
+        }
+    }
+
     /// List archived sessions, newest first.
     public func listSessions(limit: Int = 100, offset: Int = 0) async throws -> [CoreSession] {
         let response = try await call("session.list", .map([
@@ -618,6 +635,7 @@ public final class CoreClient: Sendable {
         model: String? = nil,
         systemPrompt: String? = nil,
         effort: String? = nil,
+        resume: String? = nil,
         binary: String? = nil
     ) async throws -> String {
         var payload: [String: MsgPackValue] = ["prompt": .string(prompt)]
@@ -627,6 +645,7 @@ public final class CoreClient: Sendable {
             payload["system_prompt"] = .string(systemPrompt)
         }
         if let effort, !effort.isEmpty { payload["effort"] = .string(effort) }
+        if let resume, !resume.isEmpty { payload["resume"] = .string(resume) }
         if let binary { payload["binary"] = .string(binary) }
         let response = try await call("session.start", .map(payload))
         return response.payload?["session_id"]?.stringValue ?? ""

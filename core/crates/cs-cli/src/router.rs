@@ -128,6 +128,7 @@ impl Router {
             // --- Session archive ---
             "session.list" => self.session_list(p),
             "session.get" => self.session_get(p),
+            "session.messages" => self.session_messages(p),
             "session.search" => self.session_search(p),
             "session.create" => self.session_create(p),
             "session.stats" => self.session_stats(),
@@ -261,6 +262,13 @@ impl Router {
         Ok(serde_json::to_value(session).unwrap_or(Value::Null))
     }
 
+    fn session_messages(&self, p: &Value) -> HandlerResult {
+        let id = p.get("id").and_then(Value::as_str).ok_or("missing 'id'")?;
+        let store = self.inner.sessions.lock().unwrap();
+        let messages = store.list_messages(id).map_err(|e| e.to_string())?;
+        Ok(json!({ "messages": messages }))
+    }
+
     fn session_search(&self, p: &Value) -> HandlerResult {
         let query = p
             .get("query")
@@ -373,6 +381,13 @@ impl Router {
     pub fn record_run_event(&self, session_id: &str, kind: &str) {
         let store = self.inner.sessions.lock().unwrap();
         let _ = store.append_event(&NewEvent::new(session_id, kind));
+    }
+
+    /// Persist the `claude` CLI's session id for a run so the archive can resume
+    /// it later (best-effort).
+    pub fn set_claude_session_id(&self, session_id: &str, claude_session_id: &str) {
+        let store = self.inner.sessions.lock().unwrap();
+        let _ = store.set_claude_session_id(session_id, claude_session_id);
     }
 
     // MARK: Git (operates on the project directory named in `cwd`)

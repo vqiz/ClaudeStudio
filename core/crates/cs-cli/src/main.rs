@@ -233,6 +233,12 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .filter(|s| !s.trim().is_empty());
+            // Optional `claude` session id to continue the conversation (`--resume`).
+            let resume = p
+                .get("resume")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
             let binary = p
                 .get("binary")
                 .and_then(|v| v.as_str())
@@ -268,6 +274,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 model,
                 system_prompt,
                 effort,
+                resume,
                 cancel,
                 Arc::clone(&writer),
             ));
@@ -299,6 +306,9 @@ fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
             serde_json::json!({ "kind": "error", "message": message })
         }
         StreamEvent::Stopped => serde_json::json!({ "kind": "stopped" }),
+        StreamEvent::ClaudeSessionId(id) => {
+            serde_json::json!({ "kind": "claude_session", "session_id": id })
+        }
         StreamEvent::Other(raw) => serde_json::json!({ "kind": "other", "raw": raw }),
     }
 }
@@ -316,6 +326,7 @@ fn spawn_claude_forwarder(
     model: ModelTier,
     system_prompt: Option<String>,
     effort: Option<String>,
+    resume: Option<String>,
     cancel: Arc<tokio::sync::Notify>,
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
@@ -329,6 +340,9 @@ fn spawn_claude_forwarder(
         }
         if let Some(level) = effort {
             session = session.with_effort(level);
+        }
+        if let Some(id) = resume {
+            session = session.with_resume(id);
         }
 
         let cancel_signal = async move { cancel.notified().await };
@@ -356,6 +370,10 @@ fn spawn_claude_forwarder(
                 }
                 StreamEvent::ToolUse { name, input, .. } => {
                     router.record_tool_call(&session_id, name, input.clone())
+                }
+                StreamEvent::ClaudeSessionId(claude_sid) => {
+                    // Persist the CLI's session id so the archive can resume it.
+                    router.set_claude_session_id(&session_id, claude_sid);
                 }
                 _ => {}
             }

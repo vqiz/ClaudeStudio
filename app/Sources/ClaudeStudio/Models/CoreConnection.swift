@@ -101,6 +101,9 @@ final class CoreConnection {
     /// What launched the current transcript: `"session"`, `"skill"`, `"task"`,
     /// or `"agent"`.
     private(set) var liveRunOrigin: String?
+    /// The `claude` CLI session id of the current conversation. Set once a run
+    /// reports it; used to continue the conversation via `--resume`.
+    private(set) var liveClaudeSessionId: String?
     /// Sub-agents Claude has spawned in the current session (live), newest last.
     private(set) var liveAgents: [LiveAgent] = []
 
@@ -211,6 +214,26 @@ final class CoreConnection {
     func reloadSessions() async {
         guard isConnected, let client else { return }
         self.sessions = (try? await client.listSessions()) ?? sessions
+    }
+
+    /// The stored transcript of an archived session as `(role, content)`.
+    func sessionMessages(id: String) async -> [(role: String, content: String)] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchSessionMessages(id: id)) ?? []
+    }
+
+    /// Resume an archived conversation: load its transcript into the live view,
+    /// arm `--resume`, and select its project so the user can continue it in the
+    /// Session tab. Returns false if the session isn't resumable.
+    @discardableResult
+    func resumeArchived(_ session: CoreSession) async -> Bool {
+        guard let claudeId = session.claudeSessionId, !claudeId.isEmpty else { return false }
+        let msgs = await sessionMessages(id: session.id)
+        let transcript = msgs.map { msg in
+            LiveSessionEvent(kind: msg.role == "assistant" ? "assistant_text" : "user", text: msg.content)
+        }
+        adoptConversation(transcript: transcript, claudeSessionId: claudeId)
+        return true
     }
 
     /// Reload the task & definition libraries (after a create/delete).
@@ -489,6 +512,7 @@ final class CoreConnection {
         gitByCwd = [:]
         worktreesByCwd = [:]
         fileByPath = [:]
+        liveClaudeSessionId = nil
         if status != .offline { status = .offline }
     }
 
@@ -536,6 +560,10 @@ final class CoreConnection {
                 liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
                 finishLiveAgents(.done)
                 runningSessionId = nil
+            case "claude_session":
+                if let sid = event["session_id"]?.stringValue, !sid.isEmpty {
+                    liveClaudeSessionId = sid
+                }
             case "stopped":
                 liveSession.append(LiveSessionEvent(kind: "error", text: "Stopped by you."))
                 finishLiveAgents(.stopped)
@@ -581,22 +609,52 @@ final class CoreConnection {
 
     /// Start a live Claude session. Streamed output lands in ``liveSession`` and
     /// the run is archived by the core. No-op when offline.
+    /// Start or continue a live Claude session.
+    ///
+    /// When `resume` is set (or `append` is true with a known
+    /// ``liveClaudeSessionId``), the conversation continues with full CLI context
+    /// and the transcript is *appended* to — so follow-up messages no longer wipe
+    /// the chat. A fresh run (default) resets the transcript.
     func startSession(prompt: String, cwd: String? = nil, model: String? = nil,
                       systemPrompt: String? = nil, effort: String? = nil,
-                      origin: String = "session") async {
+                      origin: String = "session", resume: String? = nil,
+                      append: Bool = false) async {
         guard isConnected, let client else { return }
-        // Echo the user's own message into the transcript so the session reads
-        // like a conversation.
-        liveSession = [LiveSessionEvent(kind: "user", text: prompt)]
-        liveAgents = []
+        let resumeId = resume ?? (append ? liveClaudeSessionId : nil)
+        if append {
+            liveSession.append(LiveSessionEvent(kind: "user", text: prompt))
+        } else {
+            // Fresh conversation: reset the transcript and the resumable id.
+            liveSession = [LiveSessionEvent(kind: "user", text: prompt)]
+            liveAgents = []
+            liveClaudeSessionId = nil
+        }
         liveRunOrigin = origin
         runningSessionId = nil
         if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
-                                                   systemPrompt: systemPrompt, effort: effort), !id.isEmpty {
+                                                   systemPrompt: systemPrompt, effort: effort,
+                                                   resume: resumeId), !id.isEmpty {
             runningSessionId = id
         }
         // Refresh the archive so the new session appears in the list.
         await reloadSessions()
+    }
+
+    /// Clear the live transcript to begin a brand-new conversation.
+    func newChat() {
+        liveSession = []
+        liveAgents = []
+        liveClaudeSessionId = nil
+        liveRunOrigin = nil
+    }
+
+    /// Pre-load an archived conversation so it can be continued: show its
+    /// messages and arm `--resume` on the next message.
+    func adoptConversation(transcript: [LiveSessionEvent], claudeSessionId: String) {
+        liveSession = transcript
+        liveAgents = []
+        liveClaudeSessionId = claudeSessionId
+        liveRunOrigin = "session"
     }
 
     /// Stop the running live session (kills the `claude` process via the core).

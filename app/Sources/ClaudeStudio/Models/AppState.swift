@@ -170,6 +170,16 @@ final class AppState {
         }
     }
 
+    /// Resume an archived conversation (like `claude --resume`): load its
+    /// transcript, arm resume, select (or add) its project, and jump to it so the
+    /// user can continue in the Session tab.
+    func resumeArchived(_ session: CoreSession) async {
+        guard await core.resumeArchived(session) else { return }
+        let project = projectStore.add(path: session.cwd) // de-duped by path
+        selectedProjectID = project.id
+        selectedSidebarItem = .projects
+    }
+
     /// Starts the simulated supervisor event bus feeding the OS View.
     func startEventBus() {
         guard busTask == nil else { return }

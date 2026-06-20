@@ -124,6 +124,18 @@ pub struct Session {
     pub created_at: i64,
     /// Timestamp of the most recent activity (Unix millis).
     pub updated_at: i64,
+    /// The `claude` CLI's own session id for this run, if captured — lets the
+    /// archive continue the conversation via `--resume`.
+    pub claude_session_id: Option<String>,
+}
+
+/// One stored transcript message (for replaying an archived conversation).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptMessage {
+    /// `user` or `assistant`.
+    pub role: String,
+    pub content: String,
+    pub created_at: i64,
 }
 
 /// Data required to append a message to a session transcript.
@@ -353,7 +365,8 @@ impl SessionStore {
                 branch      TEXT,
                 model       TEXT,
                 created_at  INTEGER NOT NULL,
-                updated_at  INTEGER NOT NULL
+                updated_at  INTEGER NOT NULL,
+                claude_session_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -406,6 +419,28 @@ impl SessionStore {
             );
             "#,
         )?;
+        // Migration: add `claude_session_id` to databases created before it
+        // existed (ALTER fails if the column is already there, so guard it).
+        let has_col = self
+            .conn
+            .prepare(
+                "SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'claude_session_id'",
+            )?
+            .exists([])?;
+        if !has_col {
+            self.conn
+                .execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT", [])?;
+        }
+        Ok(())
+    }
+
+    /// Record the `claude` CLI's own session id for a session, so it can later
+    /// be continued with `--resume`.
+    pub fn set_claude_session_id(&self, id: &str, claude_session_id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET claude_session_id = ?2 WHERE id = ?1",
+            params![id, claude_session_id],
+        )?;
         Ok(())
     }
 
@@ -424,7 +459,7 @@ impl SessionStore {
     pub fn get_session(&self, id: &str) -> Result<Session> {
         self.conn
             .query_row(
-                "SELECT id, title, cwd, branch, model, created_at, updated_at
+                "SELECT id, title, cwd, branch, model, created_at, updated_at, claude_session_id
                  FROM sessions WHERE id = ?1",
                 params![id],
                 |row| {
@@ -436,6 +471,7 @@ impl SessionStore {
                         model: row.get(4)?,
                         created_at: row.get(5)?,
                         updated_at: row.get(6)?,
+                        claude_session_id: row.get(7)?,
                     })
                 },
             )
@@ -450,7 +486,7 @@ impl SessionStore {
         let limit = limit.clamp(1, 500);
         let offset = offset.max(0);
         let mut stmt = self.conn.prepare(
-            "SELECT id, title, cwd, branch, model, created_at, updated_at
+            "SELECT id, title, cwd, branch, model, created_at, updated_at, claude_session_id
              FROM sessions ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
         )?;
         let rows = stmt.query_map(params![limit, offset], |row| {
@@ -462,6 +498,7 @@ impl SessionStore {
                 model: row.get(4)?,
                 created_at: row.get(5)?,
                 updated_at: row.get(6)?,
+                claude_session_id: row.get(7)?,
             })
         })?;
         let mut out = Vec::new();
@@ -483,6 +520,26 @@ impl SessionStore {
     ///
     /// The message body is also inserted into the FTS index so it becomes
     /// searchable via [`SessionStore::full_text_search`].
+    /// All messages of a session, oldest first (for replaying a transcript).
+    pub fn list_messages(&self, session_id: &str) -> Result<Vec<TranscriptMessage>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT role, content, created_at FROM messages
+             WHERE session_id = ?1 ORDER BY created_at ASC, rowid ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok(TranscriptMessage {
+                role: row.get(0)?,
+                content: row.get(1)?,
+                created_at: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     pub fn append_message(&self, m: &NewMessage) -> Result<String> {
         let id = new_id();
         self.conn.execute(

@@ -57,6 +57,10 @@ struct ProjectWorkspaceView: View {
             }
         }
         .navigationTitle(project.name)
+        // Land on the Session tab when arriving with an active/resumed conversation.
+        .onAppear {
+            if appState.core.liveClaudeSessionId != nil { tab = .session }
+        }
     }
 }
 
@@ -233,7 +237,14 @@ private struct ProjectSessionTab: View {
 
     private var composer: some View {
         HStack(spacing: 8) {
-            TextField("Ask Claude, or apply a skill / task / definition…", text: $prompt, axis: .vertical)
+            if appState.core.liveClaudeSessionId != nil && appState.core.runningSessionId == nil {
+                Button { appState.core.newChat() } label: {
+                    Image(systemName: "square.and.pencil").font(.title3)
+                }
+                .buttonStyle(.plain)
+                .help("New chat — clear this conversation")
+            }
+            TextField(placeholder, text: $prompt, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
                 .onSubmit(run)
@@ -250,6 +261,12 @@ private struct ProjectSessionTab: View {
         }
         .padding(12)
         .background(.bar)
+    }
+
+    private var placeholder: String {
+        appState.core.liveClaudeSessionId != nil
+            ? "Reply to continue the conversation…"
+            : "Ask Claude, or apply a skill / task / definition…"
     }
 
     private var appliedSystemPrompt: String? {
@@ -286,9 +303,15 @@ private struct ProjectSessionTab: View {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
         prompt = ""
-        Task { await appState.core.startSession(prompt: text, cwd: project.path,
-                                                model: project.model, systemPrompt: appliedSystemPrompt,
-                                                effort: project.effort, origin: "session") }
+        // Continue the conversation when one is active; otherwise start fresh
+        // (and apply any selected definitions as the system prompt).
+        let continuing = appState.core.liveClaudeSessionId != nil
+        Task {
+            await appState.core.startSession(
+                prompt: text, cwd: project.path, model: project.model,
+                systemPrompt: continuing ? nil : appliedSystemPrompt,
+                effort: project.effort, origin: "session", append: continuing)
+        }
     }
 
     private func runSkill(_ command: String) {

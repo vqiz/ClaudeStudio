@@ -68,6 +68,7 @@ pub fn model_flag(tier: ModelTier) -> &'static str {
 /// `append_system_prompt` is set (e.g. running a saved agent), it is passed
 /// through `--append-system-prompt` so the agent's persona augments — rather
 /// than replaces — Claude Code's own system prompt.
+#[allow(clippy::too_many_arguments)]
 pub fn build_args(
     model: ModelTier,
     prompt: &str,
@@ -75,6 +76,7 @@ pub fn build_args(
     mcp_config: Option<&str>,
     allowed_tools: &[String],
     effort: Option<&str>,
+    resume: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         "--model".to_string(),
@@ -86,6 +88,13 @@ pub fn build_args(
         // stdout, so the UI would show an empty transcript.
         "--verbose".to_string(),
     ];
+    // Continue a previous conversation with full context.
+    if let Some(id) = resume {
+        if !id.trim().is_empty() {
+            args.push("--resume".to_string());
+            args.push(id.to_string());
+        }
+    }
     // Reasoning effort for this run (`--effort`), if one of the levels the CLI
     // accepts. Anything else is ignored so we never pass garbage.
     if let Some(level) = effort {
@@ -130,7 +139,10 @@ its tools to look it up rather than guessing: mcp__claudestudio__list_sessions, 
 mcp__claudestudio__get_session, mcp__claudestudio__search_sessions, and \
 mcp__claudestudio__session_stats. Any sub-agents you spawn (via the Task tool) \
 should use these same tools when relevant — the MCP server is available to them \
-too.";
+too. If the user asks whether you can access the database, the session history, \
+their past projects, or 'the Rust DB', the answer is YES — confirm it plainly \
+and, when useful, prove it by calling one of these tools. Never claim you lack \
+database access.";
 
 /// Read-only session-database tools the built-in `claudestudio` MCP server
 /// exposes. Kept in sync with `cs_cli::mcp_server::DB_TOOLS`.
@@ -207,6 +219,9 @@ pub enum StreamEvent {
     Failure(String),
     /// The run was stopped by the user (the process was killed).
     Stopped,
+    /// The `claude` CLI's own session id for this run — used to continue the
+    /// conversation later via `--resume`.
+    ClaudeSessionId(String),
     /// Any line we could parse as JSON but did not recognize.
     Other(serde_json::Value),
 }
@@ -236,6 +251,12 @@ pub fn parse_stream_line(line: &str) -> Vec<StreamEvent> {
     };
 
     match value.get("type").and_then(|t| t.as_str()) {
+        // The `system`/`init` line carries the CLI's session id (for --resume).
+        Some("system") => value
+            .get("session_id")
+            .and_then(|s| s.as_str())
+            .map(|sid| vec![StreamEvent::ClaudeSessionId(sid.to_string())])
+            .unwrap_or_else(|| vec![StreamEvent::Other(value)]),
         // Real CLI shape: blocks live under message.content[]. Assistant lines
         // hold text + tool_use; user lines hold tool_result.
         Some("assistant") | Some("user") => parse_message_blocks(&value),
@@ -354,6 +375,9 @@ pub struct ClaudeSession {
     /// Reasoning effort (`--effort`): one of [`EFFORT_LEVELS`], or `None` for the
     /// CLI default.
     pub effort: Option<String>,
+    /// The `claude` session id to continue via `--resume`, or `None` for a new
+    /// conversation.
+    pub resume: Option<String>,
 }
 
 impl ClaudeSession {
@@ -367,7 +391,17 @@ impl ClaudeSession {
             append_system_prompt: None,
             database_access: true,
             effort: None,
+            resume: None,
         }
+    }
+
+    /// Continue a previous conversation by its `claude` session id.
+    pub fn with_resume(mut self, id: impl Into<String>) -> Self {
+        let id = id.into();
+        if !id.trim().is_empty() {
+            self.resume = Some(id);
+        }
+        self
     }
 
     /// Set the reasoning effort for this run (ignored unless it's a valid level).
@@ -443,6 +477,7 @@ impl ClaudeSession {
             mcp_config,
             allowed_tools,
             self.effort.as_deref(),
+            self.resume.as_deref(),
         );
         let mut command = Command::new(&self.binary);
         command
@@ -578,7 +613,7 @@ mod tests {
 
     #[test]
     fn build_args_requests_stream_json() {
-        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[], None);
+        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[], None, None);
         assert!(args.contains(&"stream-json".to_string()));
         // --print + stream-json requires --verbose, or the CLI errors out.
         assert!(args.contains(&"--verbose".to_string()));
@@ -593,15 +628,52 @@ mod tests {
 
     #[test]
     fn build_args_passes_valid_effort_and_ignores_invalid() {
-        let args = build_args(ModelTier::Opus, "go", None, None, &[], Some("high"));
+        let args = build_args(ModelTier::Opus, "go", None, None, &[], Some("high"), None);
         let i = args
             .iter()
             .position(|a| a == "--effort")
             .expect("--effort present");
         assert_eq!(args[i + 1], "high");
         // Unknown levels are dropped rather than passed through.
-        let bad = build_args(ModelTier::Opus, "go", None, None, &[], Some("turbo"));
+        let bad = build_args(ModelTier::Opus, "go", None, None, &[], Some("turbo"), None);
         assert!(!bad.contains(&"--effort".to_string()));
+    }
+
+    #[test]
+    fn build_args_resumes_when_id_given() {
+        let args = build_args(
+            ModelTier::Sonnet,
+            "go on",
+            None,
+            None,
+            &[],
+            None,
+            Some("sess-123"),
+        );
+        let i = args
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume present");
+        assert_eq!(args[i + 1], "sess-123");
+        let none = build_args(
+            ModelTier::Sonnet,
+            "go on",
+            None,
+            None,
+            &[],
+            None,
+            Some("  "),
+        );
+        assert!(!none.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn parse_system_init_yields_claude_session_id() {
+        let line = r#"{"type":"system","subtype":"init","session_id":"abc-123","model":"x"}"#;
+        assert_eq!(
+            parse_stream_line(line),
+            vec![StreamEvent::ClaudeSessionId("abc-123".to_string())]
+        );
     }
 
     #[test]
@@ -613,6 +685,7 @@ mod tests {
             None,
             &[],
             None,
+            None,
         );
         let i = args
             .iter()
@@ -620,7 +693,7 @@ mod tests {
             .expect("flag present");
         assert_eq!(args[i + 1], "You are a careful reviewer.");
         // Blank/whitespace system prompts are omitted.
-        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[], None);
+        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[], None, None);
         assert!(!none.contains(&"--append-system-prompt".to_string()));
     }
 
@@ -636,6 +709,7 @@ mod tests {
             None,
             Some("/home/u/.claudestudio/mcp-claudestudio.json"),
             &tools,
+            None,
             None,
         );
         let ci = args
