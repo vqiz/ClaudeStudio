@@ -65,28 +65,6 @@ extension GraphNode.Kind {
     }
 }
 
-/// A reusable section header with an SF Symbol used across the detail views.
-struct PageHeader: View {
-    let title: String
-    let symbol: String
-    var subtitle: String?
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: symbol)
-                .font(.title2)
-                .foregroundStyle(.brandGradient)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.title2.bold())
-                if let subtitle {
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-        }
-    }
-}
-
 /// A wrapping grid of small labelled chips.
 struct ChipFlow: View {
     let items: [String]

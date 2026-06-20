@@ -72,10 +72,10 @@ private struct ProjectOverviewTab: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: DS.s4) {
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(project.name).font(.title2.bold())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(project.name).font(.system(size: 26, weight: .bold))
                         Text(project.displayPath)
                             .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
                     }
@@ -89,15 +89,17 @@ private struct ProjectOverviewTab: View {
                     .help("Remove from ClaudeStudio (your files are not deleted)")
                 }
 
-                HStack(spacing: 12) {
-                    infoCard("Branch", branch.isEmpty ? "—" : branch, "arrow.triangle.branch")
-                    infoCard("Changes", changes.map(String.init) ?? "—", "pencil.line")
+                HStack(spacing: DS.s3) {
+                    StatTile(label: "Branch", value: branch.isEmpty ? "—" : branch,
+                             symbol: "arrow.triangle.branch", tint: .brandIndigo)
+                    StatTile(label: "Changes", value: changes.map(String.init) ?? "—",
+                             symbol: "pencil.line", tint: .brandCoral)
                     modelCard
                 }
 
                 if !worktrees.isEmpty {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 6) {
+                    SectionCard(title: "Worktrees (\(worktrees.count))", symbol: "square.split.2x1") {
+                        VStack(alignment: .leading, spacing: 8) {
                             ForEach(worktrees) { wt in
                                 HStack(spacing: 8) {
                                     Image(systemName: "arrow.triangle.branch").font(.caption).foregroundStyle(.tint)
@@ -108,20 +110,23 @@ private struct ProjectOverviewTab: View {
                                 }
                             }
                         }
-                        .padding(6)
-                    } label: {
-                        Label("Worktrees (\(worktrees.count))", systemImage: "square.split.2x1")
                     }
                 }
             }
-            .padding(20)
+            .padding(DS.s4)
         }
         .task(id: project.id) { await loadGit() }
     }
 
     private var modelCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Model · effort", systemImage: "cpu").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: DS.s2) {
+            HStack(spacing: 7) {
+                Image(systemName: "cpu")
+                    .font(.callout.weight(.semibold)).foregroundStyle(Color.brandViolet)
+                    .frame(width: 26, height: 26)
+                    .background(Color.brandViolet.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text("MODEL · EFFORT").font(.caption2.weight(.semibold)).foregroundStyle(.secondary).tracking(0.5)
+            }
             Picker("", selection: Binding(
                 get: { project.model },
                 set: { appState.projectStore.setModel(project.id, model: $0) }
@@ -130,17 +135,8 @@ private struct ProjectOverviewTab: View {
             }
             .labelsHidden()
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
-    }
-
-    private func infoCard(_ title: String, _ value: String, _ symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
-            Text(value).font(.title3.weight(.semibold)).lineLimit(1)
-        }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dsCard(padding: DS.s3, radius: DS.rMd, elevated: false)
     }
 
     private func loadGit() async {
@@ -263,11 +259,15 @@ struct SkillsPaletteView: View {
                             .buttonStyle(.plain)
                             .help("Run /\(skill.command) now")
                         }
-                        .padding(.horizontal, 9).padding(.vertical, 6)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                        .padding(.horizontal, 11).padding(.vertical, 8)
+                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DS.rSm, style: .continuous)
+                                .strokeBorder(.primary.opacity(0.06), lineWidth: 1)
+                        )
                         .overlay(alignment: .topTrailing) {
                             if skill.scope == "project" {
-                                Circle().fill(Color.purple).frame(width: 5, height: 5).padding(4)
+                                Circle().fill(Color.brandCoral).frame(width: 6, height: 6).padding(5)
                             }
                         }
                     }
@@ -390,7 +390,7 @@ private struct ProjectAgentsTab: View {
                     Button { run(agent) } label: {
                         Label("Run", systemImage: "play.fill")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.brand)
                     .disabled(command.trimmingCharacters(in: .whitespaces).isEmpty
                               || !appState.coreConnected
                               || appState.core.runningSessionId != nil)

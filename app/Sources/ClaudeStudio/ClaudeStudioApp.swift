@@ -15,7 +15,7 @@ struct ClaudeStudioApp: App {
         WindowGroup {
             RootView()
                 .environment(appState)
-                .frame(minWidth: 820, minHeight: 540)
+                .frame(minWidth: 1040, idealWidth: 1320, minHeight: 680, idealHeight: 860)
                 .tint(.brandIndigo)
                 .task {
                     appState.startEventBus()
@@ -23,6 +23,7 @@ struct ClaudeStudioApp: App {
                     await appState.connectCore()
                 }
         }
+        .defaultSize(width: 1320, height: 860)
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified)
         .commands {

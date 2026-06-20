@@ -200,16 +200,20 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
         .safeAreaInset(edge: .top) {
-            HStack(spacing: 8) {
-                BrandMark(size: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("ClaudeStudio").font(.headline)
-                    Text("Agentic OS").font(.caption2).foregroundStyle(.secondary)
+            HStack(spacing: 11) {
+                BrandMark(size: 38)
+                    .shadow(color: Color.brandViolet.opacity(0.45), radius: 10, y: 4)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("ClaudeStudio")
+                        .font(.system(size: 17, weight: .bold))
+                    Text("Agentic OS")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.brandRich)
                 }
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
             .background(.bar)
         }
     }

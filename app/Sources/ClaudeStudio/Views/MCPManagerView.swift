@@ -89,9 +89,8 @@ private struct MCPServerRow: View {
             Button(role: .destructive, action: onDelete) { Image(systemName: "trash") }
                 .buttonStyle(.borderless).help("Remove")
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .dsCard(padding: 14, radius: DS.rMd, elevated: false)
     }
 
     private var detailLine: String {
