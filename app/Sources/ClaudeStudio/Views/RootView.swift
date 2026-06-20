@@ -45,6 +45,8 @@ struct RootView: View {
             AgentStudioView()
         case .context:
             ContextView()
+        case .definitionLibrary:
+            DefinitionsLibraryView()
         }
     }
 

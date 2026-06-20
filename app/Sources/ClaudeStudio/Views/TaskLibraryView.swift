@@ -1,156 +1,38 @@
 import SwiftUI
 import ClaudeStudioKit
 
-/// The Task Library. When the core is connected it lists the real shipped task
-/// definitions (grouped by category); otherwise it previews sample cards.
+/// The Task Library — browse, create, edit, run, and delete one-click task
+/// workflows. Shipped tasks are read-only (duplicate to customise); your own
+/// tasks live in the writable user library and edit in place.
 struct TaskLibraryView: View {
     @Environment(AppState.self) private var appState
-    private let samples = TaskCard.samples
-    private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
+
+    private var items: [LibraryBrowserItem] {
+        appState.core.tasks.map {
+            LibraryBrowserItem(
+                path: $0.path, name: $0.name, category: $0.category,
+                writable: $0.writable,
+                detail: $0.tags.prefix(3).joined(separator: " · ")
+            )
+        }
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                PageHeader(title: "Task Library", symbol: "square.grid.2x2", subtitle: subtitle)
-
-                if appState.core.isConnected {
-                    liveGrid
-                } else {
-                    sampleGrid
-                }
-            }
-            .padding(20)
-        }
-    }
-
-    private var subtitle: String {
-        appState.core.isConnected
-            ? "\(appState.core.tasks.count) one-click workflows · live from core"
-            : "Reusable, parameterised agent tasks · sample data"
-    }
-
-    // MARK: Live
-
-    private var groupedTasks: [(String, [LibraryTask])] {
-        let groups = Dictionary(grouping: appState.core.tasks) { $0.category.isEmpty ? "Other" : $0.category }
-        return groups.sorted { $0.key < $1.key }
-    }
-
-    @ViewBuilder
-    private var liveGrid: some View {
-        ForEach(groupedTasks, id: \.0) { category, tasks in
-            Text(category)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.top, 4)
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(tasks) { task in
-                    LiveTaskCardView(task: task)
-                }
-            }
-        }
-    }
-
-    // MARK: Sample fallback
-
-    @ViewBuilder
-    private var sampleGrid: some View {
-        LazyVGrid(columns: columns, spacing: 16) {
-            ForEach(samples) { task in
-                TaskCardView(task: task)
-            }
-        }
-    }
-}
-
-private struct LiveTaskCardView: View {
-    @Environment(AppState.self) private var appState
-    let task: LibraryTask
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "wand.and.stars").foregroundStyle(.tint)
-                Text(task.name).font(.headline).lineLimit(2)
-                Spacer()
-            }
-            if !task.summary.isEmpty {
-                Text(task.summary)
-                    .font(.callout).foregroundStyle(.secondary)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !task.tags.isEmpty {
-                ChipFlow(items: Array(task.tags.prefix(4)), symbol: "tag")
-            }
-            Spacer(minLength: 0)
-            Button(action: run) {
-                Label(appState.selectedProject == nil ? "Select a project" : "Run", systemImage: "play.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .disabled(appState.selectedProject == nil
-                      || !appState.coreConnected
-                      || appState.core.runningSessionId != nil)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(hovering ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1.5)
+        LibraryBrowser(
+            title: "Task Library",
+            symbol: "square.grid.2x2",
+            items: items,
+            newButtonTitle: "Task",
+            fileKind: "JSON",
+            create: { await appState.core.createTask(name: $0) },
+            delete: { await appState.core.deleteTask(path: $0) },
+            run: runTask
         )
-        .onHover { hovering = $0 }
-        .help(task.summary.isEmpty ? task.name : task.summary)
     }
 
-    private func run() {
+    private func runTask(_ item: LibraryBrowserItem) {
         guard let project = appState.selectedProject else { return }
-        let detail = task.summary.isEmpty ? "" : " \(task.summary)"
-        let prompt = "Run the \"\(task.name)\" task on this project.\(detail)"
+        let prompt = "Run the \"\(item.name)\" task on this project."
         Task { await appState.core.startSession(prompt: prompt, cwd: project.path, model: project.model) }
-    }
-}
-
-private struct TaskCardView: View {
-    let task: TaskCard
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Image(systemName: "wand.and.stars").foregroundStyle(.tint)
-                Text(task.title).font(.headline)
-                Spacer()
-            }
-            Text(task.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            Divider()
-            HStack {
-                Label(task.skill, systemImage: "puzzlepiece.extension").font(.caption)
-                Spacer()
-                TrustModeBadge(mode: task.defaultTrustMode)
-            }
-            HStack {
-                Label("~\(Format.usd(task.estimatedCostUSD))", systemImage: "dollarsign.circle").font(.caption)
-                Spacer()
-                Text("\(task.runCount) runs").font(.caption).foregroundStyle(.secondary)
-            }
-            Button {
-            } label: {
-                Label("Launch", systemImage: "play.fill").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(hovering ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1.5)
-        )
-        .onHover { hovering = $0 }
     }
 }

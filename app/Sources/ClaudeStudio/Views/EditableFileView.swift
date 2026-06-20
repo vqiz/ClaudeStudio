@@ -8,6 +8,9 @@ struct EditableFileView: View {
 
     let path: String
     var minHeight: CGFloat = 120
+    /// When false, the file is shown read-only (no Save, no edits persisted) —
+    /// used for shipped library items the user can't modify in place.
+    var editable: Bool = true
 
     @State private var content = ""
     @State private var loaded = false
@@ -29,16 +32,22 @@ struct EditableFileView: View {
                         .background(.quaternary, in: Capsule())
                         .foregroundStyle(.secondary)
                 }
+                if !editable {
+                    Label("read-only", systemImage: "lock")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 if dirty {
                     Label("unsaved", systemImage: "pencil")
                         .font(.caption2).foregroundStyle(.orange)
                 }
                 Spacer()
-                Button(action: save) {
-                    Label("Save", systemImage: "square.and.arrow.down")
+                if editable {
+                    Button(action: save) {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                    }
+                    .controlSize(.small)
+                    .disabled(!dirty || saving || !appState.coreConnected)
                 }
-                .controlSize(.small)
-                .disabled(!dirty || saving || !appState.coreConnected)
             }
 
             TextEditor(text: $content)
@@ -47,8 +56,8 @@ struct EditableFileView: View {
                 .scrollContentBackground(.hidden)
                 .padding(6)
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                .disabled(!appState.coreConnected || !loaded)
-                .onChange(of: content) { _, _ in if loaded { dirty = true } }
+                .disabled(!appState.coreConnected || !loaded || !editable)
+                .onChange(of: content) { _, _ in if loaded && editable { dirty = true } }
                 .overlay {
                     if !loaded {
                         ProgressView().controlSize(.small)
@@ -68,7 +77,7 @@ struct EditableFileView: View {
         // The path changed underneath us (e.g. the user switched the selected
         // project): flush unsaved edits to the *previous* file before replacing
         // the buffer, so typed changes are never silently lost.
-        if dirty, let previous = bufferPath, previous != path, appState.coreConnected {
+        if editable, dirty, let previous = bufferPath, previous != path, appState.coreConnected {
             _ = await appState.core.writeFile(previous, content: content)
         }
         loaded = false
@@ -87,7 +96,7 @@ struct EditableFileView: View {
     /// Persist unsaved edits when the editor is dismissed (e.g. navigating to a
     /// different section). Best-effort; the captured snapshot outlives the view.
     private func flushIfDirty() {
-        guard dirty, appState.coreConnected else { return }
+        guard editable, dirty, appState.coreConnected else { return }
         let text = content
         let target = bufferPath ?? path
         Task { await appState.core.writeFile(target, content: text) }

@@ -16,6 +16,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
     // Definitions section
     case agentStudio
     case context
+    case definitionLibrary
 
     var id: Self { self }
 
@@ -32,6 +33,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .settings: return "Settings"
         case .agentStudio: return "Agent Studio"
         case .context: return "Context"
+        case .definitionLibrary: return "Definitions Library"
         }
     }
 
@@ -48,6 +50,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
         case .settings: return "gearshape"
         case .agentStudio: return "person.crop.rectangle.stack"
         case .context: return "doc.text.magnifyingglass"
+        case .definitionLibrary: return "books.vertical"
         }
     }
 
@@ -57,7 +60,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
     ]
 
     /// Items shown under the "Definitions" sidebar section.
-    static let definitions: [SidebarItem] = [.agentStudio, .context]
+    static let definitions: [SidebarItem] = [.agentStudio, .context, .definitionLibrary]
 }
 
 /// The application-wide observable state. Owns the project list, the active
