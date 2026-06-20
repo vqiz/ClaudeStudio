@@ -178,52 +178,42 @@ pub enum StreamEvent {
     Other(serde_json::Value),
 }
 
-/// Tolerantly parse one line of `stream-json` output into a [`StreamEvent`].
+/// Tolerantly parse one line of `stream-json` output into zero or more
+/// [`StreamEvent`]s.
 ///
-/// Unknown or partially-formed lines never error: they collapse to
-/// [`StreamEvent::Other`], keeping the stream resilient to CLI schema drift.
-pub fn parse_stream_line(line: &str) -> StreamEvent {
+/// A single `assistant` line can carry several content blocks at once — plain
+/// text **and** one or more `tool_use` calls (the Bash command, file edit, or
+/// sub-agent launch). A `user` line carries the matching `tool_result`s. We emit
+/// each block as its own event so the live transcript shows *everything* the
+/// agent does, not just its prose. Unknown or partially-formed lines never
+/// error: they collapse to [`StreamEvent::Other`], keeping the stream resilient
+/// to CLI schema drift.
+pub fn parse_stream_line(line: &str) -> Vec<StreamEvent> {
     let trimmed = line.trim();
     if trimmed.is_empty() {
-        return StreamEvent::Other(serde_json::Value::Null);
+        return Vec::new();
     }
     let value: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => return StreamEvent::Other(serde_json::Value::String(trimmed.to_string())),
+        Err(_) => {
+            return vec![StreamEvent::Other(serde_json::Value::String(
+                trimmed.to_string(),
+            ))]
+        }
     };
 
     match value.get("type").and_then(|t| t.as_str()) {
-        Some("assistant") => {
-            // Newer CLI nests text under message.content[].text.
-            if let Some(text) = extract_assistant_text(&value) {
-                return StreamEvent::AssistantText(text);
-            }
-            StreamEvent::Other(value)
-        }
+        // Real CLI shape: blocks live under message.content[]. Assistant lines
+        // hold text + tool_use; user lines hold tool_result.
+        Some("assistant") | Some("user") => parse_message_blocks(&value),
         Some("text") => value
             .get("text")
             .and_then(|t| t.as_str())
-            .map(|s| StreamEvent::AssistantText(s.to_string()))
-            .unwrap_or(StreamEvent::Other(value)),
-        Some("tool_use") => StreamEvent::ToolUse {
-            name: value
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or_default()
-                .to_string(),
-            input: value
-                .get("input")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null),
-        },
-        Some("tool_result") => StreamEvent::ToolResult {
-            content: value
-                .get("content")
-                .and_then(|c| c.as_str())
-                .unwrap_or_default()
-                .to_string(),
-        },
-        Some("result") => StreamEvent::Result {
+            .map(|s| vec![StreamEvent::AssistantText(s.to_string())])
+            .unwrap_or_else(|| vec![StreamEvent::Other(value)]),
+        Some("tool_use") => vec![tool_use_event(&value)],
+        Some("tool_result") => vec![tool_result_event(&value)],
+        Some("result") => vec![StreamEvent::Result {
             cost_usd: value
                 .get("cost_usd")
                 .or_else(|| value.get("total_cost_usd"))
@@ -233,29 +223,77 @@ pub fn parse_stream_line(line: &str) -> StreamEvent {
                 .get("is_error")
                 .and_then(|e| e.as_bool())
                 .unwrap_or(false),
-        },
-        _ => StreamEvent::Other(value),
+        }],
+        _ => vec![StreamEvent::Other(value)],
     }
 }
 
-/// Pull assistant text out of either a flat `text` field or a nested
-/// `message.content[].text` structure.
-fn extract_assistant_text(value: &serde_json::Value) -> Option<String> {
-    if let Some(t) = value.get("text").and_then(|t| t.as_str()) {
-        return Some(t.to_string());
-    }
-    let content = value.get("message")?.get("content")?.as_array()?;
-    let mut buf = String::new();
+/// Expand a `message.content[]` array into one event per block (text, tool_use,
+/// tool_result). Falls back to a flat `text` field for older shapes.
+fn parse_message_blocks(value: &serde_json::Value) -> Vec<StreamEvent> {
+    let Some(content) = value
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_array())
+    else {
+        if let Some(t) = value.get("text").and_then(|t| t.as_str()) {
+            if !t.trim().is_empty() {
+                return vec![StreamEvent::AssistantText(t.to_string())];
+            }
+        }
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
     for block in content {
-        if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
-            buf.push_str(t);
+        match block.get("type").and_then(|t| t.as_str()) {
+            Some("text") => {
+                if let Some(t) = block.get("text").and_then(|t| t.as_str()) {
+                    if !t.trim().is_empty() {
+                        out.push(StreamEvent::AssistantText(t.to_string()));
+                    }
+                }
+            }
+            Some("tool_use") => out.push(tool_use_event(block)),
+            Some("tool_result") => out.push(tool_result_event(block)),
+            _ => {}
         }
     }
-    if buf.is_empty() {
-        None
-    } else {
-        Some(buf)
+    out
+}
+
+fn tool_use_event(block: &serde_json::Value) -> StreamEvent {
+    StreamEvent::ToolUse {
+        name: block
+            .get("name")
+            .and_then(|n| n.as_str())
+            .unwrap_or_default()
+            .to_string(),
+        input: block
+            .get("input")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
     }
+}
+
+/// A `tool_result`'s `content` may be a plain string or an array of `{type:text}`
+/// blocks; normalize both to a single string.
+fn tool_result_event(block: &serde_json::Value) -> StreamEvent {
+    let content = match block.get("content") {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(arr)) => {
+            let mut buf = String::new();
+            for b in arr {
+                if let Some(t) = b.get("text").and_then(|t| t.as_str()) {
+                    buf.push_str(t);
+                }
+            }
+            buf
+        }
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+    StreamEvent::ToolResult { content }
 }
 
 /// A configured session against the `claude` CLI.
@@ -381,7 +419,9 @@ impl ClaudeSession {
         .filter_map(|event| async move { event });
 
         Ok(Box::pin(
-            lines.map(|line| parse_stream_line(&line)).chain(tail),
+            lines
+                .flat_map(|line| futures::stream::iter(parse_stream_line(&line)))
+                .chain(tail),
         ))
     }
 }
@@ -512,7 +552,7 @@ mod tests {
         let line = r#"{"type":"text","text":"Hello, world"}"#;
         assert_eq!(
             parse_stream_line(line),
-            StreamEvent::AssistantText("Hello, world".to_string())
+            vec![StreamEvent::AssistantText("Hello, world".to_string())]
         );
     }
 
@@ -521,19 +561,55 @@ mod tests {
         let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}"#;
         assert_eq!(
             parse_stream_line(line),
-            StreamEvent::AssistantText("hi".to_string())
+            vec![StreamEvent::AssistantText("hi".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_assistant_message_emits_text_and_tool_use() {
+        // A real assistant line carries both prose and a tool call; both must surface.
+        let line = r#"{"type":"assistant","message":{"content":[
+            {"type":"text","text":"Let me check."},
+            {"type":"tool_use","name":"Bash","input":{"command":"ls -la"}}
+        ]}}"#;
+        let events = parse_stream_line(line);
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0],
+            StreamEvent::AssistantText("Let me check.".to_string())
+        );
+        match &events[1] {
+            StreamEvent::ToolUse { name, input } => {
+                assert_eq!(name, "Bash");
+                assert_eq!(input["command"], "ls -la");
+            }
+            other => panic!("expected ToolUse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_user_message_emits_tool_result() {
+        let line = r#"{"type":"user","message":{"content":[
+            {"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}
+        ]}}"#;
+        let events = parse_stream_line(line);
+        assert_eq!(
+            events,
+            vec![StreamEvent::ToolResult {
+                content: "file1\nfile2".to_string()
+            }]
         );
     }
 
     #[test]
     fn parse_tool_use_line() {
         let line = r#"{"type":"tool_use","name":"Bash","input":{"command":"ls"}}"#;
-        match parse_stream_line(line) {
-            StreamEvent::ToolUse { name, input } => {
+        match parse_stream_line(line).as_slice() {
+            [StreamEvent::ToolUse { name, input }] => {
                 assert_eq!(name, "Bash");
                 assert_eq!(input["command"], "ls");
             }
-            other => panic!("expected ToolUse, got {other:?}"),
+            other => panic!("expected single ToolUse, got {other:?}"),
         }
     }
 
@@ -542,23 +618,24 @@ mod tests {
         let line = r#"{"type":"result","cost_usd":0.0123,"is_error":false}"#;
         assert_eq!(
             parse_stream_line(line),
-            StreamEvent::Result {
+            vec![StreamEvent::Result {
                 cost_usd: 0.0123,
                 is_error: false
-            }
+            }]
         );
     }
 
     #[test]
     fn unknown_line_becomes_other() {
         assert!(matches!(
-            parse_stream_line(r#"{"type":"mystery"}"#),
-            StreamEvent::Other(_)
+            parse_stream_line(r#"{"type":"mystery"}"#).as_slice(),
+            [StreamEvent::Other(_)]
         ));
         assert!(matches!(
-            parse_stream_line("not json at all"),
-            StreamEvent::Other(_)
+            parse_stream_line("not json at all").as_slice(),
+            [StreamEvent::Other(_)]
         ));
+        assert!(parse_stream_line("").is_empty());
     }
 
     #[cfg(unix)]

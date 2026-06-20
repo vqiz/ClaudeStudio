@@ -314,24 +314,61 @@ struct LiveTranscriptView: View {
 
 private struct LiveTranscriptRow: View {
     let item: LiveSessionEvent
+
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: item.symbol)
-                .font(.caption).foregroundStyle(.white)
-                .frame(width: 22, height: 22)
-                .background(color.gradient, in: Circle())
-            if item.kind == "tool_use" {
-                Text("Tool: \(item.text)").font(.callout.weight(.medium))
-            } else {
-                Text(item.text).font(.callout).textSelection(.enabled)
-            }
+                .font(.caption2.weight(.bold)).foregroundStyle(.white)
+                .frame(width: 24, height: 24)
+                .background(color.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            content
             Spacer(minLength: 0)
         }
     }
+
+    @ViewBuilder
+    private var content: some View {
+        switch item.kind {
+        case "user":
+            VStack(alignment: .leading, spacing: 2) {
+                Text("You").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(item.text).font(.callout.weight(.medium)).textSelection(.enabled)
+            }
+        case "tool_use":
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.text).font(.callout.weight(.semibold))
+                if let detail = item.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .lineLimit(4)
+                        .padding(.horizontal, 8).padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                }
+            }
+        case "tool_result":
+            Text(item.text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(8)
+        case "result":
+            Text(item.text).font(.caption.weight(.medium)).foregroundStyle(.green)
+        case "error":
+            Text(item.text).font(.callout).foregroundStyle(.red).textSelection(.enabled)
+        default:
+            Text(item.text).font(.callout).textSelection(.enabled)
+        }
+    }
+
     private var color: Color {
         switch item.kind {
-        case "assistant_text": return .purple
-        case "tool_use", "tool_result": return .gray
+        case "user": return .blue
+        case "assistant_text": return .brandViolet
+        case "tool_use": return .brandIndigo
+        case "tool_result": return .gray
         case "result": return .green
         case "error": return .red
         default: return .secondary

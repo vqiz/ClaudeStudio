@@ -17,12 +17,22 @@ struct CoreEvent: Identifiable, Sendable {
 /// One streamed item from a live Claude session (`session.event`).
 struct LiveSessionEvent: Identifiable, Sendable {
     let id = UUID()
-    /// `assistant_text`, `tool_use`, `tool_result`, `result`, or `error`.
+    /// `user`, `assistant_text`, `tool_use`, `tool_result`, `result`, or `error`.
     let kind: String
+    /// The primary line (assistant prose, the user's prompt, or a tool name).
     let text: String
+    /// Secondary monospaced line — the command / file / arguments of a tool call.
+    let detail: String?
+
+    init(kind: String, text: String, detail: String? = nil) {
+        self.kind = kind
+        self.text = text
+        self.detail = detail
+    }
 
     var symbol: String {
         switch kind {
+        case "user": return "person.fill"
         case "assistant_text": return "text.bubble"
         case "tool_use": return "wrench.and.screwdriver"
         case "tool_result": return "arrow.turn.down.right"
@@ -401,9 +411,13 @@ final class CoreConnection {
             case "assistant_text":
                 liveSession.append(LiveSessionEvent(kind: kind, text: event["text"]?.stringValue ?? ""))
             case "tool_use":
-                liveSession.append(LiveSessionEvent(kind: kind, text: event["name"]?.stringValue ?? "tool"))
+                let name = event["name"]?.stringValue ?? "tool"
+                liveSession.append(LiveSessionEvent(
+                    kind: kind, text: name,
+                    detail: Self.toolDetail(name: name, input: event["input"])))
             case "tool_result":
-                liveSession.append(LiveSessionEvent(kind: kind, text: event["content"]?.stringValue ?? ""))
+                let content = event["content"]?.stringValue ?? ""
+                liveSession.append(LiveSessionEvent(kind: kind, text: Self.truncate(content, 600)))
             case "result":
                 let cost = event["cost_usd"]?.doubleValue ?? 0
                 liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
@@ -425,7 +439,9 @@ final class CoreConnection {
     func startSession(prompt: String, cwd: String? = nil, model: String? = nil,
                       systemPrompt: String? = nil) async {
         guard isConnected, let client else { return }
-        liveSession = []
+        // Echo the user's own message into the transcript so the session reads
+        // like a conversation.
+        liveSession = [LiveSessionEvent(kind: "user", text: prompt)]
         runningSessionId = nil
         if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
                                                    systemPrompt: systemPrompt), !id.isEmpty {
@@ -433,6 +449,39 @@ final class CoreConnection {
         }
         // Refresh the archive so the new session appears in the list.
         await reloadSessions()
+    }
+
+    /// A short, human-readable summary of a tool call's input for the transcript
+    /// (the Bash command, the edited file, the launched sub-agent, …).
+    static func toolDetail(name: String, input: MsgPackValue?) -> String? {
+        guard let input else { return nil }
+        func s(_ key: String) -> String? {
+            let v = input[key]?.stringValue
+            return (v?.isEmpty == false) ? v : nil
+        }
+        switch name {
+        case "Bash": return s("command")
+        case "Read", "Write", "Edit", "NotebookEdit": return s("file_path") ?? s("notebook_path")
+        case "Glob", "Grep": return [s("pattern"), s("path")].compactMap { $0 }.joined(separator: "  ·  ")
+        case "Task", "Agent":
+            return [s("subagent_type"), s("description")].compactMap { $0 }.joined(separator: ": ")
+        case "WebFetch": return s("url")
+        case "WebSearch": return s("query")
+        default:
+            // Fall back to the first short string field, if any.
+            if let map = input.mapValue {
+                for key in ["command", "path", "file_path", "url", "query", "prompt", "description"] {
+                    if let v = map[key]?.stringValue, !v.isEmpty { return v }
+                }
+            }
+            return nil
+        }
+    }
+
+    /// Collapse whitespace-heavy tool output and cap it for the transcript.
+    static func truncate(_ text: String, _ limit: Int) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.count > limit ? String(trimmed.prefix(limit)) + "…" : trimmed
     }
 
     /// A short, user-facing description of an IPC failure.
