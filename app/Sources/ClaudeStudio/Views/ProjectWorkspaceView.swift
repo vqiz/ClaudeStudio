@@ -156,11 +156,13 @@ private struct ProjectContextTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 GroupBox {
-                    EditableFileView(path: project.claudeMdPath, minHeight: 220)
+                    EditableFileView(path: project.claudeMdPath, minHeight: 220,
+                                     template: ContextTemplates.claudeMd)
                 } label: { Label("CLAUDE.md", systemImage: "doc.text") }
 
                 GroupBox {
-                    EditableFileView(path: project.agentsMdPath, minHeight: 160)
+                    EditableFileView(path: project.agentsMdPath, minHeight: 200,
+                                     template: ContextTemplates.agentsMd)
                 } label: { Label("AGENTS.md", systemImage: "doc.text") }
             }
             .padding(20)
@@ -175,40 +177,100 @@ private struct ProjectSessionTab: View {
     let project: Project
     @State private var prompt = ""
     @State private var skills: [LibrarySkill] = []
+    /// Definitions the user applied as context for the next run: path → (name, body).
+    @State private var appliedDefs: [String: (name: String, body: String)] = [:]
 
     var body: some View {
-        VStack(spacing: 0) {
-            if !skills.isEmpty {
-                SkillsPaletteView(skills: skills, onInsert: insert, onRun: runSkill)
+        HSplitView {
+            SessionLibrarySidebar(
+                skills: skills,
+                appliedDefPaths: Set(appliedDefs.keys),
+                onInsertSkill: { insert("/\($0) ") },
+                onRunSkill: runSkill,
+                onInsertTask: insertTask,
+                onRunTask: runTask,
+                onToggleDefinition: toggleDefinition
+            )
+            .frame(minWidth: 230, idealWidth: 270, maxWidth: 340, maxHeight: .infinity)
+
+            VStack(spacing: 0) {
+                LiveTranscriptView()
+                if !appliedDefs.isEmpty { appliedBar }
                 Divider()
+                composer
             }
-            LiveTranscriptView()
-            Divider()
-            HStack(spacing: 8) {
-                TextField("Ask Claude, or click a skill to insert /command…", text: $prompt, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .onSubmit(run)
-                Button(action: run) {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
-                }
-                .buttonStyle(.plain)
-                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
-                          || !appState.coreConnected
-                          || appState.core.runningSessionId != nil)
-            }
-            .padding(12)
-            .background(.bar)
+            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: project.path) { skills = await appState.core.skills(cwd: project.path) }
     }
 
-    private func insert(_ command: String) {
-        let token = "/\(command) "
+    private var appliedBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Text("CONTEXT").font(.caption2.weight(.bold)).foregroundStyle(.secondary).tracking(0.5)
+                ForEach(appliedDefs.sorted(by: { $0.key < $1.key }), id: \.key) { path, def in
+                    HStack(spacing: 4) {
+                        Image(systemName: "books.vertical.fill").font(.caption2)
+                        Text(def.name).font(.caption2.weight(.medium)).lineLimit(1)
+                        Button { appliedDefs[path] = nil } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(Color.brandIndigo.opacity(0.16), in: Capsule())
+                    .foregroundStyle(Color.brandIndigo)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+        }
+        .background(.bar)
+    }
+
+    private var composer: some View {
+        HStack(spacing: 8) {
+            TextField("Ask Claude, or apply a skill / task / definition…", text: $prompt, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(1...5)
+                .onSubmit(run)
+            Button(action: run) {
+                Image(systemName: "arrow.up.circle.fill").font(.title)
+            }
+            .buttonStyle(.plain)
+            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
+                      || !appState.coreConnected
+                      || appState.core.runningSessionId != nil)
+        }
+        .padding(12)
+        .background(.bar)
+    }
+
+    private var appliedSystemPrompt: String? {
+        let joined = appliedDefs.values.map(\.body).joined(separator: "\n\n---\n\n")
+        return joined.isEmpty ? nil : joined
+    }
+
+    private func insert(_ token: String) {
         if prompt.isEmpty {
             prompt = token
         } else {
-            prompt += (prompt.hasSuffix(" ") ? "" : " ") + token
+            prompt += (prompt.hasSuffix(" ") || prompt.hasSuffix("\n") ? "" : " ") + token
+        }
+    }
+
+    private func insertTask(_ task: LibraryTask) {
+        let detail = task.summary.isEmpty ? "" : ": \(task.summary)"
+        insert("Run the \"\(task.name)\" task\(detail)\n")
+    }
+
+    private func toggleDefinition(_ def: LibraryDefinition) {
+        if appliedDefs[def.path] != nil {
+            appliedDefs[def.path] = nil
+            return
+        }
+        Task {
+            if let c = await appState.core.readFile(def.path), c.exists {
+                appliedDefs[def.path] = (def.name.isEmpty ? "definition" : def.name, c.content)
+            }
         }
     }
 
@@ -216,67 +278,133 @@ private struct ProjectSessionTab: View {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
         prompt = ""
-        Task { await appState.core.startSession(prompt: text, cwd: project.path, model: project.model) }
+        Task { await appState.core.startSession(prompt: text, cwd: project.path,
+                                                model: project.model, systemPrompt: appliedSystemPrompt) }
     }
 
     private func runSkill(_ command: String) {
         guard appState.core.runningSessionId == nil else { return }
-        Task { await appState.core.startSession(prompt: "/\(command)", cwd: project.path, model: project.model) }
+        Task { await appState.core.startSession(prompt: "/\(command)", cwd: project.path,
+                                                model: project.model, systemPrompt: appliedSystemPrompt) }
+    }
+
+    private func runTask(_ task: LibraryTask) {
+        guard appState.core.runningSessionId == nil else { return }
+        let detail = task.summary.isEmpty ? "" : " \(task.summary)"
+        Task { await appState.core.startSession(prompt: "Run the \"\(task.name)\" task on this project.\(detail)",
+                                                cwd: project.path, model: project.model,
+                                                systemPrompt: appliedSystemPrompt) }
     }
 }
 
-/// A wrapping palette of installed skills. Clicking a chip inserts its
-/// `/command` into the composer; the play button runs it immediately.
-struct SkillsPaletteView: View {
+/// The Session tab's left library: installed Skills, the Task library, and the
+/// Definition library — each appliable to the running session. Skills/tasks
+/// insert into the composer (or run via ▶); definitions toggle on as context.
+private struct SessionLibrarySidebar: View {
+    @Environment(AppState.self) private var appState
     let skills: [LibrarySkill]
-    let onInsert: (String) -> Void
-    let onRun: (String) -> Void
-
-    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 8, alignment: .leading)]
+    let appliedDefPaths: Set<String>
+    let onInsertSkill: (String) -> Void
+    let onRunSkill: (String) -> Void
+    let onInsertTask: (LibraryTask) -> Void
+    let onRunTask: (LibraryTask) -> Void
+    let onToggleDefinition: (LibraryDefinition) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Skills · \(skills.count)", systemImage: "wand.and.stars")
-                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            ScrollView {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
+        ScrollView {
+            VStack(alignment: .leading, spacing: DS.s3) {
+                group("Skills", "wand.and.stars", count: skills.count) {
                     ForEach(skills) { skill in
-                        HStack(spacing: 6) {
-                            Button { onInsert(skill.command) } label: {
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("/\(skill.command)").font(.caption.weight(.semibold)).lineLimit(1)
-                                    if !skill.description.isEmpty {
-                                        Text(skill.description).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                            .buttonStyle(.plain)
-                            .help(skill.description.isEmpty ? "Insert /\(skill.command)" : skill.description)
-                            Button { onRun(skill.command) } label: {
-                                Image(systemName: "play.circle.fill").foregroundStyle(.tint)
-                            }
-                            .buttonStyle(.plain)
-                            .help("Run /\(skill.command) now")
-                        }
-                        .padding(.horizontal, 11).padding(.vertical, 8)
-                        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DS.rSm, style: .continuous)
-                                .strokeBorder(.primary.opacity(0.06), lineWidth: 1)
-                        )
-                        .overlay(alignment: .topTrailing) {
-                            if skill.scope == "project" {
-                                Circle().fill(Color.brandCoral).frame(width: 6, height: 6).padding(5)
-                            }
-                        }
+                        applyRow(title: "/\(skill.command)", subtitle: skill.description,
+                                 accent: skill.scope == "project" ? .brandCoral : .brandIndigo,
+                                 onTap: { onInsertSkill(skill.command) }, onRun: { onRunSkill(skill.command) })
+                    }
+                }
+                group("Tasks", "square.grid.2x2", count: appState.core.tasks.count) {
+                    ForEach(appState.core.tasks) { task in
+                        applyRow(title: task.name, subtitle: task.summary,
+                                 accent: task.writable ? .brandViolet : .secondary,
+                                 onTap: { onInsertTask(task) }, onRun: { onRunTask(task) })
+                    }
+                }
+                group("Definitions", "books.vertical", count: appState.core.definitions.count) {
+                    ForEach(appState.core.definitions) { def in
+                        toggleRow(title: def.name.isEmpty ? "(unnamed)" : def.name,
+                                  subtitle: def.category,
+                                  applied: appliedDefPaths.contains(def.path),
+                                  onToggle: { onToggleDefinition(def) })
                     }
                 }
             }
-            .frame(maxHeight: 140)
+            .padding(12)
         }
-        .padding(12)
-        .background(.bar)
+        .background(.bar.opacity(0.35))
+    }
+
+    @ViewBuilder
+    private func group<Content: View>(_ title: String, _ symbol: String, count: Int,
+                                      @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol).font(.caption2.weight(.bold)).foregroundStyle(.brandRich)
+                Text(title.uppercased()).font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
+                Spacer()
+                Text("\(count)").font(.caption2).foregroundStyle(.tertiary)
+            }
+            if count == 0 {
+                Text("None").font(.caption2).foregroundStyle(.tertiary).padding(.leading, 2)
+            } else {
+                content()
+            }
+        }
+    }
+
+    private func applyRow(title: String, subtitle: String, accent: Color,
+                          onTap: @escaping () -> Void, onRun: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Button(action: onTap) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            Button(action: onRun) { Image(systemName: "play.circle.fill").foregroundStyle(accent) }
+                .buttonStyle(.plain)
+                .disabled(appState.core.runningSessionId != nil)
+                .help("Run now")
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DS.rSm, style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+    }
+
+    private func toggleRow(title: String, subtitle: String, applied: Bool,
+                           onToggle: @escaping () -> Void) -> some View {
+        Button(action: onToggle) {
+            HStack(spacing: 8) {
+                Image(systemName: applied ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(applied ? Color.brandIndigo : .secondary)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.caption.weight(.semibold)).lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.horizontal, 9).padding(.vertical, 7)
+            .background((applied ? Color.brandIndigo.opacity(0.12) : Color.clear), in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: DS.rSm, style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .help(applied ? "Applied as context — click to remove" : "Apply this definition as context")
     }
 }
 

@@ -11,6 +11,9 @@ struct EditableFileView: View {
     /// When false, the file is shown read-only (no Save, no edits persisted) —
     /// used for shipped library items the user can't modify in place.
     var editable: Bool = true
+    /// Optional starter content offered (via a "Start from template" button)
+    /// when the file doesn't exist yet.
+    var template: String? = nil
 
     @State private var content = ""
     @State private var loaded = false
@@ -41,6 +44,15 @@ struct EditableFileView: View {
                         .font(.caption2).foregroundStyle(.orange)
                 }
                 Spacer()
+                if editable, loaded, !exists, let template, content.isEmpty {
+                    Button {
+                        content = template
+                        dirty = true
+                    } label: {
+                        Label("Start from template", systemImage: "doc.badge.plus")
+                    }
+                    .controlSize(.small)
+                }
                 if editable {
                     Button(action: save) {
                         Label("Save", systemImage: "square.and.arrow.down")
