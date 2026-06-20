@@ -69,6 +69,8 @@ pub fn build_args(
     model: ModelTier,
     prompt: &str,
     append_system_prompt: Option<&str>,
+    mcp_config: Option<&str>,
+    allowed_tools: &[String],
 ) -> Vec<String> {
     let mut args = vec![
         "--model".to_string(),
@@ -87,9 +89,62 @@ pub fn build_args(
             args.push(trimmed.to_string());
         }
     }
+    // Register the built-in claudestudio MCP server (session-database access)
+    // alongside the user's own MCP servers, and pre-approve its tools so the
+    // agent can read the DB without a permission prompt in `--print` mode.
+    if let Some(config) = mcp_config {
+        args.push("--mcp-config".to_string());
+        args.push(config.to_string());
+    }
+    if !allowed_tools.is_empty() {
+        args.push("--allowedTools".to_string());
+        args.push(allowed_tools.join(","));
+    }
     args.push("--print".to_string());
     args.push(prompt.to_string());
     args
+}
+
+/// Read-only session-database tools the built-in `claudestudio` MCP server
+/// exposes. Kept in sync with `cs_cli::mcp_server::DB_TOOLS`.
+const DB_TOOL_NAMES: [&str; 4] = [
+    "list_sessions",
+    "get_session",
+    "search_sessions",
+    "session_stats",
+];
+
+/// Write (or refresh) the `--mcp-config` file that registers the core's built-in
+/// `claudestudio` MCP server, and return its path plus the pre-approved tool
+/// names. The server is the running core binary invoked as `<core> mcp`
+/// (overridable via `CLAUDESTUDIO_CORE_BIN`, else `current_exe()`).
+///
+/// Returns `None` if neither the core path nor `$HOME` can be resolved, in which
+/// case the run simply proceeds without default DB access rather than failing.
+fn prepare_database_mcp() -> Option<(String, Vec<String>)> {
+    let core_exe = std::env::var("CLAUDESTUDIO_CORE_BIN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        })?;
+    let home = std::env::var("HOME").ok()?;
+    let dir = std::path::Path::new(&home).join(".claudestudio");
+    std::fs::create_dir_all(&dir).ok()?;
+    let config_path = dir.join("mcp-claudestudio.json");
+    let config = serde_json::json!({
+        "mcpServers": {
+            "claudestudio": { "command": core_exe, "args": ["mcp"] }
+        }
+    });
+    std::fs::write(&config_path, serde_json::to_string_pretty(&config).ok()?).ok()?;
+    let tools = DB_TOOL_NAMES
+        .iter()
+        .map(|t| format!("mcp__claudestudio__{t}"))
+        .collect();
+    Some((config_path.to_string_lossy().to_string(), tools))
 }
 
 /// A single parsed event from the `claude --output-format stream-json` stream.
@@ -215,18 +270,28 @@ pub struct ClaudeSession {
     /// Extra system prompt appended via `--append-system-prompt` (e.g. a saved
     /// agent's persona). `None` runs Claude with its default system prompt.
     pub append_system_prompt: Option<String>,
+    /// When true (the default), the run is given default access to the core's
+    /// session database via the built-in `claudestudio` MCP server.
+    pub database_access: bool,
 }
 
 impl ClaudeSession {
     /// Create a session that runs the default `claude` binary at the given
-    /// model tier.
+    /// model tier. Database access is on by default.
     pub fn new(model: ModelTier) -> Self {
         Self {
             model,
             binary: "claude".to_string(),
             cwd: None,
             append_system_prompt: None,
+            database_access: true,
         }
+    }
+
+    /// Disable the built-in session-database MCP server for this run.
+    pub fn without_database_access(mut self) -> Self {
+        self.database_access = false;
+        self
     }
 
     /// Append a system prompt (a saved agent's persona) to this session.
@@ -257,7 +322,24 @@ impl ClaudeSession {
         &self,
         prompt: &str,
     ) -> Result<impl Stream<Item = StreamEvent> + Send + Unpin> {
-        let args = build_args(self.model, prompt, self.append_system_prompt.as_deref());
+        // Give the run default access to the session database via the built-in
+        // claudestudio MCP server (registered + pre-approved), unless disabled.
+        let db_mcp = if self.database_access {
+            prepare_database_mcp()
+        } else {
+            None
+        };
+        let (mcp_config, allowed_tools) = match &db_mcp {
+            Some((path, tools)) => (Some(path.as_str()), tools.as_slice()),
+            None => (None, [].as_slice()),
+        };
+        let args = build_args(
+            self.model,
+            prompt,
+            self.append_system_prompt.as_deref(),
+            mcp_config,
+            allowed_tools,
+        );
         let mut command = Command::new(&self.binary);
         command
             .args(&args)
@@ -366,13 +448,16 @@ mod tests {
 
     #[test]
     fn build_args_requests_stream_json() {
-        let args = build_args(ModelTier::Sonnet, "hello", None);
+        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[]);
         assert!(args.contains(&"stream-json".to_string()));
         // --print + stream-json requires --verbose, or the CLI errors out.
         assert!(args.contains(&"--verbose".to_string()));
         assert!(args.contains(&"sonnet".to_string()));
         assert!(args.contains(&"hello".to_string()));
         assert!(!args.contains(&"--append-system-prompt".to_string()));
+        // No DB access requested → no MCP/allowlist flags.
+        assert!(!args.contains(&"--mcp-config".to_string()));
+        assert!(!args.contains(&"--allowedTools".to_string()));
     }
 
     #[test]
@@ -381,6 +466,8 @@ mod tests {
             ModelTier::Opus,
             "do it",
             Some("You are a careful reviewer."),
+            None,
+            &[],
         );
         let i = args
             .iter()
@@ -388,8 +475,36 @@ mod tests {
             .expect("flag present");
         assert_eq!(args[i + 1], "You are a careful reviewer.");
         // Blank/whitespace system prompts are omitted.
-        let none = build_args(ModelTier::Opus, "do it", Some("   "));
+        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[]);
         assert!(!none.contains(&"--append-system-prompt".to_string()));
+    }
+
+    #[test]
+    fn build_args_registers_mcp_and_allowlist_when_given() {
+        let tools = vec![
+            "mcp__claudestudio__list_sessions".to_string(),
+            "mcp__claudestudio__get_session".to_string(),
+        ];
+        let args = build_args(
+            ModelTier::Sonnet,
+            "show my sessions",
+            None,
+            Some("/home/u/.claudestudio/mcp-claudestudio.json"),
+            &tools,
+        );
+        let ci = args
+            .iter()
+            .position(|a| a == "--mcp-config")
+            .expect("--mcp-config present");
+        assert_eq!(args[ci + 1], "/home/u/.claudestudio/mcp-claudestudio.json");
+        let ai = args
+            .iter()
+            .position(|a| a == "--allowedTools")
+            .expect("--allowedTools present");
+        assert_eq!(
+            args[ai + 1],
+            "mcp__claudestudio__list_sessions,mcp__claudestudio__get_session"
+        );
     }
 
     #[test]

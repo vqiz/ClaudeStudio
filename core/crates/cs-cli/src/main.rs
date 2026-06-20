@@ -18,6 +18,7 @@
 //!
 //! It shuts down gracefully on `Ctrl-C`, removing the socket file.
 
+mod mcp_server;
 mod router;
 
 use std::path::{Path, PathBuf};
@@ -63,10 +64,20 @@ const SOCKET_NAME: &str = "core.sock";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
-
     let state_dir = state_dir();
     std::fs::create_dir_all(&state_dir).ok();
+
+    // `claudestudio-core mcp` runs the built-in MCP stdio server instead of the
+    // socket backend. Detected BEFORE `init_tracing` (which logs to stdout) so
+    // nothing pollutes the JSON-RPC stream the `claude` CLI reads. This is how
+    // every spawned Claude session gets default access to the session database.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        let store = SessionStore::open(&state_dir.join("sessions.db"))
+            .map_err(|e| anyhow::anyhow!("failed to open session store: {e}"))?;
+        return mcp_server::run(store);
+    }
+
+    init_tracing();
 
     // 2. Configuration.
     let config = AppConfig::load_or_default(&state_dir);
