@@ -73,6 +73,9 @@ final class AppState {
     /// Reusable agent presets, persisted.
     let agentStore = AgentStore()
 
+    /// Text-to-speech controller (reads responses aloud).
+    let voice = VoiceController()
+
     var selectedSidebarItem: SidebarItem? = .projects
     var selectedProjectID: Project.ID?
 

@@ -1,47 +1,73 @@
 import SwiftUI
 
-/// The Voice Log — transcribed voice commands, their parsed intent, and whether
-/// the assistant handled them.
+/// The Voice view — text-to-speech that reads assistant responses aloud, a
+/// quick "speak this" tester, and the spoken log. (Voice *input* needs the
+/// packaged app + microphone permission.)
 struct VoiceLogView: View {
     @Environment(AppState.self) private var appState
-    private let entries = VoiceLogEntry.samples
+    @State private var toSpeak = ""
 
     var body: some View {
+        @Bindable var voice = appState.voice
+
         VStack(spacing: 0) {
             HStack {
-                PageHeader(title: "Voice Log", symbol: "waveform",
-                           subtitle: "Spoken commands and parsed intents")
-                Toggle(isOn: Binding(get: { appState.isListening },
-                                     set: { appState.isListening = $0 })) {
-                    Label("Listening", systemImage: "mic.fill")
+                PageHeader(title: "Voice", symbol: "waveform",
+                           subtitle: "Read responses aloud (text-to-speech)")
+                Toggle(isOn: $voice.readAloud) {
+                    Label("Read responses aloud", systemImage: "speaker.wave.2.fill")
                 }
                 .toggleStyle(.switch)
             }
             .padding(20)
 
-            List(entries) { entry in
-                VoiceRow(entry: entry)
+            Form {
+                Section("Try it") {
+                    HStack(spacing: 8) {
+                        TextField("Type something to speak…", text: $toSpeak)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(speak)
+                        Button(action: speak) { Label("Speak", systemImage: "play.fill") }
+                            .disabled(toSpeak.trimmingCharacters(in: .whitespaces).isEmpty)
+                        Button(action: appState.voice.stop) { Label("Stop", systemImage: "stop.fill") }
+                            .disabled(!appState.voice.isSpeaking)
+                    }
+                    if !appState.voice.sttAvailable {
+                        Label("Voice input (speech-to-text) is available in the packaged app (microphone + speech permission). Reading aloud works everywhere.",
+                              systemImage: "info.circle")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
+                Section("Spoken log") {
+                    if appState.voice.spokenLog.isEmpty {
+                        Text("Nothing spoken yet. Turn on “Read responses aloud”, then run a session — its replies are read out here.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        ForEach(Array(appState.voice.spokenLog.enumerated()), id: \.offset) { _, line in
+                            Label(line, systemImage: "text.bubble")
+                                .font(.callout)
+                                .lineLimit(3)
+                        }
+                    }
+                }
             }
-            .listStyle(.inset)
+            .formStyle(.grouped)
+        }
+        // Read new assistant text from the live session aloud when enabled.
+        .onChange(of: lastAssistantText) { _, newValue in
+            if appState.voice.readAloud, let text = newValue { appState.voice.speak(text) }
         }
     }
-}
 
-private struct VoiceRow: View {
-    let entry: VoiceLogEntry
+    /// The most recent assistant line in the live session (drives read-aloud).
+    private var lastAssistantText: String? {
+        appState.core.liveSession.last { $0.kind == "assistant_text" }?.text
+    }
 
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: entry.handled ? "checkmark.circle.fill" : "questionmark.circle")
-                .foregroundStyle(entry.handled ? Color.green : Color.orange)
-                .font(.title3)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\u{201C}\(entry.transcript)\u{201D}").font(.callout).italic()
-                Text(entry.intent).font(.system(.caption, design: .monospaced)).foregroundStyle(.tint)
-            }
-            Spacer()
-            Text(Format.ago(entry.timestamp)).font(.caption2).foregroundStyle(.tertiary)
-        }
-        .padding(.vertical, 5)
+    private func speak() {
+        let text = toSpeak
+        toSpeak = ""
+        appState.voice.speak(text)
     }
 }
