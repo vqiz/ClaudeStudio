@@ -83,7 +83,14 @@ final class AppState {
     let voice = VoiceController()
 
     var selectedSidebarItem: SidebarItem? = .projects
-    var selectedProjectID: Project.ID?
+    var selectedProjectID: Project.ID? {
+        didSet {
+            guard selectedProjectID != oldValue, let project = selectedProject else { return }
+            // Warm the per-project caches so the workspace + tab switches are
+            // instant (no IPC round-trip on appear).
+            Task { await core.prefetch(project: project) }
+        }
+    }
 
     /// The session currently shown in the session panel.
     var activeSession: AgentSession?
@@ -156,6 +163,10 @@ final class AppState {
         if let coreTrust = core.config?.trustMode,
            let mode = TrustMode(coreValue: coreTrust) {
             globalTrustMode = mode
+        }
+        // Warm the selected project's caches as soon as the core is up.
+        if let project = selectedProject {
+            await core.prefetch(project: project)
         }
     }
 

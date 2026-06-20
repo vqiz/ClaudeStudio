@@ -66,9 +66,9 @@ private struct ProjectOverviewTab: View {
     @Environment(AppState.self) private var appState
     let project: Project
 
-    @State private var branch = ""
-    @State private var changes: Int?
-    @State private var worktrees: [ProjectWorktree] = []
+    private var branch: String { appState.core.gitByCwd[project.path]?.branch ?? "" }
+    private var changes: Int? { appState.core.gitByCwd[project.path]?.changes }
+    private var worktrees: [ProjectWorktree] { appState.core.worktreesByCwd[project.path] ?? [] }
 
     var body: some View {
         ScrollView {
@@ -115,7 +115,10 @@ private struct ProjectOverviewTab: View {
             }
             .padding(DS.s4)
         }
-        .task(id: project.id) { await loadGit() }
+        .task(id: project.id) {
+            await appState.core.gitInfo(cwd: project.path)
+            await appState.core.worktrees(cwd: project.path)
+        }
     }
 
     private var modelCard: some View {
@@ -143,14 +146,6 @@ private struct ProjectOverviewTab: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .dsCard(padding: DS.s3, radius: DS.rMd, elevated: false)
-    }
-
-    private func loadGit() async {
-        branch = ""; changes = nil; worktrees = []
-        if let info = await appState.core.gitInfo(cwd: project.path) {
-            branch = info.branch; changes = info.changes
-        }
-        worktrees = await appState.core.worktrees(cwd: project.path)
     }
 }
 
@@ -182,9 +177,11 @@ private struct ProjectSessionTab: View {
     @Environment(AppState.self) private var appState
     let project: Project
     @State private var prompt = ""
-    @State private var skills: [LibrarySkill] = []
     /// Definitions the user applied as context for the next run: path → (name, body).
     @State private var appliedDefs: [String: (name: String, body: String)] = [:]
+
+    /// Installed skills for this project, read instantly from the prefetch cache.
+    private var skills: [LibrarySkill] { appState.core.skillsByCwd[project.path] ?? [] }
 
     var body: some View {
         HSplitView {
@@ -210,7 +207,7 @@ private struct ProjectSessionTab: View {
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: project.path) { skills = await appState.core.skills(cwd: project.path) }
+        .task(id: project.path) { await appState.core.skills(cwd: project.path) }
     }
 
     private var appliedBar: some View {

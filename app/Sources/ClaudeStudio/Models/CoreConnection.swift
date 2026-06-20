@@ -98,6 +98,23 @@ final class CoreConnection {
     /// Sub-agents Claude has spawned in the current session (live), newest last.
     private(set) var liveAgents: [LiveAgent] = []
 
+    // MARK: Per-project prefetch caches
+    //
+    // Workspace tabs read these *synchronously* so switching tabs (or projects)
+    // shows data instantly with no IPC round-trip — the lag source. They are
+    // warmed by ``prefetch(project:)`` on selection/connect and refreshed in the
+    // background by the same accessors.
+
+    struct GitInfo: Sendable, Equatable { var branch: String; var changes: Int }
+    struct FileContent: Sendable, Equatable { var content: String; var exists: Bool }
+
+    private(set) var skillsByCwd: [String: [LibrarySkill]] = [:]
+    private(set) var gitByCwd: [String: GitInfo] = [:]
+    private(set) var worktreesByCwd: [String: [ProjectWorktree]] = [:]
+    private(set) var fileByPath: [String: FileContent] = [:]
+    /// Paths currently being (re)read, to coalesce duplicate in-flight reads.
+    private var filesInFlight: Set<String> = []
+
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
 
@@ -241,10 +258,28 @@ final class CoreConnection {
         return ok
     }
 
-    /// Installed skills for a project (and the user's global skills).
+    /// Installed skills for a project (and the user's global skills). Updates the
+    /// cache; falls back to the cached value when offline or on error.
+    @discardableResult
     func skills(cwd: String?) async -> [LibrarySkill] {
-        guard isConnected, let client else { return [] }
-        return (try? await client.fetchSkills(cwd: cwd)) ?? []
+        let cached = cwd.flatMap { skillsByCwd[$0] } ?? []
+        guard isConnected, let client else { return cached }
+        guard let result = try? await client.fetchSkills(cwd: cwd) else { return cached }
+        if let cwd { skillsByCwd[cwd] = result }
+        return result
+    }
+
+    /// Prefetch everything a project's workspace needs — skills, git status,
+    /// worktrees, and the CLAUDE.md / AGENTS.md contents — concurrently into the
+    /// caches, so opening it and switching tabs is instant. Best-effort.
+    func prefetch(project: Project) async {
+        guard isConnected else { return }
+        async let s: Void = { _ = await self.skills(cwd: project.path) }()
+        async let g: Void = { _ = await self.gitInfo(cwd: project.path) }()
+        async let w: Void = { _ = await self.worktrees(cwd: project.path) }()
+        async let c: Void = { _ = await self.readFile(project.claudeMdPath) }()
+        async let a: Void = { _ = await self.readFile(project.agentsMdPath) }()
+        _ = await (s, g, w, c, a)
     }
 
     /// Scaffold a new skill; returns its SKILL.md path (nil when offline/failed).
@@ -337,17 +372,31 @@ final class CoreConnection {
     }
 
     /// Read a text file via the core (`nil` when offline). `exists` is false for
-    /// a missing file.
+    /// a missing file. Successful reads update ``fileByPath``; a transient read
+    /// failure never clobbers a previously-cached value.
+    @discardableResult
     func readFile(_ path: String) async -> (content: String, exists: Bool)? {
-        guard isConnected, let client else { return nil }
-        return try? await client.readFile(path)
+        guard isConnected, let client else { return cachedFile(path) }
+        filesInFlight.insert(path)
+        defer { filesInFlight.remove(path) }
+        guard let result = try? await client.readFile(path) else { return cachedFile(path) }
+        fileByPath[path] = FileContent(content: result.content, exists: result.exists)
+        return result
+    }
+
+    /// The cached content of a path, if any (instant; no IPC).
+    func cachedFile(_ path: String) -> (content: String, exists: Bool)? {
+        fileByPath[path].map { ($0.content, $0.exists) }
     }
 
     /// Write a text file via the core. Returns false when offline or on error.
+    /// On success the cache is updated so reads reflect the new content.
     @discardableResult
     func writeFile(_ path: String, content: String) async -> Bool {
         guard isConnected, let client else { return false }
-        return (try? await client.writeFile(path, content: content)) ?? false
+        let ok = (try? await client.writeFile(path, content: content)) ?? false
+        if ok { fileByPath[path] = FileContent(content: content, exists: true) }
+        return ok
     }
 
     /// Configured hooks (project + global), or `[]` when offline.
@@ -357,25 +406,33 @@ final class CoreConnection {
     }
 
     /// Git worktrees of the repo at `cwd` (empty when offline / not a repo).
+    /// Updates ``worktreesByCwd``.
+    @discardableResult
     func worktrees(cwd: String) async -> [ProjectWorktree] {
-        guard isConnected, let client else { return [] }
+        let cached = worktreesByCwd[cwd] ?? []
+        guard isConnected, let client else { return cached }
         guard let res = try? await client.call("git.worktrees", .map(["cwd": .string(cwd)])) else {
-            return []
+            return cached
         }
-        return (res.payload?["worktrees"]?.arrayValue ?? []).compactMap { entry in
+        let list = (res.payload?["worktrees"]?.arrayValue ?? []).compactMap { entry -> ProjectWorktree? in
             guard let path = entry["path"]?.stringValue else { return nil }
             return ProjectWorktree(branch: entry["branch"]?.stringValue ?? "(detached)", path: path)
         }
+        worktreesByCwd[cwd] = list
+        return list
     }
 
     /// Current branch + number of changed files for a git repo at `cwd`
-    /// (`nil` when offline or not a repo).
+    /// (`nil` when offline or not a repo). Updates ``gitByCwd``.
+    @discardableResult
     func gitInfo(cwd: String) async -> (branch: String, changes: Int)? {
-        guard isConnected, let client else { return nil }
+        let cached = gitByCwd[cwd].map { ($0.branch, $0.changes) }
+        guard isConnected, let client else { return cached }
         guard let branchRes = try? await client.call("git.branch", .map(["cwd": .string(cwd)])),
-              let branch = branchRes.payload?["branch"]?.stringValue else { return nil }
+              let branch = branchRes.payload?["branch"]?.stringValue else { return cached }
         let statusRes = try? await client.call("git.status", .map(["cwd": .string(cwd)]))
         let changes = statusRes?.payload?["entries"]?.arrayValue?.count ?? 0
+        gitByCwd[cwd] = GitInfo(branch: branch, changes: changes)
         return (branch, changes)
     }
 
@@ -408,6 +465,10 @@ final class CoreConnection {
         liveAgents = []
         runningSessionId = nil
         liveRunOrigin = nil
+        skillsByCwd = [:]
+        gitByCwd = [:]
+        worktreesByCwd = [:]
+        fileByPath = [:]
         if status != .offline { status = .offline }
     }
 
