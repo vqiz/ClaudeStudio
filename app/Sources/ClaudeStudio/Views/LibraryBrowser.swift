@@ -40,8 +40,8 @@ struct LibraryBrowser: View {
         Group {
             if appState.coreConnected {
                 HSplitView {
-                    sidebar.frame(minWidth: 240, idealWidth: 280, maxWidth: 380)
-                    detail.frame(minWidth: 360)
+                    sidebar.frame(minWidth: 240, idealWidth: 280, maxWidth: 380, maxHeight: .infinity)
+                    detail.frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 ContentUnavailableView(
@@ -51,6 +51,7 @@ struct LibraryBrowser: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle(title)
         .alert("New \(newButtonTitle)", isPresented: $promptingName) {
             TextField("Name", text: $newName)

@@ -28,17 +28,18 @@ struct AgentStudioView: View {
                     AgentRow(agent: agent).tag(agent.id)
                 }
             }
-            .frame(minWidth: 230, idealWidth: 280, maxWidth: 360)
+            .frame(minWidth: 230, idealWidth: 280, maxWidth: 360, maxHeight: .infinity)
 
             if let agent = appState.agentStore.agents.first(where: { $0.id == selected }) {
                 AgentDetail(agent: agent).id(agent.id)
-                    .frame(minWidth: 360)
+                    .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("Select an agent",
                                        systemImage: "person.crop.rectangle.stack")
-                    .frame(minWidth: 360)
+                    .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Agent Studio")
         .onAppear { if selected == nil { selected = appState.agentStore.agents.first?.id } }
     }

@@ -274,6 +274,9 @@ fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
         StreamEvent::Result { cost_usd, is_error } => {
             serde_json::json!({ "kind": "result", "cost_usd": cost_usd, "is_error": is_error })
         }
+        StreamEvent::Failure(message) => {
+            serde_json::json!({ "kind": "error", "message": message })
+        }
         StreamEvent::Other(raw) => serde_json::json!({ "kind": "other", "raw": raw }),
     }
 }

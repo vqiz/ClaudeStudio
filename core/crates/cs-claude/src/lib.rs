@@ -29,7 +29,7 @@ use cs_types::ModelTier;
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 
 /// Errors produced by the Claude process manager.
@@ -75,6 +75,10 @@ pub fn build_args(
         model_flag(model).to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
+        // `--print` + `stream-json` is rejected by the CLI without `--verbose`
+        // ("requires --verbose"); without it the run errors out and emits no
+        // stdout, so the UI would show an empty transcript.
+        "--verbose".to_string(),
     ];
     if let Some(system) = append_system_prompt {
         let trimmed = system.trim();
@@ -112,6 +116,9 @@ pub enum StreamEvent {
         /// Whether the run ended in an error.
         is_error: bool,
     },
+    /// The process failed (non-zero exit). Carries the captured stderr so the UI
+    /// can show *why* a run produced no output (e.g. a CLI usage error).
+    Failure(String),
     /// Any line we could parse as JSON but did not recognize.
     Other(serde_json::Value),
 }
@@ -255,7 +262,7 @@ impl ClaudeSession {
         command
             .args(&args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .stdin(Stdio::null());
         if let Some(dir) = &self.cwd {
             command.current_dir(dir);
@@ -263,15 +270,37 @@ impl ClaudeSession {
         let mut child = command.spawn().map_err(|e| Error::Spawn(e.to_string()))?;
 
         let stdout = child.stdout.take().ok_or(Error::NoStdout)?;
+        let stderr = child.stderr.take();
         let reader = BufReader::new(stdout);
         let lines = tokio_stream_lines(reader);
 
-        // Reap the child in the background so it does not become a zombie.
-        tokio::spawn(async move {
-            let _ = child.wait().await;
-        });
+        // After stdout closes, wait for the child: if it failed, surface the
+        // captured stderr as a terminal `Failure` event so the UI explains the
+        // empty output instead of silently showing nothing.
+        let tail = futures::stream::once(async move {
+            let status = child.wait().await;
+            let failed = status.map(|s| !s.success()).unwrap_or(true);
+            if failed {
+                let mut buf = String::new();
+                if let Some(mut e) = stderr {
+                    let _ = e.read_to_string(&mut buf).await;
+                }
+                let message = buf.trim();
+                let message = if message.is_empty() {
+                    "the claude CLI exited with an error".to_string()
+                } else {
+                    message.to_string()
+                };
+                Some(StreamEvent::Failure(message))
+            } else {
+                None
+            }
+        })
+        .filter_map(|event| async move { event });
 
-        Ok(Box::pin(lines.map(|line| parse_stream_line(&line))))
+        Ok(Box::pin(
+            lines.map(|line| parse_stream_line(&line)).chain(tail),
+        ))
     }
 }
 
@@ -339,6 +368,8 @@ mod tests {
     fn build_args_requests_stream_json() {
         let args = build_args(ModelTier::Sonnet, "hello", None);
         assert!(args.contains(&"stream-json".to_string()));
+        // --print + stream-json requires --verbose, or the CLI errors out.
+        assert!(args.contains(&"--verbose".to_string()));
         assert!(args.contains(&"sonnet".to_string()));
         assert!(args.contains(&"hello".to_string()));
         assert!(!args.contains(&"--append-system-prompt".to_string()));

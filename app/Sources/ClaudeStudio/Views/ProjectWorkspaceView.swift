@@ -42,7 +42,9 @@ struct ProjectWorkspaceView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .padding(12)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
             .background(.bar)
             Divider()
 

@@ -45,17 +45,18 @@ struct ProjectsView: View {
                     ProjectRow(project: project).tag(project.id)
                 }
             }
-            .frame(minWidth: 200, idealWidth: 250, maxWidth: 360)
+            .frame(minWidth: 200, idealWidth: 250, maxWidth: 360, maxHeight: .infinity)
 
             if let project = appState.selectedProject {
                 ProjectWorkspaceView(project: project)
                     .id(project.id)
-                    .frame(minWidth: 420)
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView("Select a project", systemImage: "sidebar.squares.left")
-                    .frame(minWidth: 360)
+                    .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func addProject() {
