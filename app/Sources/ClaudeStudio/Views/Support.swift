@@ -75,7 +75,7 @@ struct PageHeader: View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Image(systemName: symbol)
                 .font(.title2)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.brandGradient)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(.title2.bold())
                 if let subtitle {
