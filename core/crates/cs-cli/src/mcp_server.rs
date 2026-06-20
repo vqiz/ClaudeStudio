@@ -221,7 +221,12 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap().to_string())
             .collect();
-        for tool in ["list_sessions", "get_session", "search_sessions", "session_stats"] {
+        for tool in [
+            "list_sessions",
+            "get_session",
+            "search_sessions",
+            "session_stats",
+        ] {
             assert!(names.contains(&tool.to_string()), "missing tool {tool}");
         }
     }

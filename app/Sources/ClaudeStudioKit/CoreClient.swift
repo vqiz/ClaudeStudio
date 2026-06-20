@@ -608,4 +608,11 @@ public final class CoreClient: Sendable {
         let response = try await call("session.start", .map(payload))
         return response.payload?["session_id"]?.stringValue ?? ""
     }
+
+    /// Stop a running live session by id (the core kills the `claude` process).
+    @discardableResult
+    public func stopSession(sessionId: String) async throws -> Bool {
+        let response = try await call("session.stop", .map(["session_id": .string(sessionId)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
 }

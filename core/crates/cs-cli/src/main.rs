@@ -253,6 +253,8 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
             );
             router.record_message(&session_id, "user", &prompt);
             router.record_run_event(&session_id, "started");
+            // Arm a cancel signal so `session.stop` can kill this run.
+            let cancel = router.register_cancel(&session_id);
 
             let ack = request.response_to(serde_json::json!({ "session_id": session_id }));
             writer.lock().await.write_frame(&ack).await?;
@@ -266,6 +268,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 model,
                 system_prompt,
                 effort,
+                cancel,
                 Arc::clone(&writer),
             ));
             continue;
@@ -283,11 +286,11 @@ fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
         StreamEvent::AssistantText(text) => {
             serde_json::json!({ "kind": "assistant_text", "text": text })
         }
-        StreamEvent::ToolUse { name, input } => {
-            serde_json::json!({ "kind": "tool_use", "name": name, "input": input })
+        StreamEvent::ToolUse { id, name, input } => {
+            serde_json::json!({ "kind": "tool_use", "id": id, "name": name, "input": input })
         }
-        StreamEvent::ToolResult { content } => {
-            serde_json::json!({ "kind": "tool_result", "content": content })
+        StreamEvent::ToolResult { id, content } => {
+            serde_json::json!({ "kind": "tool_result", "id": id, "content": content })
         }
         StreamEvent::Result { cost_usd, is_error } => {
             serde_json::json!({ "kind": "result", "cost_usd": cost_usd, "is_error": is_error })
@@ -295,6 +298,7 @@ fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
         StreamEvent::Failure(message) => {
             serde_json::json!({ "kind": "error", "message": message })
         }
+        StreamEvent::Stopped => serde_json::json!({ "kind": "stopped" }),
         StreamEvent::Other(raw) => serde_json::json!({ "kind": "other", "raw": raw }),
     }
 }
@@ -312,6 +316,7 @@ fn spawn_claude_forwarder(
     model: ModelTier,
     system_prompt: Option<String>,
     effort: Option<String>,
+    cancel: Arc<tokio::sync::Notify>,
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
@@ -326,10 +331,12 @@ fn spawn_claude_forwarder(
             session = session.with_effort(level);
         }
 
-        let mut stream = match session.run(&prompt).await {
+        let cancel_signal = async move { cancel.notified().await };
+        let mut stream = match session.run(&prompt, cancel_signal).await {
             Ok(stream) => stream,
             Err(e) => {
                 router.record_run_event(&session_id, "spawn_failed");
+                router.clear_cancel(&session_id);
                 let frame = new_event(
                     "session.event",
                     serde_json::json!({
@@ -347,7 +354,7 @@ fn spawn_claude_forwarder(
                 StreamEvent::AssistantText(text) => {
                     router.record_message(&session_id, "assistant", text)
                 }
-                StreamEvent::ToolUse { name, input } => {
+                StreamEvent::ToolUse { name, input, .. } => {
                     router.record_tool_call(&session_id, name, input.clone())
                 }
                 _ => {}
@@ -365,6 +372,7 @@ fn spawn_claude_forwarder(
         }
 
         router.record_run_event(&session_id, "completed");
+        router.clear_cancel(&session_id);
         let done = new_event(
             "session.event",
             serde_json::json!({ "session_id": session_id, "event": { "kind": "done" } }),

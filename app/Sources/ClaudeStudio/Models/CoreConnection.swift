@@ -43,6 +43,18 @@ struct LiveSessionEvent: Identifiable, Sendable {
     }
 }
 
+/// A sub-agent Claude spawned in the current session (via the Task tool). The
+/// Agents tab lists these live, with their status.
+struct LiveAgent: Identifiable, Sendable {
+    let id: String
+    /// The sub-agent type (e.g. `Explore`, `general-purpose`), from the launch.
+    let kind: String
+    let task: String
+    var status: Status
+
+    enum Status: Sendable { case running, done, stopped }
+}
+
 /// Owns the live connection to the Rust core sidecar and exposes its state to the
 /// UI as observable properties.
 ///
@@ -81,9 +93,10 @@ final class CoreConnection {
     /// The id of the running session, or nil when none is active.
     private(set) var runningSessionId: String?
     /// What launched the current transcript: `"session"`, `"skill"`, `"task"`,
-    /// or `"agent"`. Lets each surface show only its own runs instead of bleeding
-    /// the Session output into the Agents tab.
+    /// or `"agent"`.
     private(set) var liveRunOrigin: String?
+    /// Sub-agents Claude has spawned in the current session (live), newest last.
+    private(set) var liveAgents: [LiveAgent] = []
 
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
@@ -392,6 +405,7 @@ final class CoreConnection {
         mcpServers = []
         recentEvents = []
         liveSession = []
+        liveAgents = []
         runningSessionId = nil
         liveRunOrigin = nil
         if status != .offline { status = .offline }
@@ -422,6 +436,7 @@ final class CoreConnection {
                   let kind = event["kind"]?.stringValue else { return }
             switch kind {
             case "done":
+                finishLiveAgents(.done)
                 runningSessionId = nil
             case "assistant_text":
                 liveSession.append(LiveSessionEvent(kind: kind, text: event["text"]?.stringValue ?? ""))
@@ -430,15 +445,23 @@ final class CoreConnection {
                 liveSession.append(LiveSessionEvent(
                     kind: kind, text: name,
                     detail: Self.toolDetail(name: name, input: event["input"])))
+                trackAgentLaunch(id: event["id"]?.stringValue, name: name, input: event["input"])
             case "tool_result":
                 let content = event["content"]?.stringValue ?? ""
                 liveSession.append(LiveSessionEvent(kind: kind, text: Self.truncate(content, 600)))
+                markAgentDone(id: event["id"]?.stringValue)
             case "result":
                 let cost = event["cost_usd"]?.doubleValue ?? 0
                 liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
+                finishLiveAgents(.done)
+                runningSessionId = nil
+            case "stopped":
+                liveSession.append(LiveSessionEvent(kind: "error", text: "Stopped by you."))
+                finishLiveAgents(.stopped)
                 runningSessionId = nil
             case "error":
                 liveSession.append(LiveSessionEvent(kind: kind, text: event["message"]?.stringValue ?? "error"))
+                finishLiveAgents(.done)
                 runningSessionId = nil
             default:
                 break
@@ -446,6 +469,29 @@ final class CoreConnection {
 
         default:
             break
+        }
+    }
+
+    /// Record a sub-agent launch (the `Task` tool) so the Agents tab can show it.
+    private func trackAgentLaunch(id: String?, name: String, input: MsgPackValue?) {
+        guard name == "Task" || name == "Agent" else { return }
+        let kind = input?["subagent_type"]?.stringValue ?? "agent"
+        let task = input?["description"]?.stringValue
+            ?? input?["prompt"]?.stringValue ?? ""
+        liveAgents.append(LiveAgent(id: id ?? UUID().uuidString, kind: kind,
+                                    task: Self.truncate(task, 200), status: .running))
+    }
+
+    /// Mark the sub-agent whose tool-call `id` matches as finished.
+    private func markAgentDone(id: String?) {
+        guard let id, let idx = liveAgents.firstIndex(where: { $0.id == id && $0.status == .running }) else { return }
+        liveAgents[idx].status = .done
+    }
+
+    /// Resolve any still-running sub-agents when the session ends.
+    private func finishLiveAgents(_ status: LiveAgent.Status) {
+        for idx in liveAgents.indices where liveAgents[idx].status == .running {
+            liveAgents[idx].status = status
         }
     }
 
@@ -458,6 +504,7 @@ final class CoreConnection {
         // Echo the user's own message into the transcript so the session reads
         // like a conversation.
         liveSession = [LiveSessionEvent(kind: "user", text: prompt)]
+        liveAgents = []
         liveRunOrigin = origin
         runningSessionId = nil
         if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
@@ -466,6 +513,12 @@ final class CoreConnection {
         }
         // Refresh the archive so the new session appears in the list.
         await reloadSessions()
+    }
+
+    /// Stop the running live session (kills the `claude` process via the core).
+    func stopSession() async {
+        guard isConnected, let client, let id = runningSessionId else { return }
+        _ = try? await client.stopSession(sessionId: id)
     }
 
     /// A short, human-readable summary of a tool call's input for the transcript

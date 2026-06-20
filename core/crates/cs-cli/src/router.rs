@@ -36,6 +36,8 @@ struct Inner {
     library_dir: PathBuf,
     sessions: Mutex<SessionStore>,
     event_bus: EventBus,
+    /// Per-running-session cancel signals, so `session.stop` can kill a live run.
+    cancels: Mutex<HashMap<String, Arc<tokio::sync::Notify>>>,
 }
 
 impl Router {
@@ -54,8 +56,46 @@ impl Router {
                 library_dir,
                 sessions: Mutex::new(sessions),
                 event_bus,
+                cancels: Mutex::new(HashMap::new()),
             }),
         }
+    }
+
+    /// Register a cancel signal for a running session and return it. The session
+    /// forwarder awaits it; `session.stop` fires it.
+    pub fn register_cancel(&self, session_id: &str) -> Arc<tokio::sync::Notify> {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        self.inner
+            .cancels
+            .lock()
+            .unwrap()
+            .insert(session_id.to_string(), notify.clone());
+        notify
+    }
+
+    /// Fire the cancel signal for `session_id`. Returns whether one was armed.
+    pub fn trigger_cancel(&self, session_id: &str) -> bool {
+        match self.inner.cancels.lock().unwrap().get(session_id) {
+            Some(notify) => {
+                notify.notify_one();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Drop a session's cancel signal (called when the run ends).
+    pub fn clear_cancel(&self, session_id: &str) {
+        self.inner.cancels.lock().unwrap().remove(session_id);
+    }
+
+    /// Stop a running live session by id (kills the `claude` process).
+    fn session_stop(&self, p: &Value) -> HandlerResult {
+        let id = p
+            .get("session_id")
+            .and_then(Value::as_str)
+            .ok_or("missing 'session_id'")?;
+        Ok(json!({ "ok": true, "stopped": self.trigger_cancel(id) }))
     }
 
     /// The shared event bus, so the connection layer can stream `SystemEvent`s
@@ -81,6 +121,9 @@ impl Router {
             "config.get" => Ok(self.config_payload()),
             "config.set" => self.config_set(p),
             "context.budget" => Ok(self.budget_payload()),
+
+            // --- Live session control ---
+            "session.stop" => self.session_stop(p),
 
             // --- Session archive ---
             "session.list" => self.session_list(p),

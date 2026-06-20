@@ -117,6 +117,18 @@ pub fn build_args(
     args
 }
 
+/// System-prompt note injected (via `--append-system-prompt`) whenever DB access
+/// is enabled, so the main agent and every sub-agent it spawns know the
+/// session-database tools exist and use them.
+const DB_SYSTEM_PROMPT: &str = "\
+You have read access to the ClaudeStudio session database through the built-in \
+`claudestudio` MCP server. Whenever the request concerns past sessions, history, \
+cost, or stored project activity, use its tools: \
+mcp__claudestudio__list_sessions, mcp__claudestudio__get_session, \
+mcp__claudestudio__search_sessions, and mcp__claudestudio__session_stats. \
+Any sub-agents you spawn (via the Task tool) should use these same tools when \
+relevant — the MCP server is available to them too.";
+
 /// Read-only session-database tools the built-in `claudestudio` MCP server
 /// exposes. Kept in sync with `cs_cli::mcp_server::DB_TOOLS`.
 const DB_TOOL_NAMES: [&str; 4] = [
@@ -166,6 +178,8 @@ pub enum StreamEvent {
     AssistantText(String),
     /// The assistant requested a tool call.
     ToolUse {
+        /// The tool-call id (matches a later `ToolResult.id`), if present.
+        id: Option<String>,
         /// The name of the tool.
         name: String,
         /// The tool's input arguments.
@@ -173,6 +187,8 @@ pub enum StreamEvent {
     },
     /// A tool returned a result.
     ToolResult {
+        /// The id of the `ToolUse` this result completes, if present.
+        id: Option<String>,
         /// The textual result content, if any.
         content: String,
     },
@@ -186,6 +202,8 @@ pub enum StreamEvent {
     /// The process failed (non-zero exit). Carries the captured stderr so the UI
     /// can show *why* a run produced no output (e.g. a CLI usage error).
     Failure(String),
+    /// The run was stopped by the user (the process was killed).
+    Stopped,
     /// Any line we could parse as JSON but did not recognize.
     Other(serde_json::Value),
 }
@@ -276,6 +294,7 @@ fn parse_message_blocks(value: &serde_json::Value) -> Vec<StreamEvent> {
 
 fn tool_use_event(block: &serde_json::Value) -> StreamEvent {
     StreamEvent::ToolUse {
+        id: block.get("id").and_then(|v| v.as_str()).map(str::to_string),
         name: block
             .get("name")
             .and_then(|n| n.as_str())
@@ -305,7 +324,13 @@ fn tool_result_event(block: &serde_json::Value) -> StreamEvent {
         Some(other) => other.to_string(),
         None => String::new(),
     };
-    StreamEvent::ToolResult { content }
+    StreamEvent::ToolResult {
+        id: block
+            .get("tool_use_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        content,
+    }
 }
 
 /// A configured session against the `claude` CLI.
@@ -379,11 +404,14 @@ impl ClaudeSession {
         self
     }
 
-    /// Run a prompt, returning an asynchronous stream of [`StreamEvent`]s
-    /// parsed from the CLI's stdout.
+    /// Run a prompt, returning an asynchronous stream of [`StreamEvent`]s parsed
+    /// from the CLI's stdout. When `cancel` resolves, the `claude` process is
+    /// killed and the stream ends with [`StreamEvent::Stopped`]. Pass
+    /// `std::future::pending()` for a run that can't be cancelled.
     pub async fn run(
         &self,
         prompt: &str,
+        cancel: impl std::future::Future<Output = ()> + Send + 'static,
     ) -> Result<impl Stream<Item = StreamEvent> + Send + Unpin> {
         // Give the run default access to the session database via the built-in
         // claudestudio MCP server (registered + pre-approved), unless disabled.
@@ -396,10 +424,19 @@ impl ClaudeSession {
             Some((path, tools)) => (Some(path.as_str()), tools.as_slice()),
             None => (None, [].as_slice()),
         };
+        // When DB access is on, prepend a system-prompt note so the main agent
+        // *and any sub-agents it spawns* know the session-database tools exist
+        // and should use them. Combined with any agent persona.
+        let system_prompt: Option<String> =
+            match (db_mcp.is_some(), self.append_system_prompt.as_deref()) {
+                (true, Some(persona)) => Some(format!("{DB_SYSTEM_PROMPT}\n\n{persona}")),
+                (true, None) => Some(DB_SYSTEM_PROMPT.to_string()),
+                (false, persona) => persona.map(str::to_string),
+            };
         let args = build_args(
             self.model,
             prompt,
-            self.append_system_prompt.as_deref(),
+            system_prompt.as_deref(),
             mcp_config,
             allowed_tools,
             self.effort.as_deref(),
@@ -420,26 +457,50 @@ impl ClaudeSession {
         let reader = BufReader::new(stdout);
         let lines = tokio_stream_lines(reader);
 
-        // After stdout closes, wait for the child: if it failed, surface the
-        // captured stderr as a terminal `Failure` event so the UI explains the
-        // empty output instead of silently showing nothing.
-        let tail = futures::stream::once(async move {
-            let status = child.wait().await;
-            let failed = status.map(|s| !s.success()).unwrap_or(true);
-            if failed {
-                let mut buf = String::new();
-                if let Some(mut e) = stderr {
-                    let _ = e.read_to_string(&mut buf).await;
+        // A dedicated task owns the child so it can be killed *concurrently* with
+        // stdout streaming: on `cancel` it kills the process (which closes stdout
+        // and ends the line stream); otherwise it waits for normal exit. It
+        // reports the outcome to the tail via a oneshot.
+        #[derive(PartialEq)]
+        enum Outcome {
+            Ok,
+            Stopped,
+            Failed,
+        }
+        let (tx, rx) = futures::channel::oneshot::channel::<Outcome>();
+        tokio::spawn(async move {
+            let outcome = tokio::select! {
+                _ = cancel => {
+                    let _ = child.start_kill();
+                    let _ = child.wait().await;
+                    Outcome::Stopped
                 }
-                let message = buf.trim();
-                let message = if message.is_empty() {
-                    "the claude CLI exited with an error".to_string()
-                } else {
-                    message.to_string()
-                };
-                Some(StreamEvent::Failure(message))
-            } else {
-                None
+                status = child.wait() => match status {
+                    Ok(s) if s.success() => Outcome::Ok,
+                    _ => Outcome::Failed,
+                },
+            };
+            let _ = tx.send(outcome);
+        });
+
+        // After stdout closes, surface the terminal event: nothing on success,
+        // `Stopped` when cancelled, or `Failure(stderr)` on a real error.
+        let tail = futures::stream::once(async move {
+            match rx.await.unwrap_or(Outcome::Failed) {
+                Outcome::Ok => None,
+                Outcome::Stopped => Some(StreamEvent::Stopped),
+                Outcome::Failed => {
+                    let mut buf = String::new();
+                    if let Some(mut e) = stderr {
+                        let _ = e.read_to_string(&mut buf).await;
+                    }
+                    let message = buf.trim();
+                    Some(StreamEvent::Failure(if message.is_empty() {
+                        "the claude CLI exited with an error".to_string()
+                    } else {
+                        message.to_string()
+                    }))
+                }
             }
         })
         .filter_map(|event| async move { event });
@@ -621,7 +682,7 @@ mod tests {
             StreamEvent::AssistantText("Let me check.".to_string())
         );
         match &events[1] {
-            StreamEvent::ToolUse { name, input } => {
+            StreamEvent::ToolUse { name, input, .. } => {
                 assert_eq!(name, "Bash");
                 assert_eq!(input["command"], "ls -la");
             }
@@ -632,22 +693,37 @@ mod tests {
     #[test]
     fn parse_user_message_emits_tool_result() {
         let line = r#"{"type":"user","message":{"content":[
-            {"type":"tool_result","content":[{"type":"text","text":"file1\nfile2"}]}
+            {"type":"tool_result","tool_use_id":"toolu_9","content":[{"type":"text","text":"file1\nfile2"}]}
         ]}}"#;
         let events = parse_stream_line(line);
         assert_eq!(
             events,
             vec![StreamEvent::ToolResult {
+                id: Some("toolu_9".to_string()),
                 content: "file1\nfile2".to_string()
             }]
         );
     }
 
     #[test]
+    fn parse_tool_use_carries_id_from_assistant_block() {
+        let line = r#"{"type":"assistant","message":{"content":[
+            {"type":"tool_use","id":"toolu_42","name":"Task","input":{"subagent_type":"Explore"}}
+        ]}}"#;
+        match parse_stream_line(line).as_slice() {
+            [StreamEvent::ToolUse { id, name, .. }] => {
+                assert_eq!(id.as_deref(), Some("toolu_42"));
+                assert_eq!(name, "Task");
+            }
+            other => panic!("expected single ToolUse, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn parse_tool_use_line() {
         let line = r#"{"type":"tool_use","name":"Bash","input":{"command":"ls"}}"#;
         match parse_stream_line(line).as_slice() {
-            [StreamEvent::ToolUse { name, input }] => {
+            [StreamEvent::ToolUse { name, input, .. }] => {
                 assert_eq!(name, "Bash");
                 assert_eq!(input["command"], "ls");
             }
@@ -700,7 +776,10 @@ mod tests {
         let session = ClaudeSession::new(ModelTier::Haiku)
             .with_binary(fake.to_string_lossy())
             .with_cwd(dir.clone());
-        let mut stream = session.run("test prompt").await.expect("spawn fake claude");
+        let mut stream = session
+            .run("test prompt", std::future::pending())
+            .await
+            .expect("spawn fake claude");
 
         let mut events = Vec::new();
         while let Some(ev) = stream.next().await {

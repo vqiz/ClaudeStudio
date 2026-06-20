@@ -202,14 +202,7 @@ private struct ProjectSessionTab: View {
             VStack(spacing: 0) {
                 ModelEffortBar(project: project)
                 Divider()
-                if appState.core.liveRunOrigin == "agent" {
-                    ContentUnavailableView("An agent is working in the Agents tab",
-                                           systemImage: "person.crop.rectangle.stack",
-                                           description: Text("Run a prompt, skill, or task here to see session output."))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    LiveTranscriptView()
-                }
+                LiveTranscriptView()
                 if !appliedDefs.isEmpty { appliedBar }
                 Divider()
                 composer
@@ -247,13 +240,16 @@ private struct ProjectSessionTab: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(1...5)
                 .onSubmit(run)
-            Button(action: run) {
-                Image(systemName: "arrow.up.circle.fill").font(.title)
+                .disabled(appState.core.runningSessionId != nil)
+            if appState.core.runningSessionId != nil {
+                StopButton()
+            } else {
+                Button(action: run) {
+                    Image(systemName: "arrow.up.circle.fill").font(.title)
+                }
+                .buttonStyle(.plain)
+                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty || !appState.coreConnected)
             }
-            .buttonStyle(.plain)
-            .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
-                      || !appState.coreConnected
-                      || appState.core.runningSessionId != nil)
         }
         .padding(12)
         .background(.bar)
@@ -575,95 +571,148 @@ private struct LiveTranscriptRow: View {
     }
 }
 
-// MARK: - Agents (the brain)
+// MARK: - Agents (live sub-agents Claude is running)
 
+/// Shows the sub-agents Claude spawns *itself* during a session (via the Task
+/// tool, guided by CLAUDE.md / context) — live, with their status — rather than
+/// any predefined presets. Give Claude a task below and watch the agents appear.
 private struct ProjectAgentsTab: View {
     @Environment(AppState.self) private var appState
     let project: Project
-    @State private var selected: AgentDefinition.ID?
-    @State private var command = ""
-
-    private var agent: AgentDefinition? {
-        appState.agentStore.agents.first { $0.id == selected }
-    }
+    @State private var prompt = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(appState.agentStore.agents) { a in
-                        Button { selected = a.id } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: a.symbol)
-                                Text(a.name).font(.callout.weight(.medium))
-                            }
-                            .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(selected == a.id ? Color.accentColor.opacity(0.18) : Color(.quaternaryLabelColor).opacity(0.4),
-                                        in: Capsule())
-                            .overlay(Capsule().strokeBorder(selected == a.id ? Color.accentColor : .clear, lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(12)
-            }
-            .background(.bar)
+            ModelEffortBar(project: project)
             Divider()
-
-            if appState.agentStore.agents.isEmpty {
-                ContentUnavailableView("No agents configured",
-                                       systemImage: "person.crop.rectangle.stack",
-                                       description: Text("Create one in Agent Studio (sidebar → Agent Studio) — start from a template — then launch it here."))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let agent {
-                if !agent.role.isEmpty {
-                    Text(agent.role).font(.caption).foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12).padding(.top, 8)
-                }
-                // Only this tab's own (agent-launched) work shows here — never
-                // the leftover Session/skill/task output.
-                if appState.core.liveRunOrigin == "agent" {
-                    LiveTranscriptView()
+            LiveAgentsPanel()
+            Divider()
+            LiveTranscriptView()
+            Divider()
+            HStack(spacing: 8) {
+                TextField("Give Claude a task — it spawns the sub-agents it needs…",
+                          text: $prompt, axis: .vertical)
+                    .textFieldStyle(.roundedBorder)
+                    .lineLimit(1...4)
+                    .onSubmit(run)
+                    .disabled(appState.core.runningSessionId != nil)
+                if appState.core.runningSessionId != nil {
+                    StopButton()
                 } else {
-                    ContentUnavailableView("Launch \(agent.name)",
-                                           systemImage: agent.symbol,
-                                           description: Text("Give this agent a command below. Only what you launch here appears in this tab."))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    Button(action: run) { Label("Run", systemImage: "play.fill") }
+                        .buttonStyle(.brand)
+                        .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
+                                  || !appState.coreConnected)
                 }
-                Divider()
-                HStack(spacing: 8) {
-                    TextField("Command for \(agent.name)…", text: $command, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(1...4)
-                        .onSubmit { run(agent) }
-                    Button { run(agent) } label: {
-                        Label("Run", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.brand)
-                    .disabled(command.trimmingCharacters(in: .whitespaces).isEmpty
-                              || !appState.coreConnected
-                              || appState.core.runningSessionId != nil)
-                }
-                .padding(12)
-                .background(.bar)
-            } else {
-                ContentUnavailableView("Pick an agent",
-                                       systemImage: "person.crop.rectangle.stack",
-                                       description: Text("Choose one of your configured agents above, then give it a command."))
             }
+            .padding(12)
+            .background(.bar)
         }
-        .onAppear { if selected == nil { selected = appState.agentStore.agents.first?.id } }
     }
 
-    private func run(_ agent: AgentDefinition) {
-        let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func run() {
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
-        command = ""
+        prompt = ""
         Task {
             await appState.core.startSession(prompt: text, cwd: project.path,
-                                             model: agent.model, systemPrompt: agent.systemPrompt,
-                                             effort: project.effort, origin: "agent")
+                                             model: project.model, effort: project.effort,
+                                             origin: "session")
         }
+    }
+}
+
+/// The live list of sub-agents Claude has spawned in the current session.
+struct LiveAgentsPanel: View {
+    @Environment(AppState.self) private var appState
+
+    private var agents: [LiveAgent] { appState.core.liveAgents }
+    private var runningCount: Int { agents.filter { $0.status == .running }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "person.2.fill").font(.callout.weight(.semibold)).foregroundStyle(.brandRich)
+                Text("SUB-AGENTS").font(.caption2.weight(.bold)).tracking(0.6).foregroundStyle(.secondary)
+                Spacer()
+                if runningCount > 0 {
+                    HStack(spacing: 5) {
+                        ProgressView().controlSize(.small)
+                        Text("\(runningCount) running").font(.caption2).foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("\(agents.count)").font(.caption2).foregroundStyle(.tertiary)
+                }
+            }
+            if agents.isEmpty {
+                Text("When Claude spawns sub-agents (the Task tool) — guided by your CLAUDE.md / context — they appear here live.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(agents) { agent in row(agent) }
+                    }
+                }
+                .frame(maxHeight: 190)
+            }
+        }
+        .padding(12)
+        .background(.bar)
+    }
+
+    private func row(_ agent: LiveAgent) -> some View {
+        HStack(alignment: .top, spacing: 9) {
+            statusIcon(agent.status)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(agent.kind).font(.callout.weight(.semibold))
+                if !agent.task.isEmpty {
+                    Text(agent.task).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            Spacer(minLength: 0)
+            statusBadge(agent.status)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DS.rSm, style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ status: LiveAgent.Status) -> some View {
+        switch status {
+        case .running: ProgressView().controlSize(.small).frame(width: 18, height: 18)
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .stopped: Image(systemName: "stop.circle.fill").foregroundStyle(.orange)
+        }
+    }
+
+    private func statusBadge(_ status: LiveAgent.Status) -> some View {
+        let (text, color): (String, Color)
+        switch status {
+        case .running: (text, color) = ("running", .brandIndigo)
+        case .done: (text, color) = ("done", .green)
+        case .stopped: (text, color) = ("stopped", .orange)
+        }
+        return Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 7).padding(.vertical, 2)
+            .background(color.opacity(0.16), in: Capsule())
+            .foregroundStyle(color)
+    }
+}
+
+/// A red Stop button that kills the running session via the core.
+struct StopButton: View {
+    @Environment(AppState.self) private var appState
+    var body: some View {
+        Button(role: .destructive) {
+            Task { await appState.core.stopSession() }
+        } label: {
+            Label("Stop", systemImage: "stop.fill")
+        }
+        .buttonStyle(.bordered)
+        .tint(.red)
+        .help("Stop the running session")
     }
 }
