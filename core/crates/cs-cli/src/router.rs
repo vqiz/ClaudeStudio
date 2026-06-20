@@ -10,7 +10,7 @@
 //! (`kind: error`, `{ code, message }`), so a bad request never tears down the
 //! connection.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -98,8 +98,15 @@ impl Router {
 
             // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
+            "tasks.create" => self.library_create(p, "tasks"),
+            "tasks.delete" => self.library_delete(p, "tasks", ".task.json"),
             "definitions.list" => self.definitions_list(),
+            "definitions.create" => self.library_create(p, "definitions"),
+            "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
+            "skills.list" => self.skills_list(p),
             "mcp.list" => self.mcp_list(p),
+            "mcp.upsert" => self.mcp_upsert(p),
+            "mcp.remove" => self.mcp_remove(p),
             "hooks.list" => self.hooks_list(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
@@ -368,49 +375,156 @@ impl Router {
     // MARK: Task & definition libraries (filesystem-backed)
 
     fn tasks_list(&self) -> HandlerResult {
-        let dir = self.inner.library_dir.join("tasks");
-        let tasks: Vec<Value> = read_files_with_suffix(&dir, ".task.json")
-            .into_iter()
-            .filter_map(|(path, content)| {
-                let v: Value = serde_json::from_str(&content).ok()?;
-                Some(json!({
-                    "path": path,
-                    "name": v.get("name").cloned().unwrap_or(Value::Null),
-                    "category": v.get("category").cloned().unwrap_or(Value::Null),
-                    "icon": v.get("icon").cloned().unwrap_or(Value::Null),
-                    "description": v.get("description").cloned().unwrap_or(Value::Null),
-                    "tags": v.get("tags").cloned().unwrap_or(json!([])),
-                }))
-            })
-            .collect();
+        let mut tasks = Vec::new();
+        for (path, content, writable) in self.library_files("tasks", ".task.json") {
+            let Ok(v) = serde_json::from_str::<Value>(&content) else {
+                continue;
+            };
+            tasks.push(json!({
+                "path": path,
+                "name": v.get("name").cloned().unwrap_or(Value::Null),
+                "category": v.get("category").cloned().unwrap_or(Value::Null),
+                "icon": v.get("icon").cloned().unwrap_or(Value::Null),
+                "description": v.get("description").cloned().unwrap_or(Value::Null),
+                "tags": v.get("tags").cloned().unwrap_or(json!([])),
+                "writable": writable,
+            }));
+        }
         Ok(json!({ "tasks": tasks }))
     }
 
-    /// List configured MCP servers parsed from a Claude-style config file
-    /// (default `~/.claude.json`; override with a `path` param). Missing or
-    /// unparseable files yield an empty list rather than an error.
+    /// List configured MCP servers. Reads the project file `<cwd>/.mcp.json`
+    /// (scope `project`) when `cwd` is given, and the user file `~/.claude.json`
+    /// (scope `user`, override with `path`). Project servers shadow user servers
+    /// of the same name. Missing/unparseable files yield no entries.
     fn mcp_list(&self, p: &Value) -> HandlerResult {
-        let default_path = std::env::var("HOME")
-            .map(|h| format!("{h}/.claude.json"))
-            .unwrap_or_default();
-        let path = p
-            .get("path")
-            .and_then(Value::as_str)
-            .unwrap_or(&default_path);
-        let content = std::fs::read_to_string(path).unwrap_or_default();
-        let servers = cs_mcp::parse_mcp_config(&content).unwrap_or_default();
-        let list: Vec<Value> = servers
-            .iter()
-            .map(|s| {
-                let (transport, target) = match &s.transport {
-                    cs_mcp::Transport::Stdio { command, .. } => ("stdio", command.clone()),
-                    cs_mcp::Transport::Sse { url } => ("sse", url.clone()),
-                    cs_mcp::Transport::Http { url } => ("http", url.clone()),
-                };
-                json!({ "name": s.name, "transport": transport, "target": target, "scope": s.scope })
-            })
-            .collect();
+        let mut sources: Vec<(String, &str)> = Vec::new();
+        if let Some(cwd) = p.get("cwd").and_then(Value::as_str) {
+            sources.push((format!("{cwd}/.mcp.json"), "project"));
+        }
+        if let Some(path) = p.get("path").and_then(Value::as_str) {
+            sources.push((path.to_string(), "user"));
+        } else if let Ok(home) = std::env::var("HOME") {
+            sources.push((format!("{home}/.claude.json"), "user"));
+        }
+
+        let mut list = Vec::new();
+        let mut seen = HashSet::new();
+        for (path, scope) in sources {
+            let content = std::fs::read_to_string(&path).unwrap_or_default();
+            let servers = cs_mcp::parse_mcp_config(&content).unwrap_or_default();
+            for s in servers {
+                if !seen.insert(s.name.clone()) {
+                    continue;
+                }
+                let mut entry = json!({
+                    "name": s.name,
+                    "scope": scope,
+                    "source": path,
+                    "args": [],
+                    "env": {},
+                    "url": "",
+                });
+                match &s.transport {
+                    cs_mcp::Transport::Stdio { command, args, env } => {
+                        entry["transport"] = json!("stdio");
+                        entry["target"] = json!(command);
+                        entry["args"] = json!(args);
+                        entry["env"] = json!(env);
+                    }
+                    cs_mcp::Transport::Sse { url } => {
+                        entry["transport"] = json!("sse");
+                        entry["target"] = json!(url);
+                        entry["url"] = json!(url);
+                    }
+                    cs_mcp::Transport::Http { url } => {
+                        entry["transport"] = json!("http");
+                        entry["target"] = json!(url);
+                        entry["url"] = json!(url);
+                    }
+                }
+                list.push(entry);
+            }
+        }
         Ok(json!({ "servers": list }))
+    }
+
+    /// Add or update an MCP server in the config for the requested `scope`
+    /// (`project` → `<cwd>/.mcp.json`, else `user` → `~/.claude.json`). Only the
+    /// `mcpServers` map is touched; every other key in the file is preserved, and
+    /// the write is atomic (temp file + rename).
+    fn mcp_upsert(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or("missing 'name'")?;
+        let transport = p
+            .get("transport")
+            .and_then(Value::as_str)
+            .unwrap_or("stdio");
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
+        let path = mcp_path_for_scope(scope, p.get("cwd").and_then(Value::as_str))?;
+
+        let entry = match transport {
+            "sse" | "http" => {
+                let url = p
+                    .get("url")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or("missing 'url' for an sse/http server")?;
+                json!({ "type": transport, "url": url })
+            }
+            _ => {
+                let command = p
+                    .get("command")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .ok_or("missing 'command' for a stdio server")?;
+                let args = p.get("args").cloned().unwrap_or(json!([]));
+                let env = p.get("env").cloned().unwrap_or(json!({}));
+                json!({ "command": command, "args": args, "env": env })
+            }
+        };
+
+        let mut root = read_json_object(&path);
+        let servers = root
+            .as_object_mut()
+            .unwrap()
+            .entry("mcpServers")
+            .or_insert_with(|| json!({}));
+        if !servers.is_object() {
+            *servers = json!({});
+        }
+        servers
+            .as_object_mut()
+            .unwrap()
+            .insert(name.to_string(), entry);
+
+        let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+        atomic_write(Path::new(&path), &format!("{pretty}\n"))?;
+        Ok(json!({ "ok": true, "path": path, "name": name }))
+    }
+
+    /// Remove an MCP server by name from the config for the requested `scope`.
+    fn mcp_remove(&self, p: &Value) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("missing 'name'")?;
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
+        let path = mcp_path_for_scope(scope, p.get("cwd").and_then(Value::as_str))?;
+
+        let mut root = read_json_object(&path);
+        if let Some(servers) = root.get_mut("mcpServers").and_then(Value::as_object_mut) {
+            servers.remove(name);
+        }
+        let pretty = serde_json::to_string_pretty(&root).map_err(|e| e.to_string())?;
+        atomic_write(Path::new(&path), &format!("{pretty}\n"))?;
+        Ok(json!({ "ok": true, "path": path, "name": name }))
     }
 
     /// List configured Claude hooks parsed from `settings.json` — the project's
@@ -464,22 +578,170 @@ impl Router {
     }
 
     fn definitions_list(&self) -> HandlerResult {
-        let dir = self.inner.library_dir.join("definitions");
-        let defs: Vec<Value> = read_files_with_suffix(&dir, ".def.md")
-            .into_iter()
-            .map(|(path, content)| {
-                let fm = parse_frontmatter(&content);
-                json!({
-                    "path": path,
-                    "name": fm.get("name").cloned().unwrap_or_default(),
-                    "category": fm.get("category").cloned().unwrap_or_default(),
-                    "scope": fm.get("scope").cloned().unwrap_or_default(),
-                    "tags": fm.get("tags").cloned().unwrap_or_default(),
-                    "version": fm.get("version").cloned().unwrap_or_default(),
-                })
-            })
-            .collect();
+        let mut defs = Vec::new();
+        for (path, content, writable) in self.library_files("definitions", ".def.md") {
+            let fm = parse_frontmatter(&content);
+            defs.push(json!({
+                "path": path,
+                "name": fm.get("name").cloned().unwrap_or_default(),
+                "category": fm.get("category").cloned().unwrap_or_default(),
+                "scope": fm.get("scope").cloned().unwrap_or_default(),
+                "tags": fm.get("tags").cloned().unwrap_or_default(),
+                "version": fm.get("version").cloned().unwrap_or_default(),
+                "writable": writable,
+            }));
+        }
         Ok(json!({ "definitions": defs }))
+    }
+
+    /// Collect library files of a kind from both the writable user library
+    /// (`<state_dir>/<sub>`, always editable) and the shipped reference library
+    /// (`<library_dir>/<sub>`, read-only in the packaged app). Each entry is
+    /// tagged `writable`. When the two roots coincide (dev / default), the
+    /// shipped scan is skipped so nothing is listed twice.
+    fn library_files(&self, sub: &str, suffix: &str) -> Vec<(String, String, bool)> {
+        let user_dir = self.inner.state_dir.join(sub);
+        let shipped_dir = self.inner.library_dir.join(sub);
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        let same = user_dir == shipped_dir;
+        for (dir, writable) in [(&user_dir, true), (&shipped_dir, false)] {
+            if !writable && same {
+                continue;
+            }
+            for (path, content) in read_files_with_suffix(dir, suffix) {
+                if seen.insert(path.clone()) {
+                    out.push((path, content, writable));
+                }
+            }
+        }
+        out
+    }
+
+    /// Create a new, editable library item (task or definition) in the user
+    /// library under `<state_dir>/<sub>/custom/`. Returns the new file path.
+    fn library_create(&self, p: &Value, sub: &str) -> HandlerResult {
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(if sub == "tasks" {
+                "New Task"
+            } else {
+                "New Definition"
+            });
+        let slug = slugify(name);
+        let dir = self.inner.state_dir.join(sub).join("custom");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+        let (suffix, content) = if sub == "tasks" {
+            let body = serde_json::to_string_pretty(&json!({
+                "id": slug,
+                "name": name,
+                "description": "Describe what this task does.",
+                "icon": "wand.and.stars",
+                "category": "custom",
+                "tags": [],
+                "scope": "user",
+                "version": "1.0.0",
+                "agent": {
+                    "model": "claude-sonnet-4-5",
+                    "allowed_tools": ["Read", "Grep", "Glob"]
+                },
+                "workflow": { "steps": [] }
+            }))
+            .map_err(|e| e.to_string())?;
+            (".task.json", format!("{body}\n"))
+        } else {
+            (
+                ".def.md",
+                format!(
+                    "---\nname: {name}\ncategory: custom\ntags: []\nscope: user\nversion: 1.0.0\n---\n\n# {name}\n\nDescribe this definition — the guidance Claude should follow.\n"
+                ),
+            )
+        };
+
+        let path = unique_path(&dir, &slug, suffix);
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path.to_string_lossy() }))
+    }
+
+    /// Delete a user-library item. Only files inside the writable user library
+    /// (`<state_dir>/<sub>/`) may be removed; shipped files are protected.
+    fn library_delete(&self, p: &Value, sub: &str, suffix: &str) -> HandlerResult {
+        let path = p
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("missing 'path'")?;
+        let target = Path::new(path);
+        let user_root = self.inner.state_dir.join(sub);
+        if !target.starts_with(&user_root) {
+            return Err("only items in your library can be deleted".to_string());
+        }
+        if !path.ends_with(suffix) {
+            return Err("refusing to delete a non-library file".to_string());
+        }
+        std::fs::remove_file(target).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true }))
+    }
+
+    /// List installed skills for the project at `cwd` (and the user's global
+    /// skills), parsed from `<root>/.claude/skills/<name>/SKILL.md`. Each skill's
+    /// invocation `command` is its directory name (typed as `/<command>`).
+    /// Project skills shadow user skills of the same name.
+    fn skills_list(&self, p: &Value) -> HandlerResult {
+        let mut roots: Vec<(PathBuf, &str)> = Vec::new();
+        if let Some(cwd) = p.get("cwd").and_then(Value::as_str) {
+            roots.push((Path::new(cwd).join(".claude").join("skills"), "project"));
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            roots.push((Path::new(&home).join(".claude").join("skills"), "user"));
+        }
+
+        let mut skills = Vec::new();
+        let mut seen = HashSet::new();
+        for (root, scope) in roots {
+            let Ok(entries) = std::fs::read_dir(&root) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let dir = entry.path();
+                if !dir.is_dir() {
+                    continue;
+                }
+                let Ok(content) = std::fs::read_to_string(dir.join("SKILL.md")) else {
+                    continue;
+                };
+                let Some(command) = dir.file_name().and_then(|n| n.to_str()).map(str::to_string)
+                else {
+                    continue;
+                };
+                if !seen.insert(command.clone()) {
+                    continue; // project scope already provided this skill
+                }
+                let fm = parse_frontmatter(&content);
+                let name = fm
+                    .get("name")
+                    .cloned()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| command.clone());
+                skills.push(json!({
+                    "command": command,
+                    "name": name,
+                    "description": fm.get("description").cloned().unwrap_or_default(),
+                    "path": dir.join("SKILL.md").to_string_lossy(),
+                    "scope": scope,
+                }));
+            }
+        }
+        skills.sort_by(|a, b| {
+            a["command"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["command"].as_str().unwrap_or(""))
+        });
+        Ok(json!({ "skills": skills }))
     }
 }
 
@@ -544,6 +806,75 @@ fn parse_frontmatter(content: &str) -> HashMap<String, String> {
     map
 }
 
+/// Turn a human name into a filesystem-safe kebab slug for a library filename.
+fn slugify(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_dash = false;
+    for ch in name.trim().to_lowercase().chars() {
+        if ch.is_alphanumeric() {
+            out.push(ch);
+            prev_dash = false;
+        } else if !prev_dash {
+            out.push('-');
+            prev_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "untitled".to_string()
+    } else {
+        trimmed
+    }
+}
+
+/// First `<dir>/<slug><suffix>` that doesn't already exist (appends `-2`, `-3`…).
+fn unique_path(dir: &Path, slug: &str, suffix: &str) -> PathBuf {
+    let mut candidate = dir.join(format!("{slug}{suffix}"));
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = dir.join(format!("{slug}-{n}{suffix}"));
+        n += 1;
+    }
+    candidate
+}
+
+/// The MCP config file for a scope: `project` → `<cwd>/.mcp.json` (requires a
+/// cwd), anything else → the user's `~/.claude.json`.
+fn mcp_path_for_scope(scope: &str, cwd: Option<&str>) -> std::result::Result<String, String> {
+    match scope {
+        "project" => {
+            let cwd = cwd.ok_or("project scope requires a 'cwd'")?;
+            Ok(format!("{cwd}/.mcp.json"))
+        }
+        _ => {
+            let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+            Ok(format!("{home}/.claude.json"))
+        }
+    }
+}
+
+/// Read a JSON file as an object, returning an empty object when the file is
+/// missing, empty, or not a JSON object (so callers can safely mutate it).
+fn read_json_object(path: &str) -> Value {
+    let content = std::fs::read_to_string(path).unwrap_or_default();
+    match serde_json::from_str::<Value>(&content) {
+        Ok(v @ Value::Object(_)) => v,
+        _ => json!({}),
+    }
+}
+
+/// Write `content` atomically: write a sibling temp file, then rename over the
+/// target so a crash mid-write can't corrupt an existing config.
+fn atomic_write(path: &Path, content: &str) -> std::result::Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("claudestudio-tmp");
+    std::fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -559,6 +890,23 @@ mod tests {
         )
     }
 
+    /// A router whose state & library dirs are a fresh, unique temp directory,
+    /// so filesystem-mutating tests don't collide.
+    fn router_in(tag: &str) -> (Router, PathBuf) {
+        let base =
+            std::env::temp_dir().join(format!("cs-rt-{tag}-{}-{:?}", std::process::id(), tag));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let r = Router::new(
+            AppConfig::default(),
+            SessionStore::open_in_memory().expect("in-memory store"),
+            EventBus::new(),
+            base.clone(),
+            base.join("shipped"),
+        );
+        (r, base)
+    }
+
     #[tokio::test]
     async fn ping_responds_pong() {
         let r = router();
@@ -566,6 +914,141 @@ mod tests {
         let res = r.dispatch(&req).await;
         assert_eq!(res.payload["pong"], json!(true));
         assert_eq!(res.id, req.id);
+    }
+
+    #[test]
+    fn slugify_makes_safe_names() {
+        assert_eq!(slugify("My Cool Task!"), "my-cool-task");
+        assert_eq!(slugify("  spaces  "), "spaces");
+        assert_eq!(slugify("***"), "untitled");
+        assert_eq!(slugify("Already-Kebab"), "already-kebab");
+    }
+
+    #[tokio::test]
+    async fn task_create_list_delete_roundtrip() {
+        let (r, base) = router_in("task-crud");
+
+        let created = r
+            .dispatch(&new_request("tasks.create", json!({ "name": "My Audit" })))
+            .await;
+        assert_eq!(created.payload["ok"], json!(true));
+        let path = created.payload["path"].as_str().unwrap().to_string();
+        assert!(path.ends_with(".task.json"));
+
+        let listed = r.dispatch(&new_request("tasks.list", json!({}))).await;
+        let tasks = listed.payload["tasks"].as_array().unwrap();
+        let mine = tasks
+            .iter()
+            .find(|t| t["path"] == json!(path))
+            .expect("created task is listed");
+        assert_eq!(mine["name"], json!("My Audit"));
+        assert_eq!(mine["writable"], json!(true));
+
+        let deleted = r
+            .dispatch(&new_request("tasks.delete", json!({ "path": path })))
+            .await;
+        assert_eq!(deleted.payload["ok"], json!(true));
+
+        let after = r.dispatch(&new_request("tasks.list", json!({}))).await;
+        assert!(after.payload["tasks"].as_array().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn definition_delete_rejects_paths_outside_user_library() {
+        let (r, base) = router_in("def-guard");
+        let res = r
+            .dispatch(&new_request(
+                "definitions.delete",
+                json!({ "path": "/etc/hosts" }),
+            ))
+            .await;
+        assert_eq!(res.kind, cs_types::IpcKind::Error);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn skills_list_reads_skill_md() {
+        let (r, base) = router_in("skills");
+        let cwd = base.join("proj");
+        let skill_dir = cwd.join(".claude").join("skills").join("graphify");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: graphify\ndescription: Turn input into a knowledge graph\n---\n\nbody\n",
+        )
+        .unwrap();
+
+        let res = r
+            .dispatch(&new_request(
+                "skills.list",
+                json!({ "cwd": cwd.to_string_lossy() }),
+            ))
+            .await;
+        let skills = res.payload["skills"].as_array().unwrap();
+        let s = skills
+            .iter()
+            .find(|s| s["command"] == json!("graphify"))
+            .expect("graphify skill found");
+        assert_eq!(s["scope"], json!("project"));
+        assert_eq!(s["description"], json!("Turn input into a knowledge graph"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[tokio::test]
+    async fn mcp_upsert_list_remove_project_scope() {
+        let (r, base) = router_in("mcp");
+        let cwd = base.join("proj");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let cwd_str = cwd.to_string_lossy().to_string();
+
+        let up = r
+            .dispatch(&new_request(
+                "mcp.upsert",
+                json!({
+                    "scope": "project", "cwd": cwd_str,
+                    "name": "filesystem", "transport": "stdio",
+                    "command": "npx", "args": ["-y", "server-filesystem"]
+                }),
+            ))
+            .await;
+        assert_eq!(up.payload["ok"], json!(true));
+
+        // Point the user source at an empty temp file so the test is isolated
+        // from the developer's real ~/.claude.json.
+        let empty_user = base.join("empty-user.json").to_string_lossy().to_string();
+        let listed = r
+            .dispatch(&new_request(
+                "mcp.list",
+                json!({ "cwd": cwd_str, "path": empty_user }),
+            ))
+            .await;
+        let servers = listed.payload["servers"].as_array().unwrap();
+        let s = servers
+            .iter()
+            .find(|s| s["name"] == json!("filesystem"))
+            .expect("server listed");
+        assert_eq!(s["transport"], json!("stdio"));
+        assert_eq!(s["target"], json!("npx"));
+        assert_eq!(s["scope"], json!("project"));
+        assert_eq!(s["args"], json!(["-y", "server-filesystem"]));
+
+        let rm = r
+            .dispatch(&new_request(
+                "mcp.remove",
+                json!({ "scope": "project", "cwd": cwd_str, "name": "filesystem" }),
+            ))
+            .await;
+        assert_eq!(rm.payload["ok"], json!(true));
+
+        let after = r
+            .dispatch(&new_request(
+                "mcp.list",
+                json!({ "cwd": cwd_str, "path": empty_user }),
+            ))
+            .await;
+        assert!(after.payload["servers"].as_array().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[tokio::test]

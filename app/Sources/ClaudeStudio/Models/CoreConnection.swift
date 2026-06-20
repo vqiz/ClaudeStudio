@@ -163,6 +163,83 @@ final class CoreConnection {
         self.sessions = (try? await client.listSessions()) ?? sessions
     }
 
+    /// Reload the task & definition libraries (after a create/delete).
+    func reloadLibraries() async {
+        guard isConnected, let client else { return }
+        self.tasks = (try? await client.fetchTasks()) ?? tasks
+        self.definitions = (try? await client.fetchDefinitions()) ?? definitions
+    }
+
+    /// Create a new editable task; returns its path (nil when offline/failed).
+    func createTask(name: String) async -> String? {
+        guard isConnected, let client else { return nil }
+        let path = try? await client.createTask(name: name)
+        await reloadLibraries()
+        return path
+    }
+
+    /// Delete a user-library task by path.
+    @discardableResult
+    func deleteTask(path: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        let ok = (try? await client.deleteTask(path: path)) ?? false
+        await reloadLibraries()
+        return ok
+    }
+
+    /// Create a new editable definition; returns its path.
+    func createDefinition(name: String) async -> String? {
+        guard isConnected, let client else { return nil }
+        let path = try? await client.createDefinition(name: name)
+        await reloadLibraries()
+        return path
+    }
+
+    /// Delete a user-library definition by path.
+    @discardableResult
+    func deleteDefinition(path: String) async -> Bool {
+        guard isConnected, let client else { return false }
+        let ok = (try? await client.deleteDefinition(path: path)) ?? false
+        await reloadLibraries()
+        return ok
+    }
+
+    /// Installed skills for a project (and the user's global skills).
+    func skills(cwd: String?) async -> [LibrarySkill] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchSkills(cwd: cwd)) ?? []
+    }
+
+    /// MCP servers for a project (`<cwd>/.mcp.json`) plus the user config.
+    func mcpServers(cwd: String?) async -> [McpServer] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchMcpServers(cwd: cwd)) ?? []
+    }
+
+    /// Add or update an MCP server, then refresh the global list.
+    @discardableResult
+    func upsertMcpServer(
+        name: String, transport: String, scope: String, cwd: String?,
+        command: String? = nil, args: [String] = [], env: [String: String] = [:],
+        url: String? = nil
+    ) async -> Bool {
+        guard isConnected, let client else { return false }
+        let ok = (try? await client.upsertMcpServer(
+            name: name, transport: transport, scope: scope, cwd: cwd,
+            command: command, args: args, env: env, url: url)) ?? false
+        self.mcpServers = (try? await client.fetchMcpServers(cwd: cwd)) ?? mcpServers
+        return ok
+    }
+
+    /// Remove an MCP server, then refresh the global list.
+    @discardableResult
+    func removeMcpServer(name: String, scope: String, cwd: String?) async -> Bool {
+        guard isConnected, let client else { return false }
+        let ok = (try? await client.removeMcpServer(name: name, scope: scope, cwd: cwd)) ?? false
+        self.mcpServers = (try? await client.fetchMcpServers(cwd: cwd)) ?? mcpServers
+        return ok
+    }
+
     /// Read a text file via the core (`nil` when offline). `exists` is false for
     /// a missing file.
     func readFile(_ path: String) async -> (content: String, exists: Bool)? {
@@ -286,11 +363,13 @@ final class CoreConnection {
 
     /// Start a live Claude session. Streamed output lands in ``liveSession`` and
     /// the run is archived by the core. No-op when offline.
-    func startSession(prompt: String, cwd: String? = nil, model: String? = nil) async {
+    func startSession(prompt: String, cwd: String? = nil, model: String? = nil,
+                      systemPrompt: String? = nil) async {
         guard isConnected, let client else { return }
         liveSession = []
         runningSessionId = nil
-        if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model), !id.isEmpty {
+        if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
+                                                   systemPrompt: systemPrompt), !id.isEmpty {
             runningSessionId = id
         }
         // Refresh the archive so the new session appears in the list.

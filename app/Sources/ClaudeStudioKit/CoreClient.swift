@@ -124,7 +124,7 @@ public struct CoreSession: Sendable, Identifiable, Equatable {
     }
 }
 
-/// A task from the shipped Task Library (`tasks.list`).
+/// A task from the Task Library (`tasks.list`).
 public struct LibraryTask: Sendable, Identifiable, Equatable {
     public var id: String { path }
     public let path: String
@@ -132,6 +132,8 @@ public struct LibraryTask: Sendable, Identifiable, Equatable {
     public let category: String
     public let summary: String
     public let tags: [String]
+    /// True for items in the user's writable library; false for shipped items.
+    public let writable: Bool
 
     public init?(value: MsgPackValue) {
         guard let path = value["path"]?.stringValue else { return nil }
@@ -140,6 +142,7 @@ public struct LibraryTask: Sendable, Identifiable, Equatable {
         self.category = value["category"]?.stringValue ?? ""
         self.summary = value["description"]?.stringValue ?? ""
         self.tags = (value["tags"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        self.writable = value["writable"]?.boolValue ?? false
     }
 }
 
@@ -150,6 +153,8 @@ public struct LibraryDefinition: Sendable, Identifiable, Equatable {
     public let name: String
     public let category: String
     public let scope: String
+    /// True for items in the user's writable library; false for shipped items.
+    public let writable: Bool
 
     public init?(value: MsgPackValue) {
         guard let path = value["path"]?.stringValue else { return nil }
@@ -157,19 +162,48 @@ public struct LibraryDefinition: Sendable, Identifiable, Equatable {
         self.name = value["name"]?.stringValue ?? ""
         self.category = value["category"]?.stringValue ?? ""
         self.scope = value["scope"]?.stringValue ?? ""
+        self.writable = value["writable"]?.boolValue ?? false
+    }
+}
+
+/// An installed skill discovered in a project (`skills.list`), invoked as a
+/// `/<command>` slash command.
+public struct LibrarySkill: Sendable, Identifiable, Equatable {
+    public var id: String { command + "@" + scope }
+    /// The slash-command token (the skill's directory name).
+    public let command: String
+    public let name: String
+    public let description: String
+    public let path: String
+    /// `"project"` or `"user"`.
+    public let scope: String
+
+    public init?(value: MsgPackValue) {
+        guard let command = value["command"]?.stringValue else { return nil }
+        self.command = command
+        self.name = value["name"]?.stringValue ?? command
+        self.description = value["description"]?.stringValue ?? ""
+        self.path = value["path"]?.stringValue ?? ""
+        self.scope = value["scope"]?.stringValue ?? ""
     }
 }
 
 /// A configured MCP server from the Claude config (`mcp.list`).
 public struct McpServer: Sendable, Identifiable, Equatable {
-    public var id: String { name }
+    public var id: String { scope + "/" + name }
     public let name: String
     /// Transport kind: `"stdio"`, `"sse"`, or `"http"`.
     public let transport: String
     /// The command (stdio) or URL (sse/http).
     public let target: String
-    /// Visibility scope: `"local"`, `"project"`, or `"user"`.
+    /// Visibility scope: `"project"` or `"user"`.
     public let scope: String
+    /// Arguments for a stdio server.
+    public let args: [String]
+    /// Environment variables for a stdio server.
+    public let env: [String: String]
+    /// The endpoint URL for an sse/http server.
+    public let url: String
 
     public init?(value: MsgPackValue) {
         guard let name = value["name"]?.stringValue else { return nil }
@@ -177,6 +211,24 @@ public struct McpServer: Sendable, Identifiable, Equatable {
         self.transport = value["transport"]?.stringValue ?? ""
         self.target = value["target"]?.stringValue ?? ""
         self.scope = value["scope"]?.stringValue ?? ""
+        self.args = (value["args"]?.arrayValue ?? []).compactMap { $0.stringValue }
+        var env: [String: String] = [:]
+        for (k, v) in value["env"]?.mapValue ?? [:] {
+            if let s = v.stringValue { env[k] = s }
+        }
+        self.env = env
+        self.url = value["url"]?.stringValue ?? ""
+    }
+
+    public init(name: String, transport: String, target: String, scope: String,
+                args: [String] = [], env: [String: String] = [:], url: String = "") {
+        self.name = name
+        self.transport = transport
+        self.target = target
+        self.scope = scope
+        self.args = args
+        self.env = env
+        self.url = url
     }
 }
 
@@ -313,11 +365,80 @@ public final class CoreClient: Sendable {
         return rows.compactMap(LibraryDefinition.init(value:))
     }
 
-    /// List configured MCP servers from the Claude config.
-    public func fetchMcpServers() async throws -> [McpServer] {
-        let response = try await call("mcp.list")
+    /// Create a new, editable task in the user library. Returns its file path.
+    public func createTask(name: String) async throws -> String {
+        let response = try await call("tasks.create", .map(["name": .string(name)]))
+        return response.payload?["path"]?.stringValue ?? ""
+    }
+
+    /// Delete a user-library task by path (shipped tasks are protected).
+    @discardableResult
+    public func deleteTask(path: String) async throws -> Bool {
+        let response = try await call("tasks.delete", .map(["path": .string(path)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// Create a new, editable definition in the user library. Returns its path.
+    public func createDefinition(name: String) async throws -> String {
+        let response = try await call("definitions.create", .map(["name": .string(name)]))
+        return response.payload?["path"]?.stringValue ?? ""
+    }
+
+    /// Delete a user-library definition by path (shipped ones are protected).
+    @discardableResult
+    public func deleteDefinition(path: String) async throws -> Bool {
+        let response = try await call("definitions.delete", .map(["path": .string(path)]))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// List installed skills for a project (and the user's global skills).
+    public func fetchSkills(cwd: String? = nil) async throws -> [LibrarySkill] {
+        var payload: [String: MsgPackValue] = [:]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("skills.list", .map(payload))
+        let rows = response.payload?["skills"]?.arrayValue ?? []
+        return rows.compactMap(LibrarySkill.init(value:))
+    }
+
+    /// List configured MCP servers (project `<cwd>/.mcp.json` + user config).
+    public func fetchMcpServers(cwd: String? = nil) async throws -> [McpServer] {
+        var payload: [String: MsgPackValue] = [:]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("mcp.list", .map(payload))
         let rows = response.payload?["servers"]?.arrayValue ?? []
         return rows.compactMap(McpServer.init(value:))
+    }
+
+    /// Add or update an MCP server in the project (`scope: "project"`, needs
+    /// `cwd`) or user (`scope: "user"`) config. `command`/`args`/`env` apply to
+    /// stdio; `url` to sse/http.
+    @discardableResult
+    public func upsertMcpServer(
+        name: String, transport: String, scope: String, cwd: String? = nil,
+        command: String? = nil, args: [String] = [], env: [String: String] = [:],
+        url: String? = nil
+    ) async throws -> Bool {
+        var payload: [String: MsgPackValue] = [
+            "name": .string(name),
+            "transport": .string(transport),
+            "scope": .string(scope),
+        ]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        if let command { payload["command"] = .string(command) }
+        if !args.isEmpty { payload["args"] = .array(args.map { .string($0) }) }
+        if !env.isEmpty { payload["env"] = .map(env.mapValues { .string($0) }) }
+        if let url { payload["url"] = .string(url) }
+        let response = try await call("mcp.upsert", .map(payload))
+        return response.payload?["ok"]?.boolValue ?? false
+    }
+
+    /// Remove an MCP server by name from the project or user config.
+    @discardableResult
+    public func removeMcpServer(name: String, scope: String, cwd: String? = nil) async throws -> Bool {
+        var payload: [String: MsgPackValue] = ["name": .string(name), "scope": .string(scope)]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("mcp.remove", .map(payload))
+        return response.payload?["ok"]?.boolValue ?? false
     }
 
     /// List configured hooks from `settings.json` (project `cwd` + global).
@@ -353,11 +474,15 @@ public final class CoreClient: Sendable {
         prompt: String,
         cwd: String? = nil,
         model: String? = nil,
+        systemPrompt: String? = nil,
         binary: String? = nil
     ) async throws -> String {
         var payload: [String: MsgPackValue] = ["prompt": .string(prompt)]
         if let cwd { payload["cwd"] = .string(cwd) }
         if let model { payload["model"] = .string(model) }
+        if let systemPrompt, !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            payload["system_prompt"] = .string(systemPrompt)
+        }
         if let binary { payload["binary"] = .string(binary) }
         let response = try await call("session.start", .map(payload))
         return response.payload?["session_id"]?.stringValue ?? ""

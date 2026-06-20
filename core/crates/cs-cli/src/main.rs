@@ -210,6 +210,12 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 continue;
             }
             let cwd = p.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
+            // Optional agent persona, appended via `--append-system-prompt`.
+            let system_prompt = p
+                .get("system_prompt")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
             let binary = p
                 .get("binary")
                 .and_then(|v| v.as_str())
@@ -241,6 +247,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 cwd,
                 binary,
                 model,
+                system_prompt,
                 Arc::clone(&writer),
             ));
             continue;
@@ -282,12 +289,16 @@ fn spawn_claude_forwarder(
     cwd: Option<String>,
     binary: String,
     model: ModelTier,
+    system_prompt: Option<String>,
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut session = ClaudeSession::new(model).with_binary(binary);
         if let Some(dir) = cwd {
             session = session.with_cwd(dir);
+        }
+        if let Some(system) = system_prompt {
+            session = session.with_system_prompt(system);
         }
 
         let mut stream = match session.run(&prompt).await {

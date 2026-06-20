@@ -61,16 +61,31 @@ pub fn model_flag(tier: ModelTier) -> &'static str {
 /// Build the argument vector for a `claude` invocation.
 ///
 /// This is a pure function so it can be tested without spawning anything. The
-/// produced arguments always request streaming JSON output.
-pub fn build_args(model: ModelTier, prompt: &str) -> Vec<String> {
-    vec![
+/// produced arguments always request streaming JSON output. When
+/// `append_system_prompt` is set (e.g. running a saved agent), it is passed
+/// through `--append-system-prompt` so the agent's persona augments — rather
+/// than replaces — Claude Code's own system prompt.
+pub fn build_args(
+    model: ModelTier,
+    prompt: &str,
+    append_system_prompt: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec![
         "--model".to_string(),
         model_flag(model).to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
-        "--print".to_string(),
-        prompt.to_string(),
-    ]
+    ];
+    if let Some(system) = append_system_prompt {
+        let trimmed = system.trim();
+        if !trimmed.is_empty() {
+            args.push("--append-system-prompt".to_string());
+            args.push(trimmed.to_string());
+        }
+    }
+    args.push("--print".to_string());
+    args.push(prompt.to_string());
+    args
 }
 
 /// A single parsed event from the `claude --output-format stream-json` stream.
@@ -190,6 +205,9 @@ pub struct ClaudeSession {
     pub binary: String,
     /// Working directory to run in (defaults to the parent process's cwd).
     pub cwd: Option<PathBuf>,
+    /// Extra system prompt appended via `--append-system-prompt` (e.g. a saved
+    /// agent's persona). `None` runs Claude with its default system prompt.
+    pub append_system_prompt: Option<String>,
 }
 
 impl ClaudeSession {
@@ -200,7 +218,17 @@ impl ClaudeSession {
             model,
             binary: "claude".to_string(),
             cwd: None,
+            append_system_prompt: None,
         }
+    }
+
+    /// Append a system prompt (a saved agent's persona) to this session.
+    pub fn with_system_prompt(mut self, system: impl Into<String>) -> Self {
+        let system = system.into();
+        if !system.trim().is_empty() {
+            self.append_system_prompt = Some(system);
+        }
+        self
     }
 
     /// Override the binary path (useful for tests or custom installs).
@@ -222,7 +250,7 @@ impl ClaudeSession {
         &self,
         prompt: &str,
     ) -> Result<impl Stream<Item = StreamEvent> + Send + Unpin> {
-        let args = build_args(self.model, prompt);
+        let args = build_args(self.model, prompt, self.append_system_prompt.as_deref());
         let mut command = Command::new(&self.binary);
         command
             .args(&args)
@@ -309,10 +337,28 @@ mod tests {
 
     #[test]
     fn build_args_requests_stream_json() {
-        let args = build_args(ModelTier::Sonnet, "hello");
+        let args = build_args(ModelTier::Sonnet, "hello", None);
         assert!(args.contains(&"stream-json".to_string()));
         assert!(args.contains(&"sonnet".to_string()));
         assert!(args.contains(&"hello".to_string()));
+        assert!(!args.contains(&"--append-system-prompt".to_string()));
+    }
+
+    #[test]
+    fn build_args_appends_system_prompt_when_present() {
+        let args = build_args(
+            ModelTier::Opus,
+            "do it",
+            Some("You are a careful reviewer."),
+        );
+        let i = args
+            .iter()
+            .position(|a| a == "--append-system-prompt")
+            .expect("flag present");
+        assert_eq!(args[i + 1], "You are a careful reviewer.");
+        // Blank/whitespace system prompts are omitted.
+        let none = build_args(ModelTier::Opus, "do it", Some("   "));
+        assert!(!none.contains(&"--append-system-prompt".to_string()));
     }
 
     #[test]
