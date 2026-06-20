@@ -119,19 +119,46 @@ public actor IpcClient {
 
     // MARK: Requests & notifications
 
+    /// How long a request waits for its reply before failing with
+    /// ``IpcError/timedOut(method:)``. Bounds the round-trip so a core that is
+    /// bound to the socket but wedged (never answers) can't hang the caller —
+    /// and, critically, the connect handshake — forever.
+    public static let requestTimeout: Duration = .seconds(10)
+
     /// Sends a request and awaits the correlated response. Throws
-    /// `IpcError.remote` if the core replies with an `error` envelope.
+    /// `IpcError.remote` if the core replies with an `error` envelope, or
+    /// `IpcError.timedOut` if no reply arrives within ``requestTimeout``.
     @discardableResult
     public func send(_ envelope: IpcEnvelope) async throws -> IpcEnvelope {
         guard state == .connected else { throw IpcError.notConnected }
+        let id = envelope.id
+        let method = envelope.method
+        // Armed before the continuation is registered, but `Task.sleep` ensures
+        // the body can't run until the deadline — by then `pending[id]` is set
+        // (or already resolved). Cancelled the moment the request completes.
+        let timeout = Task { [weak self] in
+            try? await Task.sleep(for: Self.requestTimeout)
+            guard !Task.isCancelled else { return }
+            await self?.failTimedOut(id: id, method: method)
+        }
+        defer { timeout.cancel() }
         return try await withCheckedThrowingContinuation { continuation in
-            pending[envelope.id] = continuation
+            pending[id] = continuation
             do {
                 try writeFrame(envelope)
             } catch {
-                pending[envelope.id] = nil
+                pending[id] = nil
                 continuation.resume(throwing: error)
             }
+        }
+    }
+
+    /// Fail a still-pending request whose deadline elapsed. A no-op if the reply
+    /// already arrived (the id was removed by ``dispatch(_:)``), so the
+    /// continuation is resumed exactly once.
+    private func failTimedOut(id: String, method: String) {
+        if let continuation = pending.removeValue(forKey: id) {
+            continuation.resume(throwing: IpcError.timedOut(method: method))
         }
     }
 

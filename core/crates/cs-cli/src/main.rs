@@ -105,12 +105,43 @@ async fn main() -> anyhow::Result<()> {
     result
 }
 
-/// Run the accept loop until `Ctrl-C`.
+/// Resolves when the parent app process dies, so the core can shut down instead
+/// of lingering as an orphan that keeps the socket bound.
+///
+/// The front-end launches the core with `CLAUDESTUDIO_WATCH_STDIN=1` and hands it
+/// a stdin pipe whose write end the app holds open. If the app exits for *any*
+/// reason — Quit, Force-Quit (SIGKILL), crash, or debugger stop — the OS closes
+/// that end and our stdin reaches EOF, which resolves this future. When the env
+/// var is unset (standalone / dev runs) it never resolves, so a closed stdin
+/// can't trigger a spurious exit.
+async fn parent_death_watch() {
+    if std::env::var_os("CLAUDESTUDIO_WATCH_STDIN").is_none() {
+        std::future::pending::<()>().await;
+        return;
+    }
+    use tokio::io::AsyncReadExt;
+    let mut stdin = tokio::io::stdin();
+    let mut buf = [0u8; 256];
+    loop {
+        match stdin.read(&mut buf).await {
+            Ok(0) | Err(_) => return, // EOF or error: the parent's pipe end closed.
+            Ok(_) => continue,        // Ignore any bytes the parent might send.
+        }
+    }
+}
+
+/// Run the accept loop until `Ctrl-C` or the parent app process exits.
 async fn serve(listener: &UnixListener, router: Router) -> anyhow::Result<()> {
+    let parent_death = parent_death_watch();
+    tokio::pin!(parent_death);
     loop {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("received ctrl-c; shutting down");
+                return Ok(());
+            }
+            _ = &mut parent_death => {
+                tracing::info!("parent process exited; shutting down");
                 return Ok(());
             }
             accepted = listener.accept() => {

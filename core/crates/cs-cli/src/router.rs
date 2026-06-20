@@ -239,13 +239,24 @@ impl Router {
     /// content (so the UI can create it on first save). Files over 4 MiB are
     /// rejected to keep the editor responsive.
     fn file_read(&self, p: &Value) -> HandlerResult {
+        const MAX_BYTES: u64 = 4 * 1024 * 1024;
         let path = p
             .get("path")
             .and_then(Value::as_str)
             .ok_or("missing 'path'")?;
+        // Reject by size *before* reading, so a multi-GB path can't force the
+        // whole file into memory before the cap is enforced. Symlinks/specials
+        // that report a small (or zero) size fall through to read_to_string,
+        // whose own buffering is then the only exposure.
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.is_file() && meta.len() > MAX_BYTES => {
+                return Err("file too large to edit".to_string());
+            }
+            _ => {}
+        }
         match std::fs::read_to_string(path) {
             Ok(content) => {
-                if content.len() > 4 * 1024 * 1024 {
+                if content.len() as u64 > MAX_BYTES {
                     return Err("file too large to edit".to_string());
                 }
                 Ok(json!({ "path": path, "content": content, "exists": true }))
@@ -751,6 +762,32 @@ mod tests {
             .await;
         assert_eq!(rd.payload["exists"], json!(true));
         assert_eq!(rd.payload["content"], json!("# Project\n"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn file_read_rejects_oversized_file_by_metadata() {
+        // A file over the 4 MiB cap is rejected via metadata, before the whole
+        // file is read into memory.
+        let dir = std::env::temp_dir().join(format!("cs-file-big-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.bin");
+        std::fs::write(&path, vec![b'a'; 4 * 1024 * 1024 + 1]).unwrap();
+        let r = router();
+
+        let res = r
+            .dispatch(&new_request(
+                "file.read",
+                json!({ "path": path.to_string_lossy() }),
+            ))
+            .await;
+        assert_eq!(res.kind, cs_types::IpcKind::Error);
+        assert!(res.payload["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("too large"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

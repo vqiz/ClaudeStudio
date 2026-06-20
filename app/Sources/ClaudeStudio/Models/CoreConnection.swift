@@ -303,6 +303,7 @@ final class CoreConnection {
         case IpcError.notConnected: return "Not connected."
         case let IpcError.connectionFailed(reason): return "Core offline (\(reason))."
         case IpcError.socketClosed: return "Connection closed by the core."
+        case let IpcError.timedOut(method): return "The core did not respond to \(method) in time."
         case let IpcError.remote(_, message): return message
         case let IpcError.decodeFailed(reason): return "Unexpected reply (\(reason))."
         case IpcError.frameTooLarge: return "Reply exceeded the frame limit."

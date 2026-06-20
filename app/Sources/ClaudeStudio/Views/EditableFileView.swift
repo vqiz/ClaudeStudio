@@ -14,6 +14,11 @@ struct EditableFileView: View {
     @State private var dirty = false
     @State private var saving = false
     @State private var exists = true
+    /// The path the current `content` buffer belongs to. Lets us flush unsaved
+    /// edits to the *previous* file before `.task(id: path)` reloads a new one,
+    /// so switching the selected project (same view instance, new path) can't
+    /// silently discard typed changes.
+    @State private var bufferPath: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -56,11 +61,19 @@ struct EditableFileView: View {
             }
         }
         .task(id: path) { await load() }
+        .onDisappear(perform: flushIfDirty)
     }
 
     private func load() async {
+        // The path changed underneath us (e.g. the user switched the selected
+        // project): flush unsaved edits to the *previous* file before replacing
+        // the buffer, so typed changes are never silently lost.
+        if dirty, let previous = bufferPath, previous != path, appState.coreConnected {
+            _ = await appState.core.writeFile(previous, content: content)
+        }
         loaded = false
         dirty = false
+        bufferPath = path
         if let result = await appState.core.readFile(path) {
             content = result.content
             exists = result.exists
@@ -69,6 +82,15 @@ struct EditableFileView: View {
             exists = false
         }
         loaded = true
+    }
+
+    /// Persist unsaved edits when the editor is dismissed (e.g. navigating to a
+    /// different section). Best-effort; the captured snapshot outlives the view.
+    private func flushIfDirty() {
+        guard dirty, appState.coreConnected else { return }
+        let text = content
+        let target = bufferPath ?? path
+        Task { await appState.core.writeFile(target, content: text) }
     }
 
     private func save() {

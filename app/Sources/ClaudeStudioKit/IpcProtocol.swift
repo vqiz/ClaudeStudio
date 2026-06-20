@@ -74,4 +74,6 @@ public enum IpcError: Error, Sendable, Equatable {
     case decodeFailed(String)
     case socketClosed
     case remote(code: Int, message: String)
+    /// A request was sent but the core did not reply within the deadline.
+    case timedOut(method: String)
 }

@@ -38,8 +38,20 @@ final class AgentStore {
     private static let storageKey = "claudestudio.agents"
 
     init() {
-        self.agents = Self.load() ?? Self.defaults
-        if Self.load() == nil { save() }
+        switch Self.loadStored() {
+        case .some(let stored):
+            // Stored data exists (even if empty) — adopt it verbatim.
+            self.agents = stored
+        case .none where UserDefaults.standard.data(forKey: Self.storageKey) == nil:
+            // Truly first launch: seed the starter presets and persist them.
+            self.agents = Self.defaults
+            save()
+        case .none:
+            // Data is present but undecodable (e.g. a schema change). Show the
+            // defaults in memory but DO NOT overwrite the stored bytes, so a
+            // future migration can still recover the user's real agents.
+            self.agents = Self.defaults
+        }
     }
 
     @discardableResult
@@ -72,7 +84,10 @@ final class AgentStore {
         }
     }
 
-    private static func load() -> [AgentDefinition]? {
+    /// Returns the decoded agents, or `nil` when there is no stored data **or**
+    /// the stored data fails to decode. The caller disambiguates the two by
+    /// checking for the raw key before deciding whether to overwrite.
+    private static func loadStored() -> [AgentDefinition]? {
         guard let data = UserDefaults.standard.data(forKey: storageKey) else { return nil }
         return try? JSONDecoder().decode([AgentDefinition].self, from: data)
     }

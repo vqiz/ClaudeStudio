@@ -96,7 +96,15 @@ final class CoreLauncher {
         ]
         let current = env["PATH"].map { [$0] } ?? []
         env["PATH"] = (extraPaths + current).joined(separator: ":")
+        // Parent-death watchdog: hand the core a stdin pipe we hold open for the
+        // app's lifetime and tell it to watch stdin for EOF. If the app dies for
+        // *any* reason — Quit, Force-Quit (SIGKILL), crash, or debugger stop —
+        // the OS closes our write end, the core's stdin reaches EOF, and it
+        // exits instead of lingering as an orphan that keeps the socket bound.
+        // (`applicationWillTerminate` alone misses all the abnormal exits.)
+        env["CLAUDESTUDIO_WATCH_STDIN"] = "1"
         proc.environment = env
+        proc.standardInput = Pipe()
 
         do {
             try proc.run()
