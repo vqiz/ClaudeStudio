@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build & package ClaudeStudio.app
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (pinned)
+        working-directory: core
+        run: rustup show
+
+      - name: Build the .app and DMG
+        run: ./scripts/package.sh --dmg
+
+      - name: Zip the .app
+        working-directory: dist
+        run: zip -qry ClaudeStudio.app.zip ClaudeStudio.app
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeStudio-macos
+          path: |
+            dist/ClaudeStudio.dmg
+            dist/ClaudeStudio.app.zip
+
+      - name: Attach to the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ClaudeStudio.dmg
+            dist/ClaudeStudio.app.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
