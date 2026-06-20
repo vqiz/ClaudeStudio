@@ -35,6 +35,8 @@ struct RootView: View {
             TaskLibraryView()
         case .mcp:
             MCPView()
+        case .hooks:
+            HooksView()
         case .voiceLog:
             VoiceLogView()
         case .settings:

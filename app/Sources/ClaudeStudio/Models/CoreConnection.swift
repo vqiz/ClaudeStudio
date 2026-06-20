@@ -177,6 +177,12 @@ final class CoreConnection {
         return (try? await client.writeFile(path, content: content)) ?? false
     }
 
+    /// Configured hooks (project + global), or `[]` when offline.
+    func hooks(cwd: String?) async -> [CoreHook] {
+        guard isConnected, let client else { return [] }
+        return (try? await client.fetchHooks(cwd: cwd)) ?? []
+    }
+
     /// Current branch + number of changed files for a git repo at `cwd`
     /// (`nil` when offline or not a repo).
     func gitInfo(cwd: String) async -> (branch: String, changes: Int)? {

@@ -180,6 +180,23 @@ public struct McpServer: Sendable, Identifiable, Equatable {
     }
 }
 
+/// A configured Claude hook from `settings.json` (`hooks.list`).
+public struct CoreHook: Sendable, Identifiable, Equatable {
+    public var id: String { "\(event)|\(matcher)|\(command)|\(source)" }
+    public let event: String
+    public let matcher: String
+    public let command: String
+    public let source: String
+
+    public init?(value: MsgPackValue) {
+        guard let event = value["event"]?.stringValue else { return nil }
+        self.event = event
+        self.matcher = value["matcher"]?.stringValue ?? "*"
+        self.command = value["command"]?.stringValue ?? ""
+        self.source = value["source"]?.stringValue ?? ""
+    }
+}
+
 /// A small, typed facade over [`IpcClient`] exposing the Rust core's RPC surface
 /// as `async` Swift methods. It owns the underlying connection actor and decodes
 /// MessagePack payloads into the value types above so the UI layer never touches
@@ -301,6 +318,15 @@ public final class CoreClient: Sendable {
         let response = try await call("mcp.list")
         let rows = response.payload?["servers"]?.arrayValue ?? []
         return rows.compactMap(McpServer.init(value:))
+    }
+
+    /// List configured hooks from `settings.json` (project `cwd` + global).
+    public func fetchHooks(cwd: String? = nil) async throws -> [CoreHook] {
+        var payload: [String: MsgPackValue] = [:]
+        if let cwd { payload["cwd"] = .string(cwd) }
+        let response = try await call("hooks.list", .map(payload))
+        let rows = response.payload?["hooks"]?.arrayValue ?? []
+        return rows.compactMap(CoreHook.init(value:))
     }
 
     /// Read a UTF-8 text file. `exists` is false for a missing file (content "").

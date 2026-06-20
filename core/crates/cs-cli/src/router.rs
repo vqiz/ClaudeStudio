@@ -100,6 +100,7 @@ impl Router {
             "tasks.list" => self.tasks_list(),
             "definitions.list" => self.definitions_list(),
             "mcp.list" => self.mcp_list(p),
+            "hooks.list" => self.hooks_list(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -401,6 +402,56 @@ impl Router {
         Ok(json!({ "servers": list }))
     }
 
+    /// List configured Claude hooks parsed from `settings.json` — the project's
+    /// `<cwd>/.claude/settings.json` (if `cwd` is given) and the global
+    /// `~/.claude/settings.json`. Missing/unparseable files are skipped.
+    fn hooks_list(&self, p: &Value) -> HandlerResult {
+        let mut sources: Vec<String> = Vec::new();
+        if let Some(cwd) = p.get("cwd").and_then(Value::as_str) {
+            sources.push(format!("{cwd}/.claude/settings.json"));
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            sources.push(format!("{home}/.claude/settings.json"));
+        }
+
+        let mut hooks = Vec::new();
+        for path in sources {
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(value) = serde_json::from_str::<Value>(&content) else {
+                continue;
+            };
+            let Some(by_event) = value.get("hooks").and_then(Value::as_object) else {
+                continue;
+            };
+            for (event, entries) in by_event {
+                let Some(entries) = entries.as_array() else {
+                    continue;
+                };
+                for entry in entries {
+                    let matcher = entry
+                        .get("matcher")
+                        .and_then(Value::as_str)
+                        .unwrap_or("*")
+                        .to_string();
+                    let Some(commands) = entry.get("hooks").and_then(Value::as_array) else {
+                        continue;
+                    };
+                    for command in commands {
+                        hooks.push(json!({
+                            "event": event,
+                            "matcher": matcher,
+                            "command": command.get("command").and_then(Value::as_str).unwrap_or(""),
+                            "source": path,
+                        }));
+                    }
+                }
+            }
+        }
+        Ok(json!({ "hooks": hooks }))
+    }
+
     fn definitions_list(&self) -> HandlerResult {
         let dir = self.inner.library_dir.join("definitions");
         let defs: Vec<Value> = read_files_with_suffix(&dir, ".def.md")
@@ -643,6 +694,32 @@ mod tests {
         assert_eq!(servers[0]["name"], json!("fs"));
         assert_eq!(servers[0]["transport"], json!("stdio"));
         assert_eq!(servers[0]["target"], json!("npx"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn hooks_list_parses_settings() {
+        let dir = std::env::temp_dir().join(format!("cs-hooks-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".claude")).unwrap();
+        std::fs::write(
+            dir.join(".claude/settings.json"),
+            r#"{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[{"type":"command","command":"cargo fmt"}]}]}}"#,
+        )
+        .unwrap();
+
+        let r = router();
+        let res = r
+            .dispatch(&new_request(
+                "hooks.list",
+                json!({ "cwd": dir.to_string_lossy() }),
+            ))
+            .await;
+        let hooks = res.payload["hooks"].as_array().expect("hooks");
+        assert!(hooks.iter().any(|h| h["event"] == "PostToolUse"
+            && h["matcher"] == "Edit"
+            && h["command"] == "cargo fmt"));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

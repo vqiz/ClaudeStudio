@@ -20,6 +20,7 @@
 		3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */; };
 		3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */; };
 		46F82E4E6DD64FDF058902B4 /* TaskLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9493AC42BF85690ADC0EC399 /* TaskLibraryView.swift */; };
+		49B6290A08FD2CA3C3C4E0EE /* HooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64566DC306DDCE49A336CA33 /* HooksView.swift */; };
 		4C37DD26F2C4A4D241230BD5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0F1415B675D75D400E27F /* SettingsView.swift */; };
 		565F1AE1ED15AA975AC733B2 /* TrustMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78FB53641F38AB955CDBC0F /* TrustMode.swift */; };
 		5669562D51CA22128E3F4A26 /* SessionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1262B174A7494E1438290F /* SessionPanelView.swift */; };
@@ -109,6 +110,7 @@
 		4C1262B174A7494E1438290F /* SessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelView.swift; sourceTree = "<group>"; };
 		56F7CCC32385E92E2DEBDA25 /* definitions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = definitions; path = ../definitions; sourceTree = SOURCE_ROOT; };
 		57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStudioApp.swift; sourceTree = "<group>"; };
+		64566DC306DDCE49A336CA33 /* HooksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HooksView.swift; sourceTree = "<group>"; };
 		67DD23025A066675485DD1D1 /* CoreConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreConnection.swift; sourceTree = "<group>"; };
 		70391C7EEBD75576AF83ECCB /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
 		7CC03FD56CEA8162F4E2A14C /* AgentStudioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentStudioView.swift; sourceTree = "<group>"; };
@@ -209,6 +211,7 @@
 				37759FC68F686A672EE35A93 /* BrainView.swift */,
 				D0E71B23CC147E46799AD68F /* ContextView.swift */,
 				15ADDA23365EB0EE2F65281F /* EditableFileView.swift */,
+				64566DC306DDCE49A336CA33 /* HooksView.swift */,
 				054938DB67E1D469889DA120 /* MCPView.swift */,
 				EE80E1CD767EDEAC44930245 /* OSView.swift */,
 				C2FA8BD05572AA2D995D217C /* ProjectsView.swift */,
@@ -438,6 +441,7 @@
 				3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */,
 				AE12E61EFCB35A2A0D5B5CB8 /* CostTracker.swift in Sources */,
 				82A0F232B9A98CCBE428D2EC /* EditableFileView.swift in Sources */,
+				49B6290A08FD2CA3C3C4E0EE /* HooksView.swift in Sources */,
 				C7D7C21992855C7802334AAE /* MCPView.swift in Sources */,
 				9B9CAD1CB8DA353D2FBE336F /* OSView.swift in Sources */,
 				E0C945DC4E427D0A1EF2175D /* Project.swift in Sources */,
