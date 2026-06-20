@@ -53,6 +53,8 @@ targets:
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: ClaudeStudio
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.developer-tools"
+        INFOPLIST_KEY_NSMicrophoneUsageDescription: "ClaudeStudio uses the microphone for the voice assistant — to hear your spoken commands."
+        INFOPLIST_KEY_NSSpeechRecognitionUsageDescription: "ClaudeStudio transcribes your speech on-device to run your spoken commands through Claude."
     postCompileScripts:
       # Build the Rust core and bundle it into the .app so the app can start it
       # itself — no terminal needed. Non-fatal if cargo is missing (the app then

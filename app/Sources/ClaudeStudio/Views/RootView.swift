@@ -18,6 +18,8 @@ struct RootView: View {
         }
         .toolbar { titleBarItems }
         .themedChrome(appState.theme)
+        // Always-on voice glue (zero-size): spoken command → session → spoken reply.
+        .background(VoiceOrchestrator())
     }
 
     @ViewBuilder
@@ -58,6 +60,7 @@ struct RootView: View {
             CoreStatusButton()
         }
         ToolbarItemGroup(placement: .primaryAction) {
+            VoiceMicIndicator()
             TrustModeMenu()
         }
     }
@@ -141,25 +144,55 @@ struct TrustModeMenu: View {
     }
 }
 
-/// Title-bar microphone indicator that pulses while the voice assistant listens.
+/// Title-bar voice indicator: a mic button whose colour reflects the assistant
+/// state — grey idle · green listening · orange thinking · blue speaking.
 struct VoiceMicIndicator: View {
     @Environment(AppState.self) private var appState
     @State private var pulse = false
 
+    private var state: VoiceController.VoiceState { appState.voice.state }
+
     var body: some View {
         Button {
-            appState.isListening.toggle()
+            appState.voice.toggleListening()
         } label: {
-            Image(systemName: appState.isListening ? "mic.fill" : "mic.slash")
+            Image(systemName: symbol)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(appState.isListening ? Color.red : Color.secondary)
-                .scaleEffect(appState.isListening && pulse ? 1.18 : 1.0)
+                .foregroundStyle(color)
+                .scaleEffect(state == .listening && pulse ? 1.18 : 1.0)
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
         }
         .buttonStyle(.plain)
-        .help(appState.isListening ? "Voice assistant listening" : "Voice assistant muted")
-        .onChange(of: appState.isListening) { _, listening in
-            pulse = listening
+        .disabled(!appState.voice.sttAvailable)
+        .help(helpText)
+        .onChange(of: state) { _, s in pulse = (s == .listening) }
+    }
+
+    private var symbol: String {
+        switch state {
+        case .idle: return "mic.slash"
+        case .listening: return "mic.fill"
+        case .thinking: return "waveform"
+        case .speaking: return "speaker.wave.2.fill"
+        }
+    }
+    private var color: Color {
+        switch state {
+        case .idle: return .secondary
+        case .listening: return .green
+        case .thinking: return .orange
+        case .speaking: return .blue
+        }
+    }
+    private var helpText: String {
+        guard appState.voice.sttAvailable else {
+            return "Voice input needs the packaged app (microphone permission)"
+        }
+        switch state {
+        case .idle: return "Click to talk to Claude"
+        case .listening: return "Listening… click to send"
+        case .thinking: return "Claude is thinking…"
+        case .speaking: return "Speaking…"
         }
     }
 }

@@ -18,11 +18,14 @@
 		3673FCE47476301612AEA136 /* ThemeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A25B15E09416D95ADD06733F /* ThemeSupport.swift */; };
 		36F07CA4E9842314231AD9D3 /* CoreBridgeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DED682F637EFF6FA87A07316 /* CoreBridgeTests.swift */; };
 		3A3926FF03E12ADBC45694B0 /* ClaudeStudioKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3B95F4DAA2A1A855978293F3 /* ContextTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 990113404FD1010236DA0D27 /* ContextTemplates.swift */; };
+		3C99B8102C6051005ADD5804 /* DefinitionsLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9D1CD37DC93EFF3F7B60084 /* DefinitionsLibraryView.swift */; };
 		3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */; };
 		3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */; };
 		46F82E4E6DD64FDF058902B4 /* TaskLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9493AC42BF85690ADC0EC399 /* TaskLibraryView.swift */; };
 		49B6290A08FD2CA3C3C4E0EE /* HooksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64566DC306DDCE49A336CA33 /* HooksView.swift */; };
 		4C37DD26F2C4A4D241230BD5 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF0F1415B675D75D400E27F /* SettingsView.swift */; };
+		561D9AC2DBD61F2CEC2252CB /* ExtensionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9BB8A9845C5F8D09EDE123F /* ExtensionsView.swift */; };
 		565F1AE1ED15AA975AC733B2 /* TrustMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = A78FB53641F38AB955CDBC0F /* TrustMode.swift */; };
 		5669562D51CA22128E3F4A26 /* SessionPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C1262B174A7494E1438290F /* SessionPanelView.swift */; };
 		5839234A073AAF96D2C6E7C9 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 0F3030B7857FFF1C189848F4 /* Assets.xcassets */; };
@@ -32,6 +35,7 @@
 		7872A3EA117F5067A48E5447 /* ClaudeStudioKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		82A0F232B9A98CCBE428D2EC /* EditableFileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15ADDA23365EB0EE2F65281F /* EditableFileView.swift */; };
 		8632488903BB79EAEBE14859 /* tasks in Resources */ = {isa = PBXBuildFile; fileRef = 3AD390F1F9D448B5AAC8CEBF /* tasks */; };
+		912FD925B10C5228CB01A80F /* DesignSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BEA77DF54FA9ECA986E06F9 /* DesignSystem.swift */; };
 		959650426068D5DA13168ED2 /* Support.swift in Sources */ = {isa = PBXBuildFile; fileRef = 340E660D21D7C24DEB954DE7 /* Support.swift */; };
 		992929685347975B78AA0E72 /* AgentStudioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CC03FD56CEA8162F4E2A14C /* AgentStudioView.swift */; };
 		9B9CAD1CB8DA353D2FBE336F /* OSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE80E1CD767EDEAC44930245 /* OSView.swift */; };
@@ -41,13 +45,18 @@
 		A83A19740BEE3ABE7FC2ACE5 /* ContextView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0E71B23CC147E46799AD68F /* ContextView.swift */; };
 		AE12E61EFCB35A2A0D5B5CB8 /* CostTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8A16988C7E5C0A5C7C9DFAE /* CostTracker.swift */; };
 		AE4D43E9E7B07016C5161609 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3CF20BEB30EA82E29F356B3 /* AppState.swift */; };
+		AF4D68CD8397E1D51E4F9965 /* AgentTemplates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B265F68809CDED3736C23A2 /* AgentTemplates.swift */; };
+		B07011F8C08824CFDE0E66E1 /* VoiceOrchestrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B6A86670BC482B95E1DA46A /* VoiceOrchestrator.swift */; };
+		C72E54D15FD7050A6DAF15E3 /* LibraryBrowser.swift in Sources */ = {isa = PBXBuildFile; fileRef = D18BF2C4DB4BDE71A5F189D2 /* LibraryBrowser.swift */; };
 		C7D7C21992855C7802334AAE /* MCPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054938DB67E1D469889DA120 /* MCPView.swift */; };
 		CB050036F90C06197B746E16 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D58C8BBD99C5D0B2620BB132 /* RootView.swift */; };
 		D2C87EFC9F63503FA2FEEB7D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2E75A100244510EF45B09F /* Theme.swift */; };
 		D2E96DCB36F49A40D21B0297 /* MessagePackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42DA5146AF235A845EE4FB55 /* MessagePackTests.swift */; };
 		D481531AF3A602EFEC9A8207 /* definitions in Resources */ = {isa = PBXBuildFile; fileRef = 56F7CCC32385E92E2DEBDA25 /* definitions */; };
 		D6DADF7065C58B68D43FB1A2 /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475ACEFC2EB1C11521FCDF7C /* Agent.swift */; };
+		DB86F8F1CE226A5AA7919F1C /* MCPManagerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2476A12054289CEB24C9CE32 /* MCPManagerView.swift */; };
 		E0C945DC4E427D0A1EF2175D /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0E35A24E924DB6E7AD7F3A /* Project.swift */; };
+		F49F04695C4B272036291C37 /* ProjectWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4943B5C430AD3EAC8463EDD /* ProjectWorkspaceView.swift */; };
 		FA85B729D3D51265F8252037 /* ClaudeStudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; };
 		FCE8A1A287F3F7768C70522E /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8328CCE1458A37E673271550 /* SampleData.swift */; };
 /* End PBXBuildFile section */
@@ -96,8 +105,11 @@
 
 /* Begin PBXFileReference section */
 		054938DB67E1D469889DA120 /* MCPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPView.swift; sourceTree = "<group>"; };
+		0B265F68809CDED3736C23A2 /* AgentTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTemplates.swift; sourceTree = "<group>"; };
 		0F3030B7857FFF1C189848F4 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		15ADDA23365EB0EE2F65281F /* EditableFileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditableFileView.swift; sourceTree = "<group>"; };
+		2476A12054289CEB24C9CE32 /* MCPManagerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MCPManagerView.swift; sourceTree = "<group>"; };
+		2BEA77DF54FA9ECA986E06F9 /* DesignSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DesignSystem.swift; sourceTree = "<group>"; };
 		2C43BA3FEC55D6DDE2012027 /* MessagePack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePack.swift; sourceTree = "<group>"; };
 		3255E9BEA3536F6FA42F6BFB /* IpcProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpcProtocol.swift; sourceTree = "<group>"; };
 		340E660D21D7C24DEB954DE7 /* Support.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Support.swift; sourceTree = "<group>"; };
@@ -111,6 +123,7 @@
 		4C1262B174A7494E1438290F /* SessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelView.swift; sourceTree = "<group>"; };
 		56F7CCC32385E92E2DEBDA25 /* definitions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = definitions; path = ../definitions; sourceTree = SOURCE_ROOT; };
 		57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStudioApp.swift; sourceTree = "<group>"; };
+		5B6A86670BC482B95E1DA46A /* VoiceOrchestrator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceOrchestrator.swift; sourceTree = "<group>"; };
 		64566DC306DDCE49A336CA33 /* HooksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HooksView.swift; sourceTree = "<group>"; };
 		67DD23025A066675485DD1D1 /* CoreConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreConnection.swift; sourceTree = "<group>"; };
 		70391C7EEBD75576AF83ECCB /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
@@ -119,6 +132,7 @@
 		8328CCE1458A37E673271550 /* SampleData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleData.swift; sourceTree = "<group>"; };
 		9059E36803116F9D81A54769 /* VoiceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceController.swift; sourceTree = "<group>"; };
 		9493AC42BF85690ADC0EC399 /* TaskLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskLibraryView.swift; sourceTree = "<group>"; };
+		990113404FD1010236DA0D27 /* ContextTemplates.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextTemplates.swift; sourceTree = "<group>"; };
 		9BF0F1415B675D75D400E27F /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A25B15E09416D95ADD06733F /* ThemeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThemeSupport.swift; sourceTree = "<group>"; };
 		A78FB53641F38AB955CDBC0F /* TrustMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustMode.swift; sourceTree = "<group>"; };
@@ -127,6 +141,8 @@
 		C529DEA649DA0BB2B262D076 /* SessionEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEvent.swift; sourceTree = "<group>"; };
 		C801BD64B3B5B6CE00C54C9A /* BrainGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainGraph.swift; sourceTree = "<group>"; };
 		D0E71B23CC147E46799AD68F /* ContextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextView.swift; sourceTree = "<group>"; };
+		D18BF2C4DB4BDE71A5F189D2 /* LibraryBrowser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryBrowser.swift; sourceTree = "<group>"; };
+		D4943B5C430AD3EAC8463EDD /* ProjectWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectWorkspaceView.swift; sourceTree = "<group>"; };
 		D58C8BBD99C5D0B2620BB132 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
 		DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreLauncher.swift; sourceTree = "<group>"; };
@@ -136,6 +152,8 @@
 		EE80E1CD767EDEAC44930245 /* OSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OSView.swift; sourceTree = "<group>"; };
 		F385C371BA7DBCED1D82A6C0 /* ClaudeStudio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeStudio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		F3CF20BEB30EA82E29F356B3 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
+		F9BB8A9845C5F8D09EDE123F /* ExtensionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionsView.swift; sourceTree = "<group>"; };
+		F9D1CD37DC93EFF3F7B60084 /* DefinitionsLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefinitionsLibraryView.swift; sourceTree = "<group>"; };
 		F9D36E5EF8C2444BB9F9BDBF /* ClaudeStudioKitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeStudioKitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -209,14 +227,22 @@
 			isa = PBXGroup;
 			children = (
 				7CC03FD56CEA8162F4E2A14C /* AgentStudioView.swift */,
+				0B265F68809CDED3736C23A2 /* AgentTemplates.swift */,
 				70391C7EEBD75576AF83ECCB /* ArchiveView.swift */,
 				37759FC68F686A672EE35A93 /* BrainView.swift */,
+				990113404FD1010236DA0D27 /* ContextTemplates.swift */,
 				D0E71B23CC147E46799AD68F /* ContextView.swift */,
+				F9D1CD37DC93EFF3F7B60084 /* DefinitionsLibraryView.swift */,
+				2BEA77DF54FA9ECA986E06F9 /* DesignSystem.swift */,
 				15ADDA23365EB0EE2F65281F /* EditableFileView.swift */,
+				F9BB8A9845C5F8D09EDE123F /* ExtensionsView.swift */,
 				64566DC306DDCE49A336CA33 /* HooksView.swift */,
+				D18BF2C4DB4BDE71A5F189D2 /* LibraryBrowser.swift */,
+				2476A12054289CEB24C9CE32 /* MCPManagerView.swift */,
 				054938DB67E1D469889DA120 /* MCPView.swift */,
 				EE80E1CD767EDEAC44930245 /* OSView.swift */,
 				C2FA8BD05572AA2D995D217C /* ProjectsView.swift */,
+				D4943B5C430AD3EAC8463EDD /* ProjectWorkspaceView.swift */,
 				D58C8BBD99C5D0B2620BB132 /* RootView.swift */,
 				4C1262B174A7494E1438290F /* SessionPanelView.swift */,
 				9BF0F1415B675D75D400E27F /* SettingsView.swift */,
@@ -224,6 +250,7 @@
 				9493AC42BF85690ADC0EC399 /* TaskLibraryView.swift */,
 				A25B15E09416D95ADD06733F /* ThemeSupport.swift */,
 				A98E00255AA59CCA16E7C2A6 /* VoiceLogView.swift */,
+				5B6A86670BC482B95E1DA46A /* VoiceOrchestrator.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -434,20 +461,28 @@
 				D6DADF7065C58B68D43FB1A2 /* Agent.swift in Sources */,
 				67D7F9789C799E79AE5E264C /* AgentSession.swift in Sources */,
 				992929685347975B78AA0E72 /* AgentStudioView.swift in Sources */,
+				AF4D68CD8397E1D51E4F9965 /* AgentTemplates.swift in Sources */,
 				AE4D43E9E7B07016C5161609 /* AppState.swift in Sources */,
 				0BCD8192181DD217BDC6DBBF /* ArchiveView.swift in Sources */,
 				0E41656EC2106404E88DC819 /* BrainGraph.swift in Sources */,
 				A21C1E922A84F95C3AA142BA /* BrainView.swift in Sources */,
 				3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */,
+				3B95F4DAA2A1A855978293F3 /* ContextTemplates.swift in Sources */,
 				A83A19740BEE3ABE7FC2ACE5 /* ContextView.swift in Sources */,
 				34553D30BEDC0E1114F8C1D1 /* CoreConnection.swift in Sources */,
 				3DFA08954B2076BDF267B116 /* CoreLauncher.swift in Sources */,
 				AE12E61EFCB35A2A0D5B5CB8 /* CostTracker.swift in Sources */,
+				3C99B8102C6051005ADD5804 /* DefinitionsLibraryView.swift in Sources */,
+				912FD925B10C5228CB01A80F /* DesignSystem.swift in Sources */,
 				82A0F232B9A98CCBE428D2EC /* EditableFileView.swift in Sources */,
+				561D9AC2DBD61F2CEC2252CB /* ExtensionsView.swift in Sources */,
 				49B6290A08FD2CA3C3C4E0EE /* HooksView.swift in Sources */,
+				C72E54D15FD7050A6DAF15E3 /* LibraryBrowser.swift in Sources */,
+				DB86F8F1CE226A5AA7919F1C /* MCPManagerView.swift in Sources */,
 				C7D7C21992855C7802334AAE /* MCPView.swift in Sources */,
 				9B9CAD1CB8DA353D2FBE336F /* OSView.swift in Sources */,
 				E0C945DC4E427D0A1EF2175D /* Project.swift in Sources */,
+				F49F04695C4B272036291C37 /* ProjectWorkspaceView.swift in Sources */,
 				5B9AD819B152DE982DBE964B /* ProjectsView.swift in Sources */,
 				CB050036F90C06197B746E16 /* RootView.swift in Sources */,
 				FCE8A1A287F3F7768C70522E /* SampleData.swift in Sources */,
@@ -461,6 +496,7 @@
 				565F1AE1ED15AA975AC733B2 /* TrustMode.swift in Sources */,
 				1BA4423B7F749616812A653B /* VoiceController.swift in Sources */,
 				362320D8F5A78C1D01F53063 /* VoiceLogView.swift in Sources */,
+				B07011F8C08824CFDE0E66E1 /* VoiceOrchestrator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -618,6 +654,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeStudio;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ClaudeStudio uses the microphone for the voice assistant — to hear your spoken commands.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ClaudeStudio transcribes your speech on-device to run your spoken commands through Claude.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -715,6 +753,8 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = ClaudeStudio;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "ClaudeStudio uses the microphone for the voice assistant — to hear your spoken commands.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "ClaudeStudio transcribes your speech on-device to run your spoken commands through Claude.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

@@ -67,6 +67,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>
   <key>NSHumanReadableCopyright</key><string>ClaudeStudio — MIT licensed.</string>
+  <key>NSMicrophoneUsageDescription</key><string>ClaudeStudio uses the microphone for the voice assistant — to hear your spoken commands.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>ClaudeStudio transcribes your speech on-device to run your spoken commands through Claude.</string>
 </dict>
 </plist>
 PLIST
