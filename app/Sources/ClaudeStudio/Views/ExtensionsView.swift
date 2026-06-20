@@ -94,7 +94,7 @@ private struct SkillsManager: View {
                                 .padding(.horizontal, 14).padding(.bottom, 12)
                         }
                     }
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
             }
         }
@@ -219,7 +219,7 @@ private struct PluginsManager: View {
                         Spacer()
                     }
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
+                    .background(.background.secondary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
         }
@@ -300,7 +300,7 @@ private struct PluginRow: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
