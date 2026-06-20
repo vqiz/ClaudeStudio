@@ -73,6 +73,9 @@ PLIST
 
 # ---- sign (ad-hoc) --------------------------------------------------------
 say "Ad-hoc code-signing…"
+# Strip extended attributes (quarantine / Finder info) that make codesign fail
+# with "resource fork, Finder information, or similar detritus not allowed".
+xattr -cr "$APP" 2>/dev/null || true
 codesign --force --deep --sign - "$APP" 2>/dev/null || codesign --force --sign - "$APP"
 
 say "Built ${bold}$APP${reset} (v${VERSION})"
