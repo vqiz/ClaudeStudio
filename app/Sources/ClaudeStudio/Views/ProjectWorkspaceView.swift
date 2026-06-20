@@ -194,7 +194,14 @@ private struct ProjectSessionTab: View {
             .frame(minWidth: 230, idealWidth: 270, maxWidth: 340, maxHeight: .infinity)
 
             VStack(spacing: 0) {
-                LiveTranscriptView()
+                if appState.core.liveRunOrigin == "agent" {
+                    ContentUnavailableView("An agent is working in the Agents tab",
+                                           systemImage: "person.crop.rectangle.stack",
+                                           description: Text("Run a prompt, skill, or task here to see session output."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    LiveTranscriptView()
+                }
                 if !appliedDefs.isEmpty { appliedBar }
                 Divider()
                 composer
@@ -279,13 +286,15 @@ private struct ProjectSessionTab: View {
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
         prompt = ""
         Task { await appState.core.startSession(prompt: text, cwd: project.path,
-                                                model: project.model, systemPrompt: appliedSystemPrompt) }
+                                                model: project.model, systemPrompt: appliedSystemPrompt,
+                                                origin: "session") }
     }
 
     private func runSkill(_ command: String) {
         guard appState.core.runningSessionId == nil else { return }
         Task { await appState.core.startSession(prompt: "/\(command)", cwd: project.path,
-                                                model: project.model, systemPrompt: appliedSystemPrompt) }
+                                                model: project.model, systemPrompt: appliedSystemPrompt,
+                                                origin: "skill") }
     }
 
     private func runTask(_ task: LibraryTask) {
@@ -293,7 +302,7 @@ private struct ProjectSessionTab: View {
         let detail = task.summary.isEmpty ? "" : " \(task.summary)"
         Task { await appState.core.startSession(prompt: "Run the \"\(task.name)\" task on this project.\(detail)",
                                                 cwd: project.path, model: project.model,
-                                                systemPrompt: appliedSystemPrompt) }
+                                                systemPrompt: appliedSystemPrompt, origin: "task") }
     }
 }
 
@@ -539,13 +548,27 @@ private struct ProjectAgentsTab: View {
             .background(.bar)
             Divider()
 
-            if let agent {
+            if appState.agentStore.agents.isEmpty {
+                ContentUnavailableView("No agents configured",
+                                       systemImage: "person.crop.rectangle.stack",
+                                       description: Text("Create one in Agent Studio (sidebar → Agent Studio) — start from a template — then launch it here."))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let agent {
                 if !agent.role.isEmpty {
                     Text(agent.role).font(.caption).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12).padding(.top, 8)
                 }
-                LiveTranscriptView()
+                // Only this tab's own (agent-launched) work shows here — never
+                // the leftover Session/skill/task output.
+                if appState.core.liveRunOrigin == "agent" {
+                    LiveTranscriptView()
+                } else {
+                    ContentUnavailableView("Launch \(agent.name)",
+                                           systemImage: agent.symbol,
+                                           description: Text("Give this agent a command below. Only what you launch here appears in this tab."))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 Divider()
                 HStack(spacing: 8) {
                     TextField("Command for \(agent.name)…", text: $command, axis: .vertical)
@@ -565,7 +588,7 @@ private struct ProjectAgentsTab: View {
             } else {
                 ContentUnavailableView("Pick an agent",
                                        systemImage: "person.crop.rectangle.stack",
-                                       description: Text("Choose a saved agent (author them in Agent Studio), then give it a command to run in this project."))
+                                       description: Text("Choose one of your configured agents above, then give it a command."))
             }
         }
         .onAppear { if selected == nil { selected = appState.agentStore.agents.first?.id } }
@@ -577,7 +600,8 @@ private struct ProjectAgentsTab: View {
         command = ""
         Task {
             await appState.core.startSession(prompt: text, cwd: project.path,
-                                             model: agent.model, systemPrompt: agent.systemPrompt)
+                                             model: agent.model, systemPrompt: agent.systemPrompt,
+                                             origin: "agent")
         }
     }
 }

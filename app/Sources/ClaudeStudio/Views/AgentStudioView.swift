@@ -12,14 +12,27 @@ struct AgentStudioView: View {
                 HStack {
                     Label("Agents", systemImage: "person.crop.rectangle.stack").font(.headline)
                     Spacer()
-                    Button {
-                        let agent = appState.agentStore.add()
-                        selected = agent.id
+                    Menu {
+                        Button("Blank agent", systemImage: "plus") {
+                            selected = appState.agentStore.add().id
+                        }
+                        Divider()
+                        Section("From template") {
+                            ForEach(AgentTemplates.all) { template in
+                                Button {
+                                    selected = appState.agentStore.add(from: template).id
+                                } label: {
+                                    Label(template.name, systemImage: template.symbol)
+                                }
+                            }
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .buttonStyle(.borderless)
-                    .help("New agent")
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("New agent (blank or from a template)")
                 }
                 .padding(12)
                 .background(.bar)

@@ -54,9 +54,16 @@ final class AgentStore {
         }
     }
 
+    /// Add a new agent — a blank one, or an editable copy of a shipped template.
     @discardableResult
-    func add() -> AgentDefinition {
-        let agent = AgentDefinition(name: "New Agent", role: "Describe its job", symbol: "sparkles")
+    func add(from template: AgentDefinition? = nil) -> AgentDefinition {
+        let agent: AgentDefinition
+        if let t = template {
+            agent = AgentDefinition(name: t.name, role: t.role, symbol: t.symbol,
+                                    model: t.model, trustMode: t.trustMode, systemPrompt: t.systemPrompt)
+        } else {
+            agent = AgentDefinition(name: "New Agent", role: "Describe its job", symbol: "sparkles")
+        }
         agents.append(agent)
         save()
         return agent

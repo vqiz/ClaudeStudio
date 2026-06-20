@@ -80,6 +80,10 @@ final class CoreConnection {
     private(set) var liveSession: [LiveSessionEvent] = []
     /// The id of the running session, or nil when none is active.
     private(set) var runningSessionId: String?
+    /// What launched the current transcript: `"session"`, `"skill"`, `"task"`,
+    /// or `"agent"`. Lets each surface show only its own runs instead of bleeding
+    /// the Session output into the Agents tab.
+    private(set) var liveRunOrigin: String?
 
     /// The socket path used on the next ``connect()``. Editable from Settings.
     var socketPath: String
@@ -379,6 +383,7 @@ final class CoreConnection {
         recentEvents = []
         liveSession = []
         runningSessionId = nil
+        liveRunOrigin = nil
         if status != .offline { status = .offline }
     }
 
@@ -437,11 +442,12 @@ final class CoreConnection {
     /// Start a live Claude session. Streamed output lands in ``liveSession`` and
     /// the run is archived by the core. No-op when offline.
     func startSession(prompt: String, cwd: String? = nil, model: String? = nil,
-                      systemPrompt: String? = nil) async {
+                      systemPrompt: String? = nil, origin: String = "session") async {
         guard isConnected, let client else { return }
         // Echo the user's own message into the transcript so the session reads
         // like a conversation.
         liveSession = [LiveSessionEvent(kind: "user", text: prompt)]
+        liveRunOrigin = origin
         runningSessionId = nil
         if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
                                                    systemPrompt: systemPrompt), !id.isEmpty {
