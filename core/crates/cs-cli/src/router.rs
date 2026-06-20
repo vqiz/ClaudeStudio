@@ -809,16 +809,18 @@ impl Router {
     /// invocation `command` is its directory name (typed as `/<command>`).
     /// Project skills shadow user skills of the same name.
     fn skills_list(&self, p: &Value) -> HandlerResult {
+        let cwd = p.get("cwd").and_then(Value::as_str);
+
+        // 1. Scan the local skill directories for rich metadata (description,
+        //    scope, SKILL.md path), keyed by the skill's command token.
+        let mut meta: HashMap<String, (String, String, String, &str)> = HashMap::new();
         let mut roots: Vec<(PathBuf, &str)> = Vec::new();
-        if let Some(cwd) = p.get("cwd").and_then(Value::as_str) {
+        if let Some(cwd) = cwd {
             roots.push((Path::new(cwd).join(".claude").join("skills"), "project"));
         }
         if let Ok(home) = std::env::var("HOME") {
             roots.push((Path::new(&home).join(".claude").join("skills"), "user"));
         }
-
-        let mut skills = Vec::new();
-        let mut seen = HashSet::new();
         for (root, scope) in roots {
             let Ok(entries) = std::fs::read_dir(&root) else {
                 continue;
@@ -835,24 +837,49 @@ impl Router {
                 else {
                     continue;
                 };
-                if !seen.insert(command.clone()) {
-                    continue; // project scope already provided this skill
-                }
                 let fm = parse_frontmatter(&content);
                 let name = fm
                     .get("name")
                     .cloned()
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| command.clone());
-                skills.push(json!({
-                    "command": command,
-                    "name": name,
-                    "description": fm.get("description").cloned().unwrap_or_default(),
-                    "path": dir.join("SKILL.md").to_string_lossy(),
-                    "scope": scope,
-                }));
+                meta.entry(command).or_insert((
+                    name,
+                    fm.get("description").cloned().unwrap_or_default(),
+                    dir.join("SKILL.md").to_string_lossy().to_string(),
+                    scope,
+                ));
             }
         }
+
+        // 2. The authoritative full list of skills the user can invoke with `/`
+        //    (includes plugin and built-in skills) comes from the CLI itself.
+        let cli_skills = claude_init_skills(cwd);
+
+        // 3. Merge: every CLI skill, enriched with local metadata when available;
+        //    plus any local skill the CLI didn't report (e.g. project-only).
+        let mut skills = Vec::new();
+        let mut emitted = HashSet::new();
+        for command in &cli_skills {
+            emitted.insert(command.clone());
+            if let Some((name, desc, path, scope)) = meta.get(command) {
+                skills.push(json!({ "command": command, "name": name, "description": desc, "path": path, "scope": scope }));
+            } else {
+                // Namespaced (`plugin:skill`) ones come from plugins.
+                let scope = if command.contains(':') {
+                    "plugin"
+                } else {
+                    "user"
+                };
+                skills.push(json!({ "command": command, "name": command, "description": "", "path": "", "scope": scope }));
+            }
+        }
+        for (command, (name, desc, path, scope)) in &meta {
+            if emitted.insert(command.clone()) {
+                skills.push(json!({ "command": command, "name": name, "description": desc, "path": path, "scope": scope }));
+            }
+        }
+
         skills.sort_by(|a, b| {
             a["command"]
                 .as_str()
@@ -1142,6 +1169,55 @@ fn claude_bin() -> String {
 /// shells out to the locally-authenticated `claude` binary.
 fn run_claude(args: &[&str]) -> std::result::Result<String, String> {
     run_claude_in(None, args)
+}
+
+/// The complete list of skills the user can invoke with `/` — including plugin
+/// and built-in skills the local filesystem scan can't see. We read them from the
+/// `claude` CLI's `system`/`init` line (which lists every available skill), then
+/// stop the process as soon as we have it (the init line arrives in ~1s, well
+/// before the model responds). Returns an empty list if the CLI is unavailable.
+fn claude_init_skills(cwd: Option<&str>) -> Vec<String> {
+    use std::io::{BufRead, BufReader};
+    let mut cmd = std::process::Command::new(claude_bin());
+    cmd.args(["-p", "ok", "--output-format", "stream-json", "--verbose"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    let Ok(mut child) = cmd.spawn() else {
+        return Vec::new();
+    };
+    let mut skills = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        for line in BufReader::new(out)
+            .lines()
+            .map_while(std::result::Result::ok)
+        {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let Ok(v) = serde_json::from_str::<Value>(line) else {
+                continue;
+            };
+            if v.get("type").and_then(Value::as_str) == Some("system")
+                && v.get("subtype").and_then(Value::as_str) == Some("init")
+            {
+                if let Some(arr) = v.get("skills").and_then(Value::as_array) {
+                    skills = arr
+                        .iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect();
+                }
+                break;
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    skills
 }
 
 /// Like [`run_claude`] but runs in `cwd` when given (so directory-scoped config,
@@ -1462,6 +1538,10 @@ mod tests {
 
     #[tokio::test]
     async fn skills_list_reads_skill_md() {
+        // Point the CLI at a no-op binary so the authoritative-list step returns
+        // nothing and the test stays hermetic (no real `claude` spawn). The local
+        // filesystem scan must still surface the skill.
+        std::env::set_var("CLAUDESTUDIO_CLAUDE_BIN", "/usr/bin/true");
         let (r, base) = router_in("skills");
         let cwd = base.join("proj");
         let skill_dir = cwd.join(".claude").join("skills").join("graphify");
