@@ -26,17 +26,19 @@ struct ClaudeStudioApp: App {
         .windowToolbarStyle(.unified)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Session…") {}
+                Button("New Session") { appState.selectedSidebarItem = .projects }
                     .keyboardShortcut("n", modifiers: [.command])
-                Button("New Worktree…") {}
-                    .keyboardShortcut("n", modifiers: [.command, .shift])
             }
-            CommandMenu("Agent") {
-                Button("Toggle Voice Assistant") { appState.isListening.toggle() }
-                    .keyboardShortcut("l", modifiers: [.command, .shift])
+            CommandMenu("Core") {
+                Button(appState.coreConnected ? "Reconnect" : "Connect") {
+                    Task { await appState.connectCore() }
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 Divider()
-                ForEach(TrustMode.allCases) { mode in
-                    Button("Trust: \(mode.label)") { appState.globalTrustMode = mode }
+                Menu("Trust mode") {
+                    ForEach(TrustMode.allCases) { mode in
+                        Button(mode.label) { appState.globalTrustMode = mode }
+                    }
                 }
             }
         }

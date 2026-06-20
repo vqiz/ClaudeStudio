@@ -64,6 +64,7 @@ struct TaskLibraryView: View {
 }
 
 private struct LiveTaskCardView: View {
+    @Environment(AppState.self) private var appState
     let task: LibraryTask
     @State private var hovering = false
 
@@ -84,12 +85,15 @@ private struct LiveTaskCardView: View {
                 ChipFlow(items: Array(task.tags.prefix(4)), symbol: "tag")
             }
             Spacer(minLength: 0)
-            Button {
-            } label: {
-                Label("Run", systemImage: "play.fill").frame(maxWidth: .infinity)
+            Button(action: run) {
+                Label(appState.selectedProject == nil ? "Select a project" : "Run", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .disabled(appState.selectedProject == nil
+                      || !appState.coreConnected
+                      || appState.core.runningSessionId != nil)
         }
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
@@ -99,6 +103,14 @@ private struct LiveTaskCardView: View {
                 .strokeBorder(hovering ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1.5)
         )
         .onHover { hovering = $0 }
+        .help(task.summary.isEmpty ? task.name : task.summary)
+    }
+
+    private func run() {
+        guard let project = appState.selectedProject else { return }
+        let detail = task.summary.isEmpty ? "" : " \(task.summary)"
+        let prompt = "Run the \"\(task.name)\" task on this project.\(detail)"
+        Task { await appState.core.startSession(prompt: prompt, cwd: project.path, model: project.model) }
     }
 }
 

@@ -52,7 +52,6 @@ struct RootView: View {
             CoreStatusButton()
         }
         ToolbarItemGroup(placement: .primaryAction) {
-            VoiceMicIndicator()
             TrustModeMenu()
         }
     }
