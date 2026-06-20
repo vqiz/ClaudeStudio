@@ -1,4 +1,5 @@
 import SwiftUI
+import ClaudeStudioKit
 
 /// The OS View — a "mission control" for every running agent. A grid of session
 /// cards on top, and a live Supervisor / Event-Bus stream below.
@@ -7,17 +8,48 @@ struct OSView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 260), spacing: 16)]
 
+    private var runningBanner: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("A session is running now…").font(.callout.weight(.medium))
+            Spacer()
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.brandIndigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     PageHeader(title: "OS View", symbol: "rectangle.3.group",
-                               subtitle: "Mission control for every running agent")
+                               subtitle: appState.coreConnected
+                               ? "\(appState.core.sessions.count) sessions · live from core"
+                               : "Mission control for every running agent")
 
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(appState.sessions) { session in
-                            SessionCard(session: session, isActive: session.id == appState.activeSession?.id)
-                                .onTapGesture { appState.activeSession = session }
+                    if appState.coreConnected {
+                        if appState.core.runningSessionId != nil {
+                            runningBanner
+                        }
+                        if appState.core.sessions.isEmpty {
+                            ContentUnavailableView("No sessions yet",
+                                                   systemImage: "bolt.slash",
+                                                   description: Text("Run a session from a project or the Session panel; it appears here and in the Archive."))
+                                .padding(.top, 30)
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 16) {
+                                ForEach(appState.core.sessions.prefix(18)) { session in
+                                    LiveSessionCard(session: session)
+                                }
+                            }
+                        }
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(appState.sessions) { session in
+                                SessionCard(session: session, isActive: session.id == appState.activeSession?.id)
+                                    .onTapGesture { appState.activeSession = session }
+                            }
                         }
                     }
                 }
@@ -76,6 +108,34 @@ private struct LiveEventStream: View {
                 .listStyle(.plain)
             }
         }
+    }
+}
+
+/// A card for a real archived/running session (from the core).
+private struct LiveSessionCard: View {
+    let session: CoreSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "bolt.fill").foregroundStyle(.tint)
+                Text(session.model ?? "session")
+                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Spacer()
+                Text(Format.ago(session.createdDate)).font(.caption2).foregroundStyle(.tertiary)
+            }
+            Text(session.title).font(.headline).lineLimit(2)
+            Label(session.cwd, systemImage: "folder")
+                .font(.caption).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle)
+            if let branch = session.branch {
+                Label(branch, systemImage: "arrow.triangle.branch")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

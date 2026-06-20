@@ -1,32 +1,46 @@
 import SwiftUI
 
-/// The Agent Studio (Definitions section) — author and configure the agentic
-/// layer: sub-agent roles, the supervisor policy, and the event-bus routing
-/// that wires them together.
+/// Agent Studio — author reusable agent presets (name, model/effort, trust,
+/// system prompt) and run one against the selected project. Persisted.
 struct AgentStudioView: View {
-    @State private var selectedAgent: AgentDefinition.ID?
-    @State private var agents = AgentDefinition.samples
+    @Environment(AppState.self) private var appState
+    @State private var selected: AgentDefinition.ID?
 
     var body: some View {
         HSplitView {
-            List(agents, selection: $selectedAgent) { agent in
-                AgentRow(agent: agent).tag(agent.id)
-            }
-            .frame(minWidth: 240, idealWidth: 280)
-            .safeAreaInset(edge: .top) {
+            VStack(spacing: 0) {
                 HStack {
-                    PageHeader(title: "Agent Studio", symbol: "person.crop.rectangle.stack")
-                    Button {} label: { Image(systemName: "plus") }.buttonStyle(.borderless)
+                    Label("Agents", systemImage: "person.crop.rectangle.stack").font(.headline)
+                    Spacer()
+                    Button {
+                        let agent = appState.agentStore.add()
+                        selected = agent.id
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("New agent")
                 }
-                .padding(12).background(.bar)
-            }
+                .padding(12)
+                .background(.bar)
 
-            if let agent = agents.first(where: { $0.id == selectedAgent }) ?? agents.first {
-                AgentDetail(agent: agent)
+                List(appState.agentStore.agents, selection: $selected) { agent in
+                    AgentRow(agent: agent).tag(agent.id)
+                }
+            }
+            .frame(minWidth: 230, idealWidth: 280, maxWidth: 360)
+
+            if let agent = appState.agentStore.agents.first(where: { $0.id == selected }) {
+                AgentDetail(agent: agent).id(agent.id)
+                    .frame(minWidth: 360)
             } else {
-                ContentUnavailableView("Select an agent", systemImage: "person.crop.rectangle.stack")
+                ContentUnavailableView("Select an agent",
+                                       systemImage: "person.crop.rectangle.stack")
+                    .frame(minWidth: 360)
             }
         }
+        .navigationTitle("Agent Studio")
+        .onAppear { if selected == nil { selected = appState.agentStore.agents.first?.id } }
     }
 }
 
@@ -38,99 +52,101 @@ private struct AgentRow: View {
             Image(systemName: agent.symbol)
                 .foregroundStyle(.white)
                 .frame(width: 26, height: 26)
-                .background(agent.tint.gradient, in: RoundedRectangle(cornerRadius: 7))
+                .background(Color.brandIndigo.gradient, in: RoundedRectangle(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 1) {
                 Text(agent.name).font(.callout.weight(.medium))
-                Text(agent.role).font(.caption).foregroundStyle(.secondary)
+                if !agent.role.isEmpty {
+                    Text(agent.role).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
             }
+            Spacer()
+            Text(agent.model).font(.caption2.monospaced()).foregroundStyle(.secondary)
         }
         .padding(.vertical, 3)
     }
 }
 
 private struct AgentDetail: View {
-    let agent: AgentDefinition
+    @Environment(AppState.self) private var appState
+    @State private var draft: AgentDefinition
+    @State private var task = ""
+
+    init(agent: AgentDefinition) {
+        _draft = State(initialValue: agent)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                PageHeader(title: agent.name, symbol: agent.symbol, subtitle: agent.role)
+        Form {
+            Section("Identity") {
+                TextField("Name", text: $draft.name)
+                TextField("Role", text: $draft.role)
+            }
 
-                GroupBox("System Prompt") {
-                    Text(agent.systemPrompt)
-                        .font(.callout).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+            Section("Behaviour") {
+                Picker("Model · effort", selection: $draft.model) {
+                    ForEach(ModelTierOption.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                GroupBox("Default Trust") {
-                    HStack { TrustModeBadge(mode: agent.trustMode); Spacer() }.padding(6)
-                }
-                GroupBox("Tools & Skills") { ChipFlow(items: agent.tools, symbol: "wrench.and.screwdriver") }
-                GroupBox("Triggers") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(agent.triggers, id: \.self) { trigger in
-                            Label(trigger, systemImage: "bolt.horizontal").font(.caption)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                Picker("Trust mode", selection: $draft.trustMode) {
+                    ForEach(TrustMode.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
                 }
             }
-            .padding(20)
+
+            Section("System prompt") {
+                TextEditor(text: $draft.systemPrompt)
+                    .font(.system(.callout, design: .monospaced))
+                    .frame(minHeight: 140)
+            }
+
+            Section("Run") {
+                TextField("Task for this agent…", text: $task, axis: .vertical)
+                    .lineLimit(1...4)
+                    .onSubmit(run)
+                Button {
+                    run()
+                } label: {
+                    Label(runLabel, systemImage: "play.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(task.trimmingCharacters(in: .whitespaces).isEmpty
+                          || appState.selectedProject == nil
+                          || !appState.coreConnected
+                          || appState.core.runningSessionId != nil)
+                if appState.selectedProject == nil {
+                    Text("Select a project (under Projects) to run an agent there.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .navigationTitle(draft.name)
+        .onChange(of: draft) { _, newValue in appState.agentStore.update(newValue) }
+        .toolbar {
+            ToolbarItem {
+                Button(role: .destructive) {
+                    appState.agentStore.remove(draft.id)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .help("Delete this agent")
+            }
         }
     }
-}
 
-/// A configured sub-agent role in the supervisor topology.
-struct AgentDefinition: Identifiable, Hashable {
-    let id = UUID()
-    var name: String
-    var role: String
-    var symbol: String
-    var tint: Color
-    var trustMode: TrustMode
-    var systemPrompt: String
-    var tools: [String]
-    var triggers: [String]
+    private var runLabel: String {
+        if let project = appState.selectedProject {
+            return "Run on \(project.name)"
+        }
+        return "Run"
+    }
 
-    static let samples: [AgentDefinition] = [
-        AgentDefinition(
-            name: "Supervisor",
-            role: "Plans, delegates, and enforces budget",
-            symbol: "eye",
-            tint: .orange,
-            trustMode: .guarded,
-            systemPrompt: "You coordinate sub-agents, split tasks into worktrees, and pause any session that exceeds its budget or attempts a destructive action outside its allow-list.",
-            tools: ["TaskCreate", "TaskStop", "Monitor"],
-            triggers: ["session.started", "budget.threshold", "approval.required"]
-        ),
-        AgentDefinition(
-            name: "Implementer",
-            role: "Writes and edits code",
-            symbol: "hammer",
-            tint: .blue,
-            trustMode: .guarded,
-            systemPrompt: "You implement scoped changes with small, reviewable diffs and run the relevant tests before declaring a task complete.",
-            tools: ["Read", "Edit", "Bash", "tdd"],
-            triggers: ["task.assigned(implement)"]
-        ),
-        AgentDefinition(
-            name: "Reviewer",
-            role: "Audits diffs for correctness and security",
-            symbol: "checkmark.shield",
-            tint: .green,
-            trustMode: .readOnly,
-            systemPrompt: "You review the working diff for correctness, security, and simplification opportunities. You never modify files; you report findings.",
-            tools: ["Read", "Grep", "code-review", "security-review"],
-            triggers: ["diff.ready", "pre.commit"]
-        ),
-        AgentDefinition(
-            name: "Librarian",
-            role: "Maintains the semantic memory",
-            symbol: "books.vertical",
-            tint: .pink,
-            trustMode: .autonomous,
-            systemPrompt: "You consolidate session transcripts into durable memories, dedupe against existing vectors, and update the knowledge graph.",
-            tools: ["graphify", "qdrant.upsert"],
-            triggers: ["session.completed"]
-        )
-    ]
+    private func run() {
+        guard let project = appState.selectedProject else { return }
+        let userTask = task.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !userTask.isEmpty else { return }
+        let prompt = draft.systemPrompt.isEmpty
+            ? userTask
+            : "\(draft.systemPrompt)\n\nTask: \(userTask)"
+        task = ""
+        Task { await appState.core.startSession(prompt: prompt, cwd: project.path, model: draft.model) }
+    }
 }

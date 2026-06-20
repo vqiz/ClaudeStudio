@@ -10,6 +10,7 @@
 		01D65C3EF730976363B659C3 /* IpcClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 426B9B60A0D4FED73E3BC5CF /* IpcClient.swift */; };
 		03EFCB28B6A073E79A180DC3 /* MessagePack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C43BA3FEC55D6DDE2012027 /* MessagePack.swift */; };
 		0BCD8192181DD217BDC6DBBF /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70391C7EEBD75576AF83ECCB /* ArchiveView.swift */; };
+		0E41656EC2106404E88DC819 /* BrainGraph.swift in Sources */ = {isa = PBXBuildFile; fileRef = C801BD64B3B5B6CE00C54C9A /* BrainGraph.swift */; };
 		34553D30BEDC0E1114F8C1D1 /* CoreConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67DD23025A066675485DD1D1 /* CoreConnection.swift */; };
 		34CF920D63C01B974CECAAC2 /* CoreClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D4ED5B92A41C80179E09E5B /* CoreClient.swift */; };
 		362320D8F5A78C1D01F53063 /* VoiceLogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A98E00255AA59CCA16E7C2A6 /* VoiceLogView.swift */; };
@@ -43,6 +44,7 @@
 		D2C87EFC9F63503FA2FEEB7D /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D2E75A100244510EF45B09F /* Theme.swift */; };
 		D2E96DCB36F49A40D21B0297 /* MessagePackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42DA5146AF235A845EE4FB55 /* MessagePackTests.swift */; };
 		D481531AF3A602EFEC9A8207 /* definitions in Resources */ = {isa = PBXBuildFile; fileRef = 56F7CCC32385E92E2DEBDA25 /* definitions */; };
+		D6DADF7065C58B68D43FB1A2 /* Agent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 475ACEFC2EB1C11521FCDF7C /* Agent.swift */; };
 		E0C945DC4E427D0A1EF2175D /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F0E35A24E924DB6E7AD7F3A /* Project.swift */; };
 		FA85B729D3D51265F8252037 /* ClaudeStudioKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E197F22D7FD511261F5B9D3B /* ClaudeStudioKit.framework */; };
 		FCE8A1A287F3F7768C70522E /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8328CCE1458A37E673271550 /* SampleData.swift */; };
@@ -103,6 +105,7 @@
 		3D4ED5B92A41C80179E09E5B /* CoreClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreClient.swift; sourceTree = "<group>"; };
 		426B9B60A0D4FED73E3BC5CF /* IpcClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IpcClient.swift; sourceTree = "<group>"; };
 		42DA5146AF235A845EE4FB55 /* MessagePackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagePackTests.swift; sourceTree = "<group>"; };
+		475ACEFC2EB1C11521FCDF7C /* Agent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Agent.swift; sourceTree = "<group>"; };
 		4C1262B174A7494E1438290F /* SessionPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPanelView.swift; sourceTree = "<group>"; };
 		56F7CCC32385E92E2DEBDA25 /* definitions */ = {isa = PBXFileReference; lastKnownFileType = folder; name = definitions; path = ../definitions; sourceTree = SOURCE_ROOT; };
 		57AA100E524B4A36447CACAB /* ClaudeStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeStudioApp.swift; sourceTree = "<group>"; };
@@ -118,6 +121,7 @@
 		A98E00255AA59CCA16E7C2A6 /* VoiceLogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLogView.swift; sourceTree = "<group>"; };
 		C2FA8BD05572AA2D995D217C /* ProjectsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectsView.swift; sourceTree = "<group>"; };
 		C529DEA649DA0BB2B262D076 /* SessionEvent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEvent.swift; sourceTree = "<group>"; };
+		C801BD64B3B5B6CE00C54C9A /* BrainGraph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrainGraph.swift; sourceTree = "<group>"; };
 		D0E71B23CC147E46799AD68F /* ContextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContextView.swift; sourceTree = "<group>"; };
 		D58C8BBD99C5D0B2620BB132 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSession.swift; sourceTree = "<group>"; };
@@ -242,8 +246,10 @@
 		C7AB753E215C26A780746A27 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				475ACEFC2EB1C11521FCDF7C /* Agent.swift */,
 				DA7B6B32CC04FDCCDC9E5CF0 /* AgentSession.swift */,
 				F3CF20BEB30EA82E29F356B3 /* AppState.swift */,
+				C801BD64B3B5B6CE00C54C9A /* BrainGraph.swift */,
 				67DD23025A066675485DD1D1 /* CoreConnection.swift */,
 				DAB7C034DF0AABD130AE2E60 /* CoreLauncher.swift */,
 				E8A16988C7E5C0A5C7C9DFAE /* CostTracker.swift */,
@@ -419,10 +425,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D6DADF7065C58B68D43FB1A2 /* Agent.swift in Sources */,
 				67D7F9789C799E79AE5E264C /* AgentSession.swift in Sources */,
 				992929685347975B78AA0E72 /* AgentStudioView.swift in Sources */,
 				AE4D43E9E7B07016C5161609 /* AppState.swift in Sources */,
 				0BCD8192181DD217BDC6DBBF /* ArchiveView.swift in Sources */,
+				0E41656EC2106404E88DC819 /* BrainGraph.swift in Sources */,
 				A21C1E922A84F95C3AA142BA /* BrainView.swift in Sources */,
 				3F2F279B77FD2A50B6CF4750 /* ClaudeStudioApp.swift in Sources */,
 				A83A19740BEE3ABE7FC2ACE5 /* ContextView.swift in Sources */,

@@ -67,6 +67,9 @@ final class AppState {
     let projectStore = ProjectStore()
     var projects: [Project] { projectStore.projects }
 
+    /// Reusable agent presets, persisted.
+    let agentStore = AgentStore()
+
     var selectedSidebarItem: SidebarItem? = .projects
     var selectedProjectID: Project.ID?
 

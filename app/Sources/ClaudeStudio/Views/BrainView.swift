@@ -4,9 +4,14 @@ import SwiftUI
 /// placeholder. Nodes are seeded with normalised positions and given a light
 /// breathing animation; a real force simulation can replace `jitter` later.
 struct BrainView: View {
-    @State private var graph = KnowledgeGraph.sample()
+    @Environment(AppState.self) private var appState
+    @State private var graph = KnowledgeGraph(nodes: [], edges: [])
     @State private var phase: Double = 0
     @State private var selected: GraphNode.ID?
+
+    private var graphKey: String {
+        "\(appState.projects.count)·\(appState.core.sessions.count)·\(appState.core.definitions.count)·\(appState.core.mcpServers.count)"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,11 +38,30 @@ struct BrainView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) { selectionInfo }
+            .overlay {
+                if !graph.hasContent {
+                    ContentUnavailableView {
+                        Label("Nothing to graph yet", systemImage: "brain")
+                    } description: {
+                        Text(appState.coreConnected
+                             ? "Add a project and run a few sessions — they'll appear here with your definitions and MCP servers."
+                             : "Connect the core to build the graph from your projects, sessions, definitions and MCP servers.")
+                    }
+                }
+            }
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
                 phase = 1
             }
+        }
+        .task(id: graphKey) {
+            graph = KnowledgeGraph.build(
+                projects: appState.projects,
+                sessions: appState.core.sessions,
+                definitions: appState.core.definitions,
+                mcpServers: appState.core.mcpServers
+            )
         }
     }
 
