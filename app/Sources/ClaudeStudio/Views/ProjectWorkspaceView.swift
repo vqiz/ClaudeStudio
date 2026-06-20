@@ -477,29 +477,26 @@ struct LiveTranscriptView: View {
     @Environment(AppState.self) private var appState
 
     var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if appState.core.liveSession.isEmpty {
-                        ContentUnavailableView(
-                            "No live output yet",
-                            systemImage: "text.cursor",
-                            description: Text("Run a prompt, skill, or agent — the core spawns the Claude CLI and streams here.")
-                        )
-                        .padding(.top, 36)
-                    }
-                    ForEach(appState.core.liveSession) { item in
-                        LiveTranscriptRow(item: item).id(item.id)
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 10) {
+                if appState.core.liveSession.isEmpty {
+                    ContentUnavailableView(
+                        "No live output yet",
+                        systemImage: "text.cursor",
+                        description: Text("Run a prompt, skill, or agent — the core spawns the Claude CLI and streams here.")
+                    )
+                    .padding(.top, 36)
                 }
-                .padding(12)
-            }
-            .onChange(of: appState.core.liveSession.count) { _, _ in
-                if let last = appState.core.liveSession.last {
-                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                ForEach(appState.core.liveSession) { item in
+                    LiveTranscriptRow(item: item).id(item.id)
                 }
             }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        // Stick to the newest message as output streams in, but leave the user
+        // alone the moment they scroll up to read earlier output.
+        .defaultScrollAnchor(.bottom)
         .frame(minHeight: 200)
     }
 }
@@ -620,8 +617,10 @@ private struct ProjectAgentsTab: View {
 }
 
 /// The live list of sub-agents Claude has spawned in the current session.
+/// Clicking one reveals its prompt and (when finished) its result.
 struct LiveAgentsPanel: View {
     @Environment(AppState.self) private var appState
+    @State private var expanded: String?
 
     private var agents: [LiveAgent] { appState.core.liveAgents }
     private var runningCount: Int { agents.filter { $0.status == .running }.count }
@@ -642,7 +641,7 @@ struct LiveAgentsPanel: View {
                 }
             }
             if agents.isEmpty {
-                Text("When Claude spawns sub-agents (the Task tool) — guided by your CLAUDE.md / context — they appear here live.")
+                Text("When Claude spawns sub-agents (the Task tool) — guided by your CLAUDE.md / context — they appear here live. Click one to see its prompt and result.")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ScrollView {
@@ -650,7 +649,7 @@ struct LiveAgentsPanel: View {
                         ForEach(agents) { agent in row(agent) }
                     }
                 }
-                .frame(maxHeight: 190)
+                .frame(maxHeight: 240)
             }
         }
         .padding(12)
@@ -658,21 +657,62 @@ struct LiveAgentsPanel: View {
     }
 
     private func row(_ agent: LiveAgent) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            statusIcon(agent.status)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(agent.kind).font(.callout.weight(.semibold))
-                if !agent.task.isEmpty {
-                    Text(agent.task).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        let isOpen = expanded == agent.id
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) { expanded = isOpen ? nil : agent.id }
+            } label: {
+                HStack(alignment: .top, spacing: 9) {
+                    statusIcon(agent.status)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(agent.kind).font(.callout.weight(.semibold))
+                        if !agent.task.isEmpty {
+                            Text(agent.task).font(.caption).foregroundStyle(.secondary).lineLimit(isOpen ? nil : 2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    statusBadge(agent.status)
+                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isOpen {
+                if !agent.prompt.isEmpty {
+                    chatBlock("Prompt", agent.prompt, "arrow.up.right", .brandIndigo)
+                }
+                switch agent.status {
+                case .running:
+                    Label("Working…", systemImage: "ellipsis").font(.caption).foregroundStyle(.secondary)
+                case .stopped:
+                    Label("Stopped before it finished.", systemImage: "stop.circle").font(.caption).foregroundStyle(.orange)
+                case .done:
+                    chatBlock("Result", agent.result.isEmpty ? "(no output)" : agent.result,
+                              "checkmark.seal", .green)
                 }
             }
-            Spacer(minLength: 0)
-            statusBadge(agent.status)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: DS.rSm, style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+    }
+
+    private func chatBlock(_ title: String, _ body: String, _ symbol: String, _ tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: symbol).font(.caption2.weight(.semibold)).foregroundStyle(tint)
+            ScrollView {
+                Text(body)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
+            .padding(8)
+            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
+        }
     }
 
     @ViewBuilder

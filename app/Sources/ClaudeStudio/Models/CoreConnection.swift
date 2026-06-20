@@ -44,12 +44,18 @@ struct LiveSessionEvent: Identifiable, Sendable {
 }
 
 /// A sub-agent Claude spawned in the current session (via the Task tool). The
-/// Agents tab lists these live, with their status.
+/// Agents tab lists these live; clicking one shows its prompt and its result —
+/// the only parts of a sub-agent's "chat" the parent stream exposes.
 struct LiveAgent: Identifiable, Sendable {
     let id: String
     /// The sub-agent type (e.g. `Explore`, `general-purpose`), from the launch.
     let kind: String
+    /// Short description for the row.
     let task: String
+    /// The full prompt the sub-agent was launched with.
+    let prompt: String
+    /// The sub-agent's final output, once it completes.
+    var result: String
     var status: Status
 
     enum Status: Sendable { case running, done, stopped }
@@ -510,7 +516,7 @@ final class CoreConnection {
             case "tool_result":
                 let content = event["content"]?.stringValue ?? ""
                 liveSession.append(LiveSessionEvent(kind: kind, text: Self.truncate(content, 600)))
-                markAgentDone(id: event["id"]?.stringValue)
+                markAgentDone(id: event["id"]?.stringValue, content: content)
             case "result":
                 let cost = event["cost_usd"]?.doubleValue ?? 0
                 liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
@@ -537,15 +543,18 @@ final class CoreConnection {
     private func trackAgentLaunch(id: String?, name: String, input: MsgPackValue?) {
         guard name == "Task" || name == "Agent" else { return }
         let kind = input?["subagent_type"]?.stringValue ?? "agent"
-        let task = input?["description"]?.stringValue
-            ?? input?["prompt"]?.stringValue ?? ""
+        let prompt = input?["prompt"]?.stringValue ?? input?["description"]?.stringValue ?? ""
+        let task = input?["description"]?.stringValue ?? prompt
         liveAgents.append(LiveAgent(id: id ?? UUID().uuidString, kind: kind,
-                                    task: Self.truncate(task, 200), status: .running))
+                                    task: Self.truncate(task, 200), prompt: prompt,
+                                    result: "", status: .running))
     }
 
-    /// Mark the sub-agent whose tool-call `id` matches as finished.
-    private func markAgentDone(id: String?) {
+    /// Mark the sub-agent whose tool-call `id` matches as finished, recording its
+    /// result (the sub-agent's final output).
+    private func markAgentDone(id: String?, content: String) {
         guard let id, let idx = liveAgents.firstIndex(where: { $0.id == id && $0.status == .running }) else { return }
+        liveAgents[idx].result = content
         liveAgents[idx].status = .done
     }
 
