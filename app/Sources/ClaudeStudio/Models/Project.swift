@@ -78,6 +78,13 @@ final class ProjectStore {
     }
 }
 
+/// A git worktree of a project (from `git.worktrees`).
+struct ProjectWorktree: Identifiable, Sendable, Hashable {
+    var id: String { path }
+    let branch: String
+    let path: String
+}
+
 /// The model tiers offered as a project's effort level.
 enum ModelTierOption: String, CaseIterable, Identifiable {
     case haiku, sonnet, opus

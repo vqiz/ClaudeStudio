@@ -183,6 +183,18 @@ final class CoreConnection {
         return (try? await client.fetchHooks(cwd: cwd)) ?? []
     }
 
+    /// Git worktrees of the repo at `cwd` (empty when offline / not a repo).
+    func worktrees(cwd: String) async -> [ProjectWorktree] {
+        guard isConnected, let client else { return [] }
+        guard let res = try? await client.call("git.worktrees", .map(["cwd": .string(cwd)])) else {
+            return []
+        }
+        return (res.payload?["worktrees"]?.arrayValue ?? []).compactMap { entry in
+            guard let path = entry["path"]?.stringValue else { return nil }
+            return ProjectWorktree(branch: entry["branch"]?.stringValue ?? "(detached)", path: path)
+        }
+    }
+
     /// Current branch + number of changed files for a git repo at `cwd`
     /// (`nil` when offline or not a repo).
     func gitInfo(cwd: String) async -> (branch: String, changes: Int)? {

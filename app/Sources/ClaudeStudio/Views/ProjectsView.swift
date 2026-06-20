@@ -98,6 +98,7 @@ private struct ProjectDetail: View {
 
     @State private var branch = ""
     @State private var changes: Int?
+    @State private var worktrees: [ProjectWorktree] = []
     @State private var prompt = ""
 
     var body: some View {
@@ -114,6 +115,27 @@ private struct ProjectDetail: View {
                 GroupBox {
                     EditableFileView(path: project.agentsMdPath)
                 } label: { Label("AGENTS.md", systemImage: "doc.text") }
+
+                if !worktrees.isEmpty {
+                    GroupBox {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(worktrees) { worktree in
+                                HStack(spacing: 8) {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .font(.caption).foregroundStyle(.tint)
+                                    Text(worktree.branch).font(.callout.weight(.medium))
+                                    Text(worktree.path)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1).truncationMode(.middle)
+                                    Spacer()
+                                }
+                            }
+                        }
+                        .padding(6)
+                    } label: {
+                        Label("Worktrees (\(worktrees.count))", systemImage: "square.split.2x1")
+                    }
+                }
             }
             .padding(20)
         }
@@ -197,9 +219,11 @@ private struct ProjectDetail: View {
     private func loadGit() async {
         branch = ""
         changes = nil
+        worktrees = []
         if let info = await appState.core.gitInfo(cwd: project.path) {
             branch = info.branch
             changes = info.changes
         }
+        worktrees = await appState.core.worktrees(cwd: project.path)
     }
 }
