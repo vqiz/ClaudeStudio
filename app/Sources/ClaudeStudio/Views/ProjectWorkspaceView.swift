@@ -216,13 +216,23 @@ private struct ProjectContextTab: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 GroupBox {
-                    EditableFileView(path: project.claudeMdPath, minHeight: 220,
-                                     template: ContextTemplates.claudeMd)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Claude Code's project memory: your rules, conventions, and context, injected on every run in this project. ClaudeStudio also writes your assigned agents here automatically.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        EditableFileView(path: project.claudeMdPath, minHeight: 220,
+                                         template: ContextTemplates.claudeMd)
+                    }
                 } label: { Label("CLAUDE.md", systemImage: "doc.text") }
 
                 GroupBox {
-                    EditableFileView(path: project.agentsMdPath, minHeight: 200,
-                                     template: ContextTemplates.agentsMd)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("AGENTS.md is the open, cross-tool standard for AI-coding-agent instructions — what the project is, how to build & test it, and the conventions to follow. ClaudeStudio reads it as context alongside CLAUDE.md, so the same file also works in other agents/editors that support the standard.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        EditableFileView(path: project.agentsMdPath, minHeight: 200,
+                                         template: ContextTemplates.agentsMd)
+                    }
                 } label: { Label("AGENTS.md", systemImage: "doc.text") }
             }
             .padding(20)

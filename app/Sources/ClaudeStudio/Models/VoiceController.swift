@@ -147,24 +147,30 @@ final class VoiceController: NSObject {
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw VoiceError.microphoneUnavailable
         }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
-            request?.append(buffer)
+        // The tap block runs on a realtime audio thread and the recognition
+        // handler on an arbitrary queue. Both inherit the class's @MainActor
+        // isolation by default, so the macOS 26 Swift runtime traps
+        // (dispatch_assert_queue) when they fire off the main actor — this was
+        // the voice crash. Make them @Sendable (non-isolated) and only touch
+        // actor state by hopping to the main actor.
+        nonisolated(unsafe) let sink = request // append() is safe off-main
+        let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
+            sink.append(buffer)
         }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
         audioEngine.prepare()
         try audioEngine.start()
 
-        task = recognizer?.recognitionTask(with: request) { [weak self] result, error in
-            guard let self else { return }
+        let handler: @Sendable (SFSpeechRecognitionResult?, (any Error)?) -> Void = { [weak self] result, error in
             if let result {
                 let text = result.bestTranscription.formattedString
-                Task { @MainActor in self.partialTranscript = text }
+                Task { @MainActor in self?.partialTranscript = text }
             }
             if error != nil || (result?.isFinal ?? false) {
-                Task { @MainActor in
-                    if self.state == .listening { self.stopListening() }
-                }
+                Task { @MainActor in if self?.state == .listening { self?.stopListening() } }
             }
         }
+        task = recognizer?.recognitionTask(with: request, resultHandler: handler)
     }
 
     private func teardownCapture() {
