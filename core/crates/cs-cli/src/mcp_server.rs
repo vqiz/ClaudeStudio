@@ -184,7 +184,7 @@ fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "search_sessions",
-            "description": "PREFER THIS. Token-cheap SEMANTIC search over the ClaudeStudio session archive: ranks past sessions by meaning (a local neural embedding), not just keywords, and falls back to keyword matching automatically. Returns only the best-matching sessions as {session_id, title, short snippet} — never full transcripts. Use a natural-language query and read the snippets; only call get_session afterwards if you truly need a specific session's metadata. This is the efficient way to recall past work.",
+            "description": "PREFER THIS. Token-cheap SEMANTIC search over the ClaudeStudio session archive: ranks past work by meaning (a local neural embedding), not just keywords, and falls back to keyword matching automatically. Covers BOTH what was said (conversation messages) AND what was done (tool calls — commands run, files edited, sub-agents launched — with their captured output). Returns only the best matches as {session_id, title, short snippet} — never full transcripts or raw tool output. Use a natural-language query and read the snippets; only call get_session afterwards if you truly need a specific session's metadata. This is the efficient way to recall past work.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

@@ -63,6 +63,31 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Upper bound on a stored tool output. Tool results (file reads, command logs)
+/// can be huge; we keep the archive useful without letting one result bloat the
+/// DB. This caps *storage* only — search never returns raw output regardless.
+const MAX_TOOL_OUTPUT: usize = 200_000;
+
+/// Clamp a possibly-huge string to [`MAX_TOOL_OUTPUT`] chars, marking truncation.
+fn clamp_output(s: &str) -> String {
+    if s.len() <= MAX_TOOL_OUTPUT {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(MAX_TOOL_OUTPUT).collect();
+    out.push_str("\n…[truncated]");
+    out
+}
+
+/// Build the text that represents a tool invocation for semantic embedding:
+/// the tool name, its input, and (if known) its output. Identical input is fed
+/// to the embedder for both the inline and backfill paths.
+fn tool_embed_text(tool_name: &str, input: &str, output: Option<&str>) -> String {
+    match output {
+        Some(o) => format!("{tool_name}\n{input}\n{o}"),
+        None => format!("{tool_name}\n{input}"),
+    }
+}
+
 /// Encode an embedding vector as little-endian f32 bytes for BLOB storage.
 fn encode_vec(v: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * 4);
@@ -215,6 +240,9 @@ pub struct NewToolCall {
     pub session_id: String,
     /// Optional message id this tool call is associated with.
     pub message_id: Option<String>,
+    /// The `claude` CLI's tool-use id, used to correlate a later tool result
+    /// (`ToolResult.id`) back to this row so its output can be filled in.
+    pub tool_use_id: Option<String>,
     /// Tool name, e.g. "Bash", "Edit".
     pub tool_name: String,
     /// Arbitrary JSON input passed to the tool.
@@ -238,6 +266,7 @@ impl NewToolCall {
         Self {
             session_id: session_id.into(),
             message_id: None,
+            tool_use_id: None,
             tool_name: tool_name.into(),
             input,
             output: None,
@@ -251,6 +280,13 @@ impl NewToolCall {
     pub fn with_output(mut self, output: serde_json::Value, success: bool) -> Self {
         self.output = Some(output);
         self.success = success;
+        self
+    }
+
+    /// Attach the `claude` tool-use id so a later result can be matched to it.
+    #[must_use]
+    pub fn with_tool_use_id(mut self, tool_use_id: impl Into<String>) -> Self {
+        self.tool_use_id = Some(tool_use_id.into());
         self
     }
 }
@@ -340,6 +376,9 @@ pub enum HitSource {
     Message,
     /// The hit came from a file diff.
     FileDiff,
+    /// The hit came from a tool invocation (what Claude *did* — command run,
+    /// file edited, sub-agent launched — together with the tool's output).
+    Tool,
 }
 
 /// A single full-text search result.
@@ -437,6 +476,7 @@ impl SessionStore {
                 id          TEXT PRIMARY KEY,
                 session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
                 message_id  TEXT,
+                tool_use_id TEXT,
                 tool_name   TEXT NOT NULL,
                 input       TEXT NOT NULL,
                 output      TEXT,
@@ -504,6 +544,16 @@ impl SessionStore {
         if !has_col {
             self.conn
                 .execute("ALTER TABLE sessions ADD COLUMN claude_session_id TEXT", [])?;
+        }
+        // Migration: add `tool_use_id` to tool_calls created before output
+        // capture existed, so a streamed tool result can be matched to its row.
+        let has_tuid = self
+            .conn
+            .prepare("SELECT 1 FROM pragma_table_info('tool_calls') WHERE name = 'tool_use_id'")?
+            .exists([])?;
+        if !has_tuid {
+            self.conn
+                .execute("ALTER TABLE tool_calls ADD COLUMN tool_use_id TEXT", [])?;
         }
         Ok(())
     }
@@ -639,12 +689,13 @@ impl SessionStore {
         };
         self.conn.execute(
             "INSERT INTO tool_calls
-                (id, session_id, message_id, tool_name, input, output, success, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (id, session_id, message_id, tool_use_id, tool_name, input, output, success, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 id,
                 t.session_id,
                 t.message_id,
+                t.tool_use_id,
                 t.tool_name,
                 input,
                 output,
@@ -719,6 +770,7 @@ impl SessionStore {
             let source: String = row.get(2)?;
             let source = match source.as_str() {
                 "file_diff" => HitSource::FileDiff,
+                "tool" => HitSource::Tool,
                 _ => HitSource::Message,
             };
             Ok(SearchHit {
@@ -755,6 +807,7 @@ impl SessionStore {
     ) -> Result<()> {
         let source = match source {
             HitSource::FileDiff => "file_diff",
+            HitSource::Tool => "tool",
             HitSource::Message => "message",
         };
         let blob = encode_vec(vector);
@@ -795,6 +848,7 @@ impl SessionStore {
             let source: String = row.get(2)?;
             let source = match source.as_str() {
                 "file_diff" => HitSource::FileDiff,
+                "tool" => HitSource::Tool,
                 _ => HitSource::Message,
             };
             let blob: Vec<u8> = row.get(4)?;
@@ -848,6 +902,83 @@ impl SessionStore {
                 owner_id: row.get(0)?,
                 session_id: row.get(1)?,
                 content: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
+    /// Fill in a tool call's output (and success flag) by matching the
+    /// `claude` tool-use id, capturing what the tool actually returned. Returns
+    /// the item to (re)embed for semantic search — the tool name, input and
+    /// output as one text — or `None` if no row matched (e.g. unknown id).
+    pub fn set_tool_output(
+        &self,
+        session_id: &str,
+        tool_use_id: &str,
+        output: &str,
+        success: bool,
+    ) -> Result<Option<UnembeddedItem>> {
+        let stored = clamp_output(output);
+        let changed = self.conn.execute(
+            "UPDATE tool_calls SET output = ?3, success = ?4
+             WHERE session_id = ?1 AND tool_use_id = ?2",
+            params![session_id, tool_use_id, stored, success as i64],
+        )?;
+        if changed == 0 {
+            return Ok(None);
+        }
+        // Re-read the row to assemble the embedding text (input + output).
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, tool_name, input, output FROM tool_calls
+                 WHERE session_id = ?1 AND tool_use_id = ?2",
+                params![session_id, tool_use_id],
+                |row| {
+                    let owner_id: String = row.get(0)?;
+                    let tool_name: String = row.get(1)?;
+                    let input: String = row.get(2)?;
+                    let output: Option<String> = row.get(3)?;
+                    Ok((owner_id, tool_name, input, output))
+                },
+            )
+            .optional()?;
+        Ok(
+            row.map(|(owner_id, tool_name, input, output)| UnembeddedItem {
+                owner_id,
+                session_id: session_id.to_string(),
+                content: tool_embed_text(&tool_name, &input, output.as_deref()),
+            }),
+        )
+    }
+
+    /// Tool calls that have no embedding yet for `model` (used to backfill the
+    /// semantic index — e.g. for runs recorded before tool-output capture, or
+    /// tool calls that never produced a result). Oldest first, at most `limit`.
+    pub fn unembedded_tool_calls(&self, model: &str, limit: i64) -> Result<Vec<UnembeddedItem>> {
+        let limit = limit.clamp(1, 10_000);
+        let mut stmt = self.conn.prepare(
+            "SELECT t.id, t.session_id, t.tool_name, t.input, t.output
+             FROM tool_calls t
+             LEFT JOIN embeddings e ON e.owner_id = t.id AND e.model = ?1
+             WHERE e.owner_id IS NULL
+             ORDER BY t.created_at ASC, t.rowid ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![model, limit], |row| {
+            let owner_id: String = row.get(0)?;
+            let session_id: String = row.get(1)?;
+            let tool_name: String = row.get(2)?;
+            let input: String = row.get(3)?;
+            let output: Option<String> = row.get(4)?;
+            Ok(UnembeddedItem {
+                owner_id,
+                session_id,
+                content: tool_embed_text(&tool_name, &input, output.as_deref()),
             })
         })?;
         let mut out = Vec::new();
@@ -1069,5 +1200,57 @@ mod tests {
         let pending = store.unembedded_messages("m", 10).unwrap();
         assert_eq!(pending.len(), 1, "only the un-embedded message remains");
         assert_eq!(pending[0].content, "two");
+    }
+
+    #[test]
+    fn tool_output_capture_and_tool_embedding() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let sid = store
+            .insert_session(&NewSession::new("Tools", "/repo"))
+            .unwrap();
+        let tid = store
+            .append_tool_call(
+                &NewToolCall::new(&sid, "Bash", serde_json::json!({"command": "cargo test"}))
+                    .with_tool_use_id("toolu_1"),
+            )
+            .unwrap();
+
+        // Before its result arrives it's an un-embedded tool call.
+        assert_eq!(store.unembedded_tool_calls("m", 10).unwrap().len(), 1);
+
+        // Capturing the output matches by tool-use id and yields embed text.
+        let item = store
+            .set_tool_output(&sid, "toolu_1", "115 passed; 0 failed", true)
+            .unwrap()
+            .expect("row matched");
+        assert_eq!(item.owner_id, tid);
+        assert!(item.content.contains("Bash") && item.content.contains("115 passed"));
+
+        // An unknown tool-use id updates nothing.
+        assert!(store
+            .set_tool_output(&sid, "nope", "x", true)
+            .unwrap()
+            .is_none());
+
+        // Once embedded it's a Tool-source hit and stops being "unembedded".
+        store
+            .upsert_embedding(
+                &item.owner_id,
+                &item.session_id,
+                HitSource::Tool,
+                "Bash: cargo test → 115 passed",
+                "m",
+                &[1.0, 0.0, 0.0],
+                1,
+            )
+            .unwrap();
+        assert!(store.unembedded_tool_calls("m", 10).unwrap().is_empty());
+        let hits = store.vector_search(&[1.0, 0.0, 0.0], "m", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].source, HitSource::Tool);
+        assert!(
+            hits[0].snippet.len() < 200,
+            "search returns a short snippet, not raw output"
+        );
     }
 }

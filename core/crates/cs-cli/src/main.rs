@@ -393,8 +393,12 @@ fn spawn_claude_forwarder(
                 StreamEvent::AssistantText(text) => {
                     router.record_message(&session_id, "assistant", text)
                 }
-                StreamEvent::ToolUse { name, input, .. } => {
-                    router.record_tool_call(&session_id, name, input.clone())
+                StreamEvent::ToolUse { id, name, input } => {
+                    router.record_tool_call(&session_id, id.as_deref(), name, input.clone())
+                }
+                StreamEvent::ToolResult { id, content } => {
+                    // Capture what the tool returned, matched to its call by id.
+                    router.record_tool_result(&session_id, id.as_deref(), content, true)
                 }
                 StreamEvent::ClaudeSessionId(claude_sid) => {
                     // Persist the CLI's session id so the archive can resume it.
@@ -416,6 +420,15 @@ fn spawn_claude_forwarder(
 
         router.record_run_event(&session_id, "completed");
         router.clear_cancel(&session_id);
+        // Embed this run's freshly captured tool calls (and any missed messages)
+        // into the semantic index, off the streaming path so it never adds
+        // latency to the live turn.
+        {
+            let router = router.clone();
+            tokio::task::spawn_blocking(move || {
+                router.backfill_embeddings(10_000);
+            });
+        }
         let done = new_event(
             "session.event",
             serde_json::json!({ "session_id": session_id, "event": { "kind": "done" } }),

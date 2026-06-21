@@ -447,16 +447,31 @@ impl Router {
         );
     }
 
-    /// Embed transcript messages that still lack a vector for the active model
-    /// (e.g. recorded before the neural model loaded). Returns how many were
-    /// embedded. Idempotent — safe to call repeatedly.
+    /// Embed transcript items that still lack a vector for the active model —
+    /// both messages (what was *said*) and tool calls (what Claude *did*, with
+    /// their captured output). Returns how many were embedded. Idempotent.
     pub fn backfill_embeddings(&self, max_items: i64) -> usize {
         let (embedder, tag) = self.current_embedder();
+        self.backfill_kind(&*embedder, &tag, HitSource::Message, max_items)
+            + self.backfill_kind(&*embedder, &tag, HitSource::Tool, max_items)
+    }
+
+    /// Embed all un-embedded items of one kind. Pending rows are fetched under
+    /// the lock; each embed (the slow neural pass) runs outside it.
+    fn backfill_kind(
+        &self,
+        embedder: &dyn Embedder,
+        tag: &str,
+        source: HitSource,
+        max_items: i64,
+    ) -> usize {
         let pending = {
             let store = self.inner.sessions.lock().unwrap();
-            store
-                .unembedded_messages(&tag, max_items)
-                .unwrap_or_default()
+            let res = match source {
+                HitSource::Tool => store.unembedded_tool_calls(tag, max_items),
+                _ => store.unembedded_messages(tag, max_items),
+            };
+            res.unwrap_or_default()
         };
         let mut count = 0;
         for item in pending {
@@ -467,9 +482,9 @@ impl Router {
                 .upsert_embedding(
                     &item.owner_id,
                     &item.session_id,
-                    HitSource::Message,
+                    source,
                     &snippet,
-                    &tag,
+                    tag,
                     &vector,
                     now_millis(),
                 )
@@ -481,10 +496,37 @@ impl Router {
         count
     }
 
-    /// Append a tool-call record (best-effort).
-    pub fn record_tool_call(&self, session_id: &str, tool: &str, input: Value) {
+    /// Append a tool-call record (best-effort), tagged with the `claude`
+    /// tool-use id so its output can be matched in when the result streams back.
+    /// Embedding happens later in the post-run backfill, off the hot path.
+    pub fn record_tool_call(
+        &self,
+        session_id: &str,
+        tool_use_id: Option<&str>,
+        tool: &str,
+        input: Value,
+    ) {
+        let mut call = NewToolCall::new(session_id, tool, input);
+        if let Some(tuid) = tool_use_id {
+            call = call.with_tool_use_id(tuid);
+        }
         let store = self.inner.sessions.lock().unwrap();
-        let _ = store.append_tool_call(&NewToolCall::new(session_id, tool, input));
+        let _ = store.append_tool_call(&call);
+    }
+
+    /// Capture a tool's output, matched to its call by the `claude` tool-use id.
+    /// The full output is stored for the archive; it becomes semantically
+    /// searchable (as a short snippet) via the backfill. Best-effort.
+    pub fn record_tool_result(
+        &self,
+        session_id: &str,
+        tool_use_id: Option<&str>,
+        output: &str,
+        success: bool,
+    ) {
+        let Some(tuid) = tool_use_id else { return };
+        let store = self.inner.sessions.lock().unwrap();
+        let _ = store.set_tool_output(session_id, tuid, output, success);
     }
 
     /// Append a lifecycle event (best-effort).
