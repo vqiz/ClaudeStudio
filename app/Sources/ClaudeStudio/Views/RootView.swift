@@ -61,6 +61,7 @@ struct RootView: View {
         }
         ToolbarItemGroup(placement: .primaryAction) {
             VoiceMicIndicator()
+            TitleBarMicMeter()
             TrustModeMenu()
         }
     }
@@ -141,6 +142,19 @@ struct TrustModeMenu: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Change trust mode")
+    }
+}
+
+/// A compact mic-input meter shown beside the title-bar mic while a hands-free
+/// conversation is active, so you can see at a glance whether audio is arriving.
+struct TitleBarMicMeter: View {
+    @Environment(AppState.self) private var appState
+    var body: some View {
+        if appState.voice.conversationActive {
+            MicLevelMeter(level: appState.voice.inputLevel, segments: 10)
+                .frame(width: 54, height: 12)
+                .help("Microphone input level — should move when you speak")
+        }
     }
 }
 

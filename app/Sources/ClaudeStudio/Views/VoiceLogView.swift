@@ -55,6 +55,18 @@ struct VoiceLogView: View {
                 .font(.headline)
                 .foregroundStyle(stateColor)
 
+            if voice.sttAvailable {
+                VStack(spacing: 5) {
+                    MicLevelMeter(level: voice.inputLevel)
+                        .frame(width: 260, height: 20)
+                    Text(voice.conversationActive
+                         ? "Mic input — these bars move when audio is coming in"
+                         : "Start a conversation, then watch this while you speak")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 2)
+            }
+
             if voice.state == .listening {
                 Text(voice.partialTranscript.isEmpty ? "Listening… just speak; I'll detect when you're done." : voice.partialTranscript)
                     .font(.callout)
@@ -166,5 +178,30 @@ struct VoiceLogView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+}
+
+/// A horizontal microphone-input level meter. Bars light up green→yellow→red as
+/// the live input level rises, so you can see whether audio is reaching the app.
+struct MicLevelMeter: View {
+    /// Input level in `0…1`.
+    let level: Float
+    var segments: Int = 24
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<segments, id: \.self) { i in
+                let threshold = Float(i + 1) / Float(segments)
+                RoundedRectangle(cornerRadius: 1.5)
+                    .fill(level >= threshold ? color(threshold) : Color.secondary.opacity(0.16))
+            }
+        }
+        .animation(.linear(duration: 0.05), value: level)
+        .accessibilityLabel("Microphone input level")
+        .accessibilityValue("\(Int(level * 100)) percent")
+    }
+
+    private func color(_ t: Float) -> Color {
+        t < 0.6 ? .green : (t < 0.85 ? .yellow : .red)
     }
 }

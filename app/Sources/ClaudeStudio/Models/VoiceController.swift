@@ -64,6 +64,10 @@ final class VoiceController: NSObject {
     private(set) var spokenLog: [String] = []
     /// True once the user denied microphone / speech permission.
     private(set) var authorizationDenied = false
+    /// Live microphone input level (0…1), measured straight off the audio tap —
+    /// independent of speech recognition. Drives the level meter so you can see
+    /// whether any audio is actually arriving.
+    private(set) var inputLevel: Float = 0
 
     var isSpeaking: Bool { synthesizer.isSpeaking }
     var isListening: Bool { state == .listening }
@@ -158,9 +162,6 @@ final class VoiceController: NSObject {
         audioEngine.stop()
         let input = audioEngine.inputNode
         input.removeTap(onBus: 0)
-        // Voice processing gives acoustic echo cancellation + noise suppression
-        // so the mic is less likely to hear Claude's own speech. Best-effort.
-        try? input.setVoiceProcessingEnabled(true)
 
         // A 0 sample-rate / 0-channel format means the mic isn't ready; calling
         // installTap with it throws an uncatchable Obj-C exception, so validate.
@@ -168,7 +169,10 @@ final class VoiceController: NSObject {
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw VoiceError.microphoneUnavailable
         }
-        installMicTap(on: input, format: format, forwardingTo: requestBox)
+        // Feed the recognizer AND report the live input level for the meter.
+        installMicTap(on: input, format: format, forwardingTo: requestBox) { [weak self] level in
+            Task { @MainActor in self?.updateLevel(level) }
+        }
         audioEngine.prepare()
         try audioEngine.start()
         engineRunning = true
@@ -179,8 +183,14 @@ final class VoiceController: NSObject {
             audioEngine.stop()
             audioEngine.inputNode.removeTap(onBus: 0)
         }
-        try? audioEngine.inputNode.setVoiceProcessingEnabled(false)
         engineRunning = false
+        inputLevel = 0
+    }
+
+    /// Smooth the raw RMS level for a readable meter: snap up on attack, ease
+    /// down on release.
+    private func updateLevel(_ raw: Float) {
+        inputLevel = raw > inputLevel ? raw : (inputLevel * 0.82 + raw * 0.18)
     }
 
     // MARK: - Recognition windows (one per turn; the engine stays up)
@@ -408,10 +418,30 @@ extension VoiceController: AVSpeechSynthesizerDelegate {
 // an isolated closure would trap (dispatch_assert_queue) off the main actor.
 
 private func installMicTap(on input: AVAudioInputNode, format: AVAudioFormat,
-                           forwardingTo box: RecognitionRequestBox) {
+                           forwardingTo box: RecognitionRequestBox,
+                           onLevel: @escaping @Sendable (Float) -> Void) {
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
         box.append(buffer)
+        onLevel(micLevel(of: buffer))
     }
+}
+
+/// RMS amplitude of a buffer, scaled to roughly 0…1 for display (speech RMS is
+/// small). Cheap enough to run on the realtime audio thread.
+private func micLevel(of buffer: AVAudioPCMBuffer) -> Float {
+    guard let channel = buffer.floatChannelData else { return 0 }
+    let n = Int(buffer.frameLength)
+    guard n > 0 else { return 0 }
+    let samples = channel[0]
+    var sum: Float = 0
+    var i = 0
+    while i < n {
+        let s = samples[i]
+        sum += s * s
+        i += 1
+    }
+    let rms = (sum / Float(n)).squareRoot()
+    return min(1, rms * 12)
 }
 
 private func startRecognition(_ recognizer: SFSpeechRecognizer?,
