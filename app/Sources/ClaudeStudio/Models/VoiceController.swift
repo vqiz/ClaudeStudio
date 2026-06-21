@@ -79,6 +79,20 @@ final class VoiceController: NSObject {
                 try beginCapture()
                 partialTranscript = ""
                 state = .listening
+            } catch VoiceError.microphoneUnavailable {
+                // The audio HAL is often not ready in the same instant the user
+                // grants permission. Tear down and retry once after a beat
+                // instead of failing the first click.
+                teardownCapture()
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                do {
+                    try beginCapture()
+                    partialTranscript = ""
+                    state = .listening
+                } catch {
+                    teardownCapture()
+                    state = .idle
+                }
             } catch {
                 teardownCapture()
                 state = .idle
@@ -105,6 +119,9 @@ final class VoiceController: NSObject {
         if state == .listening { stopListening() } else { startListening() }
     }
 
+    /// Failure modes that beginCapture can surface without crashing.
+    enum VoiceError: Error { case microphoneUnavailable }
+
     private func beginCapture() throws {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
@@ -114,9 +131,22 @@ final class VoiceController: NSObject {
         }
         self.request = request
 
+        // Start from a clean graph so a stale tap / format can't linger.
+        audioEngine.stop()
         let input = audioEngine.inputNode
-        let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
+
+        // Use the input node's *native* format. When the mic isn't actually
+        // usable yet — no input device, or permission hasn't propagated to the
+        // audio HAL right after the user granted it — that format has a 0
+        // sample-rate / 0 channels. Calling `installTap` with such a format
+        // throws an Objective-C exception that `try` CANNOT catch and HARD-
+        // CRASHES the app (this was the voice crash). Validate first and fail
+        // gracefully instead.
+        let format = input.inputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw VoiceError.microphoneUnavailable
+        }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak request] buffer, _ in
             request?.append(buffer)
         }

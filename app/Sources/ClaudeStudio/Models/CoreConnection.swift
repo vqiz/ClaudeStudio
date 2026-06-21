@@ -667,6 +667,19 @@ final class CoreConnection {
                       origin: String = "session", resume: String? = nil,
                       append: Bool = false) async {
         guard isConnected, let client else { return }
+        // "Ultra" effort isn't a CLI level: it runs at the maximum (`--effort
+        // max`) AND injects an ultrathink directive into the prompt for the
+        // deepest reasoning. Every other level passes through unchanged. The
+        // visible transcript keeps the user's original prompt; only the wire
+        // copy carries the directive.
+        var wireEffort = effort
+        var wirePrompt = prompt
+        if let effort, let option = EffortOption(rawValue: effort) {
+            wireEffort = option.cliValue
+            if let directive = option.promptDirective {
+                wirePrompt = "\(prompt)\n\n\(directive)"
+            }
+        }
         let resumeId = resume ?? (append ? liveClaudeSessionId : nil)
         streamingIndex = nil
         if append {
@@ -679,8 +692,8 @@ final class CoreConnection {
         }
         liveRunOrigin = origin
         runningSessionId = nil
-        if let id = try? await client.startSession(prompt: prompt, cwd: cwd, model: model,
-                                                   systemPrompt: systemPrompt, effort: effort,
+        if let id = try? await client.startSession(prompt: wirePrompt, cwd: cwd, model: model,
+                                                   systemPrompt: systemPrompt, effort: wireEffort,
                                                    resume: resumeId), !id.isEmpty {
             runningSessionId = id
         }

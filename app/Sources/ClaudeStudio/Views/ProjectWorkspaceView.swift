@@ -413,6 +413,7 @@ private struct SessionLibrarySidebar: View {
                     ForEach(skills) { skill in
                         applyRow(title: "/\(skill.command)", subtitle: skill.description,
                                  accent: skill.scope == "project" ? .brandCoral : .brandIndigo,
+                                 info: skill.description,
                                  onTap: { onInsertSkill(skill.command) }, onRun: { onRunSkill(skill.command) })
                     }
                 }
@@ -456,6 +457,7 @@ private struct SessionLibrarySidebar: View {
     }
 
     private func applyRow(title: String, subtitle: String, accent: Color,
+                          info: String? = nil,
                           onTap: @escaping () -> Void, onRun: @escaping () -> Void) -> some View {
         HStack(spacing: 6) {
             Button(action: onTap) {
@@ -469,6 +471,9 @@ private struct SessionLibrarySidebar: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if let info {
+                InfoPopoverButton(title: title, explanation: info)
+            }
             Button(action: onRun) { Image(systemName: "play.circle.fill").foregroundStyle(accent) }
                 .buttonStyle(.plain)
                 .disabled(appState.core.runningSessionId != nil)
@@ -501,6 +506,36 @@ private struct SessionLibrarySidebar: View {
         }
         .buttonStyle(.plain)
         .help(applied ? "Applied as context — click to remove" : "Apply this definition as context")
+    }
+}
+
+/// A small ⓘ button that reveals a short explanation in a popover. Used next to
+/// each skill so the user can read what it does without running it.
+private struct InfoPopoverButton: View {
+    let title: String
+    let explanation: String
+    @State private var show = false
+
+    var body: some View {
+        Button { show.toggle() } label: {
+            Image(systemName: "info.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("What this skill does")
+        .popover(isPresented: $show, arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.caption.weight(.bold))
+                Text(explanation.isEmpty ? "No description provided for this skill." : explanation)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+            .frame(width: 260)
+        }
     }
 }
 

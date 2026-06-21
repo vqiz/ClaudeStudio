@@ -123,9 +123,12 @@ enum ModelTierOption: String, CaseIterable, Identifiable {
     var short: String { rawValue.capitalized }
 }
 
-/// The reasoning-effort levels the `claude` CLI accepts (`--effort`).
+/// The reasoning-effort levels offered in the UI. `low…max` map 1:1 to the
+/// `claude` CLI's `--effort`; `ultra` is a ClaudeStudio addition that runs at
+/// the CLI maximum **and** injects an ultrathink directive for the deepest
+/// reasoning (see ``cliValue`` / ``promptDirective``).
 enum EffortOption: String, CaseIterable, Identifiable {
-    case low, medium, high, xhigh, max
+    case low, medium, high, xhigh, max, ultra
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -134,12 +137,22 @@ enum EffortOption: String, CaseIterable, Identifiable {
         case .high: return "High · deeper"
         case .xhigh: return "X-High · harder"
         case .max: return "Max · exhaustive"
+        case .ultra: return "Ultra · deepest (max + ultrathink)"
         }
     }
     var short: String {
         switch self {
         case .xhigh: return "X-High"
+        case .ultra: return "Ultra"
         default: return rawValue.capitalized
         }
     }
+
+    /// The value sent to `claude --effort`. `ultra` has no CLI level of its own,
+    /// so it runs at `max`.
+    var cliValue: String { self == .ultra ? "max" : rawValue }
+
+    /// A directive appended to the prompt for this level (only `ultra`), giving
+    /// the model an explicit cue to reason as deeply as possible.
+    var promptDirective: String? { self == .ultra ? "ultrathink" : nil }
 }
