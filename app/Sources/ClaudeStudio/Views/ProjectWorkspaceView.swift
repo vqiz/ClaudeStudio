@@ -204,6 +204,9 @@ private struct ProjectSessionTab: View {
                 ModelEffortBar(project: project)
                 Divider()
                 LiveTranscriptView()
+                if appState.core.runningSessionId != nil {
+                    RunningStatusBar(effort: project.effort)
+                }
                 if !appliedDefs.isEmpty { appliedBar }
                 Divider()
                 composer
@@ -605,6 +608,9 @@ private struct ProjectAgentsTab: View {
             LiveAgentsPanel()
             Divider()
             LiveTranscriptView()
+            if appState.core.runningSessionId != nil {
+                RunningStatusBar(effort: project.effort)
+            }
             Divider()
             HStack(spacing: 8) {
                 TextField("Give Claude a task — it spawns the sub-agents it needs…",
@@ -759,6 +765,40 @@ struct LiveAgentsPanel: View {
             .padding(.horizontal, 7).padding(.vertical, 2)
             .background(color.opacity(0.16), in: Capsule())
             .foregroundStyle(color)
+    }
+}
+
+/// A CLI-style "working" status bar: a spinner, a rotating verb, the elapsed
+/// time, and the current reasoning effort — shown while a run is in flight.
+struct RunningStatusBar: View {
+    var effort: String?
+
+    @State private var elapsed = 0
+    @State private var verbIndex = 0
+    private let verbs = ["Thinking", "Pondering", "Working", "Cooking",
+                         "Crunching", "Reasoning", "Synthesizing", "Almost done"]
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text("\(verbs[verbIndex % verbs.count])…")
+                .font(.callout.weight(.semibold)).foregroundStyle(.brandRich)
+            Text("·").foregroundStyle(.tertiary)
+            Text("\(elapsed)s").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            if let effort, !effort.isEmpty {
+                Text("· \(effort) effort").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Text("Stop to interrupt").font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .frame(maxWidth: .infinity)
+        .background(.bar)
+        .onReceive(tick) { _ in
+            elapsed += 1
+            if elapsed.isMultiple(of: 4) { verbIndex += 1 }
+        }
     }
 }
 

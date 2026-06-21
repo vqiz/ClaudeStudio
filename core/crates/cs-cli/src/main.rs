@@ -293,6 +293,9 @@ fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
         StreamEvent::AssistantText(text) => {
             serde_json::json!({ "kind": "assistant_text", "text": text })
         }
+        StreamEvent::AssistantDelta(text) => {
+            serde_json::json!({ "kind": "assistant_delta", "text": text })
+        }
         StreamEvent::ToolUse { id, name, input } => {
             serde_json::json!({ "kind": "tool_use", "id": id, "name": name, "input": input })
         }

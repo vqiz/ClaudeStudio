@@ -20,7 +20,9 @@ struct LiveSessionEvent: Identifiable, Sendable {
     /// `user`, `assistant_text`, `tool_use`, `tool_result`, `result`, or `error`.
     let kind: String
     /// The primary line (assistant prose, the user's prompt, or a tool name).
-    let text: String
+    /// `var` so streamed assistant deltas can be appended in place (stable id →
+    /// smooth incremental rendering).
+    var text: String
     /// Secondary monospaced line — the command / file / arguments of a tool call.
     let detail: String?
 
@@ -106,6 +108,9 @@ final class CoreConnection {
     private(set) var liveClaudeSessionId: String?
     /// Sub-agents Claude has spawned in the current session (live), newest last.
     private(set) var liveAgents: [LiveAgent] = []
+    /// Index in ``liveSession`` of the assistant reply currently being streamed
+    /// (token deltas append to it), or nil when not mid-reply.
+    private var streamingIndex: Int?
 
     // MARK: Per-project prefetch caches
     //
@@ -513,6 +518,7 @@ final class CoreConnection {
         worktreesByCwd = [:]
         fileByPath = [:]
         liveClaudeSessionId = nil
+        streamingIndex = nil
         if status != .offline { status = .offline }
     }
 
@@ -541,23 +547,45 @@ final class CoreConnection {
                   let kind = event["kind"]?.stringValue else { return }
             switch kind {
             case "done":
+                streamingIndex = nil
                 finishLiveAgents(.done)
                 runningSessionId = nil
+            case "assistant_delta":
+                // A streamed token chunk — append to the current reply in place.
+                let chunk = event["text"]?.stringValue ?? ""
+                if let idx = streamingIndex, idx < liveSession.count {
+                    liveSession[idx].text += chunk
+                } else {
+                    liveSession.append(LiveSessionEvent(kind: "assistant_text", text: chunk))
+                    streamingIndex = liveSession.count - 1
+                }
             case "assistant_text":
-                liveSession.append(LiveSessionEvent(kind: kind, text: event["text"]?.stringValue ?? ""))
+                // The authoritative full block — finalize the streamed reply.
+                let full = event["text"]?.stringValue ?? ""
+                if let idx = streamingIndex, idx < liveSession.count {
+                    liveSession[idx].text = full
+                    streamingIndex = nil
+                } else {
+                    liveSession.append(LiveSessionEvent(kind: kind, text: full))
+                }
             case "tool_use":
+                streamingIndex = nil
                 let name = event["name"]?.stringValue ?? "tool"
                 liveSession.append(LiveSessionEvent(
                     kind: kind, text: name,
                     detail: Self.toolDetail(name: name, input: event["input"])))
                 trackAgentLaunch(id: event["id"]?.stringValue, name: name, input: event["input"])
             case "tool_result":
+                streamingIndex = nil
                 let content = event["content"]?.stringValue ?? ""
                 liveSession.append(LiveSessionEvent(kind: kind, text: Self.truncate(content, 600)))
                 markAgentDone(id: event["id"]?.stringValue, content: content)
             case "result":
+                streamingIndex = nil
                 let cost = event["cost_usd"]?.doubleValue ?? 0
-                liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
+                if cost > 0 {
+                    liveSession.append(LiveSessionEvent(kind: kind, text: String(format: "completed · $%.4f", cost)))
+                }
                 finishLiveAgents(.done)
                 runningSessionId = nil
             case "claude_session":
@@ -565,10 +593,12 @@ final class CoreConnection {
                     liveClaudeSessionId = sid
                 }
             case "stopped":
+                streamingIndex = nil
                 liveSession.append(LiveSessionEvent(kind: "error", text: "Stopped by you."))
                 finishLiveAgents(.stopped)
                 runningSessionId = nil
             case "error":
+                streamingIndex = nil
                 liveSession.append(LiveSessionEvent(kind: kind, text: event["message"]?.stringValue ?? "error"))
                 finishLiveAgents(.done)
                 runningSessionId = nil
@@ -621,6 +651,7 @@ final class CoreConnection {
                       append: Bool = false) async {
         guard isConnected, let client else { return }
         let resumeId = resume ?? (append ? liveClaudeSessionId : nil)
+        streamingIndex = nil
         if append {
             liveSession.append(LiveSessionEvent(kind: "user", text: prompt))
         } else {
@@ -646,6 +677,7 @@ final class CoreConnection {
         liveAgents = []
         liveClaudeSessionId = nil
         liveRunOrigin = nil
+        streamingIndex = nil
     }
 
     /// Pre-load an archived conversation so it can be continued: show its
@@ -655,6 +687,7 @@ final class CoreConnection {
         liveAgents = []
         liveClaudeSessionId = claudeSessionId
         liveRunOrigin = "session"
+        streamingIndex = nil
     }
 
     /// Stop the running live session (kills the `claude` process via the core).

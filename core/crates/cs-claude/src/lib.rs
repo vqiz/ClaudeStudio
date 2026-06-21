@@ -87,6 +87,9 @@ pub fn build_args(
         // ("requires --verbose"); without it the run errors out and emits no
         // stdout, so the UI would show an empty transcript.
         "--verbose".to_string(),
+        // Stream assistant text token-by-token (content_block_delta) so the UI
+        // can render the reply incrementally, like the CLI.
+        "--include-partial-messages".to_string(),
     ];
     // Continue a previous conversation with full context.
     if let Some(id) = resume {
@@ -179,18 +182,68 @@ fn prepare_database_mcp() -> Option<(String, Vec<String>)> {
         }
     });
     std::fs::write(&config_path, serde_json::to_string_pretty(&config).ok()?).ok()?;
-    let tools = DB_TOOL_NAMES
-        .iter()
-        .map(|t| format!("mcp__claudestudio__{t}"))
-        .collect();
+    // Make sure every Claude agent (and sub-agent) is *told* to use the DB, via
+    // the global CLAUDE.md memory that all of them load.
+    ensure_db_memory(&home);
+    // Pre-approve the whole `claudestudio` MCP server (server-level allow) plus
+    // each tool by name, so no agent or sub-agent is ever permission-blocked.
+    let mut tools = vec!["mcp__claudestudio".to_string()];
+    tools.extend(
+        DB_TOOL_NAMES
+            .iter()
+            .map(|t| format!("mcp__claudestudio__{t}")),
+    );
     Some((config_path.to_string_lossy().to_string(), tools))
+}
+
+/// Markers around the ClaudeStudio-managed block in `~/.claude/CLAUDE.md`.
+const DB_MEMORY_START: &str = "<!-- ClaudeStudio:db-access START -->";
+const DB_MEMORY_END: &str = "<!-- ClaudeStudio:db-access END -->";
+
+/// Ensure the global user memory (`~/.claude/CLAUDE.md`, loaded by *every* Claude
+/// agent and sub-agent) contains a managed block instructing them to use the
+/// ClaudeStudio session-database MCP tools. Idempotent and non-destructive: it
+/// only touches its own marked block, leaving the rest of the file untouched.
+fn ensure_db_memory(home: &str) {
+    let dir = std::path::Path::new(home).join(".claude");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("CLAUDE.md");
+    let block = format!(
+        "{DB_MEMORY_START}\n## ClaudeStudio session database (always available)\n\n\
+         You — and every sub-agent you spawn via the Task tool — have read access to \
+         the ClaudeStudio session database through the `claudestudio` MCP server, which \
+         spans ALL of the user's ClaudeStudio projects. Whenever a request touches past \
+         sessions, history, cost, decisions, or cross-project context, use its tools \
+         (mcp__claudestudio__list_sessions, mcp__claudestudio__get_session, \
+         mcp__claudestudio__search_sessions, mcp__claudestudio__session_stats) instead of \
+         guessing. If asked whether you can access the database, the answer is yes.\n\
+         {DB_MEMORY_END}"
+    );
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let updated = match (existing.find(DB_MEMORY_START), existing.find(DB_MEMORY_END)) {
+        (Some(s), Some(e)) if e >= s => {
+            let mut c = existing.clone();
+            c.replace_range(s..e + DB_MEMORY_END.len(), &block);
+            c
+        }
+        _ if existing.trim().is_empty() => format!("{block}\n"),
+        _ => format!("{}\n\n{block}\n", existing.trim_end()),
+    };
+    if updated != existing {
+        let _ = std::fs::write(&path, updated);
+    }
 }
 
 /// A single parsed event from the `claude --output-format stream-json` stream.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum StreamEvent {
-    /// Assistant produced some text.
+    /// Assistant produced some text (a complete message block).
     AssistantText(String),
+    /// An incremental chunk of the assistant's text, streamed as it's produced
+    /// (`--include-partial-messages`). The UI appends these to the current reply.
+    AssistantDelta(String),
     /// The assistant requested a tool call.
     ToolUse {
         /// The tool-call id (matches a later `ToolResult.id`), if present.
@@ -251,6 +304,29 @@ pub fn parse_stream_line(line: &str) -> Vec<StreamEvent> {
     };
 
     match value.get("type").and_then(|t| t.as_str()) {
+        // Token-level streaming: a text delta of the assistant's current reply.
+        // Only the top-level agent's deltas (no parent_tool_use_id) are streamed
+        // into the main transcript; sub-agent internals are shown separately.
+        Some("stream_event") => {
+            let is_subagent = value
+                .get("parent_tool_use_id")
+                .map(|p| !p.is_null())
+                .unwrap_or(false);
+            if is_subagent {
+                return Vec::new();
+            }
+            let delta_text = value
+                .get("event")
+                .filter(|e| e.get("type").and_then(|t| t.as_str()) == Some("content_block_delta"))
+                .and_then(|e| e.get("delta"))
+                .filter(|d| d.get("type").and_then(|t| t.as_str()) == Some("text_delta"))
+                .and_then(|d| d.get("text"))
+                .and_then(|t| t.as_str());
+            match delta_text {
+                Some(t) if !t.is_empty() => vec![StreamEvent::AssistantDelta(t.to_string())],
+                _ => Vec::new(),
+            }
+        }
         // The `system`/`init` line carries the CLI's session id (for --resume).
         Some("system") => value
             .get("session_id")
@@ -665,6 +741,24 @@ mod tests {
             Some("  "),
         );
         assert!(!none.contains(&"--resume".to_string()));
+    }
+
+    #[test]
+    fn parse_stream_event_yields_text_delta() {
+        let line = r#"{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Hel"}}}"#;
+        assert_eq!(
+            parse_stream_line(line),
+            vec![StreamEvent::AssistantDelta("Hel".to_string())]
+        );
+        // Sub-agent deltas (with a parent tool-use id) are not streamed to the main view.
+        let sub = r#"{"type":"stream_event","parent_tool_use_id":"toolu_1","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"x"}}}"#;
+        assert!(parse_stream_line(sub).is_empty());
+    }
+
+    #[test]
+    fn build_args_includes_partial_messages() {
+        let args = build_args(ModelTier::Sonnet, "hi", None, None, &[], None, None);
+        assert!(args.contains(&"--include-partial-messages".to_string()));
     }
 
     #[test]
