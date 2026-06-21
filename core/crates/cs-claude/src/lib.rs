@@ -182,11 +182,10 @@ fn prepare_database_mcp() -> Option<(String, Vec<String>)> {
         }
     });
     std::fs::write(&config_path, serde_json::to_string_pretty(&config).ok()?).ok()?;
-    // Make sure every Claude agent (and sub-agent) is *told* to use the DB, via
-    // the global CLAUDE.md memory that all of them load.
-    ensure_db_memory(&home);
     // Pre-approve the whole `claudestudio` MCP server (server-level allow) plus
     // each tool by name, so no agent or sub-agent is ever permission-blocked.
+    // (The server is only *registered* for this run via `--mcp-config`, so a
+    // plain `claude` you run in a terminal never sees it.)
     let mut tools = vec!["mcp__claudestudio".to_string()];
     tools.extend(
         DB_TOOL_NAMES
@@ -194,46 +193,6 @@ fn prepare_database_mcp() -> Option<(String, Vec<String>)> {
             .map(|t| format!("mcp__claudestudio__{t}")),
     );
     Some((config_path.to_string_lossy().to_string(), tools))
-}
-
-/// Markers around the ClaudeStudio-managed block in `~/.claude/CLAUDE.md`.
-const DB_MEMORY_START: &str = "<!-- ClaudeStudio:db-access START -->";
-const DB_MEMORY_END: &str = "<!-- ClaudeStudio:db-access END -->";
-
-/// Ensure the global user memory (`~/.claude/CLAUDE.md`, loaded by *every* Claude
-/// agent and sub-agent) contains a managed block instructing them to use the
-/// ClaudeStudio session-database MCP tools. Idempotent and non-destructive: it
-/// only touches its own marked block, leaving the rest of the file untouched.
-fn ensure_db_memory(home: &str) {
-    let dir = std::path::Path::new(home).join(".claude");
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let path = dir.join("CLAUDE.md");
-    let block = format!(
-        "{DB_MEMORY_START}\n## ClaudeStudio session database (always available)\n\n\
-         You — and every sub-agent you spawn via the Task tool — have read access to \
-         the ClaudeStudio session database through the `claudestudio` MCP server, which \
-         spans ALL of the user's ClaudeStudio projects. Whenever a request touches past \
-         sessions, history, cost, decisions, or cross-project context, use its tools \
-         (mcp__claudestudio__list_sessions, mcp__claudestudio__get_session, \
-         mcp__claudestudio__search_sessions, mcp__claudestudio__session_stats) instead of \
-         guessing. If asked whether you can access the database, the answer is yes.\n\
-         {DB_MEMORY_END}"
-    );
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let updated = match (existing.find(DB_MEMORY_START), existing.find(DB_MEMORY_END)) {
-        (Some(s), Some(e)) if e >= s => {
-            let mut c = existing.clone();
-            c.replace_range(s..e + DB_MEMORY_END.len(), &block);
-            c
-        }
-        _ if existing.trim().is_empty() => format!("{block}\n"),
-        _ => format!("{}\n\n{block}\n", existing.trim_end()),
-    };
-    if updated != existing {
-        let _ = std::fs::write(&path, updated);
-    }
 }
 
 /// A single parsed event from the `claude --output-format stream-json` stream.
