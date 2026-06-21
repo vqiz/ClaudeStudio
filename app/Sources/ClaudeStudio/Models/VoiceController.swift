@@ -147,30 +147,24 @@ final class VoiceController: NSObject {
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw VoiceError.microphoneUnavailable
         }
-        // The tap block runs on a realtime audio thread and the recognition
-        // handler on an arbitrary queue. Both inherit the class's @MainActor
-        // isolation by default, so the macOS 26 Swift runtime traps
-        // (dispatch_assert_queue) when they fire off the main actor — this was
-        // the voice crash. Make them @Sendable (non-isolated) and only touch
-        // actor state by hopping to the main actor.
-        nonisolated(unsafe) let sink = request // append() is safe off-main
-        let tapBlock: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = { buffer, _ in
-            sink.append(buffer)
-        }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: tapBlock)
+        // The tap runs on a realtime audio thread and the recognition callbacks
+        // on an arbitrary queue. They must NOT be actor-isolated, or macOS 26's
+        // runtime traps (dispatch_assert_queue) when they fire off the main
+        // actor — this was the voice crash. Installing them through the
+        // file-scope nonisolated helpers below keeps their closures free of
+        // @MainActor isolation, portably across Swift versions.
+        installMicTap(on: input, format: format, forwardingTo: request)
         audioEngine.prepare()
         try audioEngine.start()
 
-        let handler: @Sendable (SFSpeechRecognitionResult?, (any Error)?) -> Void = { [weak self] result, error in
-            if let result {
-                let text = result.bestTranscription.formattedString
+        task = startRecognition(
+            recognizer, request: request,
+            onPartial: { [weak self] text in
                 Task { @MainActor in self?.partialTranscript = text }
-            }
-            if error != nil || (result?.isFinal ?? false) {
+            },
+            onFinish: { [weak self] in
                 Task { @MainActor in if self?.state == .listening { self?.stopListening() } }
-            }
-        }
-        task = recognizer?.recognitionTask(with: request, resultHandler: handler)
+            })
     }
 
     private func teardownCapture() {
@@ -271,5 +265,31 @@ extension VoiceController: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in if state == .speaking { state = .idle } }
+    }
+}
+
+// MARK: - Non-isolated capture helpers
+//
+// These are file-scope free functions (no actor isolation), so the closures
+// they install are NOT @MainActor-isolated. That's essential: the audio tap
+// fires on a realtime audio thread and the recognition callback on an arbitrary
+// queue, and an isolated closure would trap (dispatch_assert_queue) when run off
+// the main actor on macOS 26. Kept as plain functions (not @Sendable closures
+// with explicit captures) so they compile across Swift versions.
+
+private func installMicTap(on input: AVAudioInputNode, format: AVAudioFormat,
+                           forwardingTo request: SFSpeechAudioBufferRecognitionRequest) {
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+        request.append(buffer)
+    }
+}
+
+private func startRecognition(_ recognizer: SFSpeechRecognizer?,
+                              request: SFSpeechAudioBufferRecognitionRequest,
+                              onPartial: @escaping @Sendable (String) -> Void,
+                              onFinish: @escaping @Sendable () -> Void) -> SFSpeechRecognitionTask? {
+    recognizer?.recognitionTask(with: request) { result, error in
+        if let result { onPartial(result.bestTranscription.formattedString) }
+        if error != nil || (result?.isFinal ?? false) { onFinish() }
     }
 }
