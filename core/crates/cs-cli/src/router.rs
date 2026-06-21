@@ -143,6 +143,12 @@ impl Router {
         &self.inner.event_bus
     }
 
+    /// The currently configured trust mode (used to choose the run's tool
+    /// permission posture).
+    pub fn trust_mode(&self) -> cs_types::TrustMode {
+        self.inner.config.lock().unwrap().trust_mode
+    }
+
     /// Dispatch a request envelope, returning the response envelope to send back.
     pub async fn dispatch(&self, request: &IpcEnvelope) -> IpcEnvelope {
         match self.handle(request).await {
@@ -1331,7 +1337,9 @@ fn strip_frontmatter(content: &str) -> &str {
         // Find the closing fence at the start of a line and return what follows.
         if let Some(idx) = rest.find("\n---") {
             let after = &rest[idx + 4..];
-            return after.trim_start_matches(|c| c != '\n').trim_start_matches('\n');
+            return after
+                .trim_start_matches(|c| c != '\n')
+                .trim_start_matches('\n');
         }
     }
     content
@@ -1340,7 +1348,10 @@ fn strip_frontmatter(content: &str) -> &str {
 /// Trim a candidate line into a clean one-line description (markers stripped,
 /// length-capped).
 fn truncate_desc(s: &str) -> String {
-    let s = s.trim().trim_start_matches(['#', '*', '-', '>', ' ']).trim();
+    let s = s
+        .trim()
+        .trim_start_matches(['#', '*', '-', '>', ' '])
+        .trim();
     let max = 160;
     if s.chars().count() <= max {
         s.to_string()

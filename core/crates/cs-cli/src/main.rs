@@ -356,7 +356,13 @@ fn spawn_claude_forwarder(
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut session = ClaudeSession::new(model).with_binary(binary);
+        // Map the configured trust mode to a CLI permission posture so Claude
+        // can actually act (Write/Edit/Bash). Without this, `--print` denies
+        // every mutating tool and the run does nothing.
+        let permission = cs_claude::Permission::from_trust_mode(router.trust_mode());
+        let mut session = ClaudeSession::new(model)
+            .with_binary(binary)
+            .with_permission(permission);
         if let Some(dir) = cwd {
             session = session.with_cwd(dir);
         }

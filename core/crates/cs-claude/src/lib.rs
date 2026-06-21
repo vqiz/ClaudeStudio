@@ -61,6 +61,47 @@ pub fn model_flag(tier: ModelTier) -> &'static str {
     }
 }
 
+/// How tool-permission prompts are handled for a run.
+///
+/// ClaudeStudio drives the CLI non-interactively (`--print`), so a permission
+/// prompt can never be answered — an unapproved mutating tool is simply denied.
+/// Each configured trust mode is therefore mapped to a concrete CLI permission
+/// flag, otherwise Write/Edit/Bash are blocked and nothing actually happens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Permission {
+    /// CLI default: mutating tools are not pre-approved (effectively read-only
+    /// in `--print`). The strictest posture.
+    #[default]
+    Default,
+    /// `--permission-mode acceptEdits`: auto-approve file edits.
+    AcceptEdits,
+    /// `--dangerously-skip-permissions`: approve everything (full autonomy).
+    Bypass,
+}
+
+impl Permission {
+    /// Map a configured [`cs_types::TrustMode`] to the run's permission posture.
+    #[must_use]
+    pub fn from_trust_mode(mode: cs_types::TrustMode) -> Self {
+        match mode {
+            cs_types::TrustMode::Strict => Permission::Default,
+            cs_types::TrustMode::Standard | cs_types::TrustMode::Auto => Permission::AcceptEdits,
+            cs_types::TrustMode::Yolo => Permission::Bypass,
+        }
+    }
+
+    /// The CLI argument(s) this posture adds (empty for the default).
+    fn args(self) -> Vec<String> {
+        match self {
+            Permission::Default => Vec::new(),
+            Permission::AcceptEdits => {
+                vec!["--permission-mode".to_string(), "acceptEdits".to_string()]
+            }
+            Permission::Bypass => vec!["--dangerously-skip-permissions".to_string()],
+        }
+    }
+}
+
 /// Build the argument vector for a `claude` invocation.
 ///
 /// This is a pure function so it can be tested without spawning anything. The
@@ -77,6 +118,7 @@ pub fn build_args(
     allowed_tools: &[String],
     effort: Option<&str>,
     resume: Option<&str>,
+    permission: Permission,
 ) -> Vec<String> {
     let mut args = vec![
         "--model".to_string(),
@@ -124,6 +166,9 @@ pub fn build_args(
         args.push("--allowedTools".to_string());
         args.push(allowed_tools.join(","));
     }
+    // Permission posture (from the configured trust mode). Without this, every
+    // Write/Edit/Bash is denied in `--print` mode and the run does nothing.
+    args.extend(permission.args());
     args.push("--print".to_string());
     args.push(prompt.to_string());
     args
@@ -413,6 +458,9 @@ pub struct ClaudeSession {
     /// The `claude` session id to continue via `--resume`, or `None` for a new
     /// conversation.
     pub resume: Option<String>,
+    /// How tool permissions are handled (mapped from the configured trust mode).
+    /// Defaults to [`Permission::Default`]; the core sets it per run.
+    pub permission: Permission,
 }
 
 impl ClaudeSession {
@@ -427,7 +475,15 @@ impl ClaudeSession {
             database_access: true,
             effort: None,
             resume: None,
+            permission: Permission::Default,
         }
+    }
+
+    /// Set the permission posture for this run (from the configured trust mode).
+    #[must_use]
+    pub fn with_permission(mut self, permission: Permission) -> Self {
+        self.permission = permission;
+        self
     }
 
     /// Continue a previous conversation by its `claude` session id.
@@ -513,6 +569,7 @@ impl ClaudeSession {
             allowed_tools,
             self.effort.as_deref(),
             self.resume.as_deref(),
+            self.permission,
         );
         let mut command = Command::new(&self.binary);
         command
@@ -648,7 +705,16 @@ mod tests {
 
     #[test]
     fn build_args_requests_stream_json() {
-        let args = build_args(ModelTier::Sonnet, "hello", None, None, &[], None, None);
+        let args = build_args(
+            ModelTier::Sonnet,
+            "hello",
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Permission::Default,
+        );
         assert!(args.contains(&"stream-json".to_string()));
         // --print + stream-json requires --verbose, or the CLI errors out.
         assert!(args.contains(&"--verbose".to_string()));
@@ -663,14 +729,32 @@ mod tests {
 
     #[test]
     fn build_args_passes_valid_effort_and_ignores_invalid() {
-        let args = build_args(ModelTier::Opus, "go", None, None, &[], Some("high"), None);
+        let args = build_args(
+            ModelTier::Opus,
+            "go",
+            None,
+            None,
+            &[],
+            Some("high"),
+            None,
+            Permission::Default,
+        );
         let i = args
             .iter()
             .position(|a| a == "--effort")
             .expect("--effort present");
         assert_eq!(args[i + 1], "high");
         // Unknown levels are dropped rather than passed through.
-        let bad = build_args(ModelTier::Opus, "go", None, None, &[], Some("turbo"), None);
+        let bad = build_args(
+            ModelTier::Opus,
+            "go",
+            None,
+            None,
+            &[],
+            Some("turbo"),
+            None,
+            Permission::Default,
+        );
         assert!(!bad.contains(&"--effort".to_string()));
     }
 
@@ -684,6 +768,7 @@ mod tests {
             &[],
             None,
             Some("sess-123"),
+            Permission::Default,
         );
         let i = args
             .iter()
@@ -698,6 +783,7 @@ mod tests {
             &[],
             None,
             Some("  "),
+            Permission::Default,
         );
         assert!(!none.contains(&"--resume".to_string()));
     }
@@ -716,8 +802,79 @@ mod tests {
 
     #[test]
     fn build_args_includes_partial_messages() {
-        let args = build_args(ModelTier::Sonnet, "hi", None, None, &[], None, None);
+        let args = build_args(
+            ModelTier::Sonnet,
+            "hi",
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Permission::Default,
+        );
         assert!(args.contains(&"--include-partial-messages".to_string()));
+    }
+
+    #[test]
+    fn permission_maps_trust_mode_to_cli_flags() {
+        use cs_types::TrustMode;
+        assert_eq!(
+            Permission::from_trust_mode(TrustMode::Yolo),
+            Permission::Bypass
+        );
+        assert_eq!(
+            Permission::from_trust_mode(TrustMode::Auto),
+            Permission::AcceptEdits
+        );
+        assert_eq!(
+            Permission::from_trust_mode(TrustMode::Standard),
+            Permission::AcceptEdits
+        );
+        assert_eq!(
+            Permission::from_trust_mode(TrustMode::Strict),
+            Permission::Default
+        );
+
+        let bypass = build_args(
+            ModelTier::Sonnet,
+            "go",
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Permission::Bypass,
+        );
+        assert!(bypass.contains(&"--dangerously-skip-permissions".to_string()));
+
+        let edits = build_args(
+            ModelTier::Sonnet,
+            "go",
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Permission::AcceptEdits,
+        );
+        let i = edits
+            .iter()
+            .position(|a| a == "--permission-mode")
+            .expect("mode flag");
+        assert_eq!(edits[i + 1], "acceptEdits");
+
+        let def = build_args(
+            ModelTier::Sonnet,
+            "go",
+            None,
+            None,
+            &[],
+            None,
+            None,
+            Permission::Default,
+        );
+        assert!(!def.contains(&"--permission-mode".to_string()));
+        assert!(!def.contains(&"--dangerously-skip-permissions".to_string()));
     }
 
     #[test]
@@ -739,6 +896,7 @@ mod tests {
             &[],
             None,
             None,
+            Permission::Default,
         );
         let i = args
             .iter()
@@ -746,7 +904,16 @@ mod tests {
             .expect("flag present");
         assert_eq!(args[i + 1], "You are a careful reviewer.");
         // Blank/whitespace system prompts are omitted.
-        let none = build_args(ModelTier::Opus, "do it", Some("   "), None, &[], None, None);
+        let none = build_args(
+            ModelTier::Opus,
+            "do it",
+            Some("   "),
+            None,
+            &[],
+            None,
+            None,
+            Permission::Default,
+        );
         assert!(!none.contains(&"--append-system-prompt".to_string()));
     }
 
@@ -764,6 +931,7 @@ mod tests {
             &tools,
             None,
             None,
+            Permission::Default,
         );
         let ci = args
             .iter()
