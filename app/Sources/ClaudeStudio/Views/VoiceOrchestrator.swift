@@ -14,16 +14,15 @@ import SwiftUI
 /// public, observable surface.
 struct VoiceOrchestrator: View {
     @Environment(AppState.self) private var appState
-    @State private var voiceRunActive = false
 
     var body: some View {
         Color.clear
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
+            // A finalized spoken turn → run it through the CLI in the project.
             .onChange(of: appState.voice.pendingCommand) { _, command in
                 guard let command, !command.isEmpty, appState.coreConnected else { return }
                 appState.voice.beginThinking(command)
-                voiceRunActive = true
                 let project = appState.selectedProject
                 Task {
                     await appState.core.startSession(
@@ -31,13 +30,22 @@ struct VoiceOrchestrator: View {
                         model: project?.model, effort: project?.effort, origin: "voice")
                 }
             }
+            // Barge-in: you started talking while Claude was thinking or speaking,
+            // so cancel the running session — the new turn takes over.
+            .onChange(of: appState.voice.state) { old, new in
+                if new == .listening, old == .thinking || old == .speaking,
+                   appState.core.runningSessionId != nil {
+                    Task { await appState.core.stopSession() }
+                }
+            }
+            // A run finished. If it was the in-flight voice turn (still thinking),
+            // speak the reply and let the conversation loop continue.
             .onChange(of: appState.core.runningSessionId) { old, new in
-                guard old != nil, new == nil else { return } // a run just finished
+                guard old != nil, new == nil else { return }
                 let reply = lastAssistantText
-                if voiceRunActive {
-                    voiceRunActive = false
+                if appState.voice.state == .thinking {
                     appState.voice.deliver(reply ?? "Done.")
-                } else if appState.voice.readAloud, let reply {
+                } else if appState.voice.readAloud, appState.voice.state == .idle, let reply {
                     appState.voice.speak(reply)
                 }
             }

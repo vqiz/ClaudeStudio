@@ -189,10 +189,10 @@ struct VoiceMicIndicator: View {
             return "Voice input needs the packaged app (microphone permission)"
         }
         switch state {
-        case .idle: return "Click to talk to Claude"
-        case .listening: return "Listening… click to send"
-        case .thinking: return "Claude is thinking…"
-        case .speaking: return "Speaking…"
+        case .idle: return "Start a hands-free conversation with Claude"
+        case .listening: return "Listening… just speak; I'll detect when you're done. Click to end."
+        case .thinking: return "Claude is working… start speaking to interrupt"
+        case .speaking: return "Claude is speaking… start speaking to interrupt"
         }
     }
 }

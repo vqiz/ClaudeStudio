@@ -49,20 +49,25 @@ struct VoiceLogView: View {
             }
             .buttonStyle(.plain)
             .disabled(!voice.sttAvailable)
-            .help(voice.sttAvailable ? "Click to talk · click again to send" : "Voice input needs the packaged app")
+            .help(voice.sttAvailable ? "Click to start or end a hands-free conversation" : "Voice input needs the packaged app")
 
             Text(stateLabel)
                 .font(.headline)
                 .foregroundStyle(stateColor)
 
             if voice.state == .listening {
-                Text(voice.partialTranscript.isEmpty ? "Listening…" : voice.partialTranscript)
+                Text(voice.partialTranscript.isEmpty ? "Listening… just speak; I'll detect when you're done." : voice.partialTranscript)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 460)
                     .lineLimit(3)
                     .transition(.opacity)
+            }
+
+            if voice.conversationActive && (voice.state == .thinking || voice.state == .speaking) {
+                Text("Start speaking any time to interrupt Claude.")
+                    .font(.caption).foregroundStyle(.tertiary)
             }
 
             if voice.state == .speaking {
