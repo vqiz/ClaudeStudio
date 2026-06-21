@@ -63,6 +63,27 @@ struct LiveAgent: Identifiable, Sendable {
     enum Status: Sendable { case running, done, stopped }
 }
 
+/// A top-level task dispatched to run in the background as its own Claude
+/// session (the project's "assigned agent"), concurrently with — and without
+/// blocking — the main conversation. The main thread keeps talking; these carry
+/// the work and surface their finished results.
+struct BackgroundTask: Identifiable, Sendable {
+    let id: String          // the core session id
+    /// The request this task is working on (for the row title).
+    let title: String
+    /// The assigned agent driving it (or "Agents" when several are configured).
+    let agentName: String
+    var status: Status
+    /// The agent's accumulated output; the final result once done.
+    var result: String
+    /// How many sub-agents it has launched (via the Task tool).
+    var subAgentCount: Int
+    var costUSD: Double
+    let startedAt: Date
+
+    enum Status: Sendable { case running, done, failed, stopped }
+}
+
 /// Owns the live connection to the Rust core sidecar and exposes its state to the
 /// UI as observable properties.
 ///
@@ -108,6 +129,10 @@ final class CoreConnection {
     private(set) var liveClaudeSessionId: String?
     /// Sub-agents Claude has spawned in the current session (live), newest last.
     private(set) var liveAgents: [LiveAgent] = []
+    /// Top-level tasks running in the background as their own sessions (the
+    /// assigned-agent workflow), newest first. Independent of the foreground
+    /// conversation, so several run concurrently while you keep talking.
+    private(set) var backgroundTasks: [BackgroundTask] = []
     /// Index in ``liveSession`` of the assistant reply currently being streamed
     /// (token deltas append to it), or nil when not mid-reply.
     private var streamingIndex: Int?
@@ -514,6 +539,7 @@ final class CoreConnection {
         recentEvents = []
         liveSession = []
         liveAgents = []
+        backgroundTasks = []
         runningSessionId = nil
         liveRunOrigin = nil
         skillsByCwd = [:]
@@ -562,6 +588,13 @@ final class CoreConnection {
         case "session.event":
             guard let event = envelope.payload?["event"],
                   let kind = event["kind"]?.stringValue else { return }
+            // A background task's events are keyed by its session id and updated
+            // independently — they must not touch the foreground conversation.
+            if let sid = envelope.payload?["session_id"]?.stringValue,
+               let bgIdx = backgroundTasks.firstIndex(where: { $0.id == sid }) {
+                updateBackgroundTask(at: bgIdx, kind: kind, event: event)
+                return
+            }
             switch kind {
             case "done":
                 streamingIndex = nil
@@ -647,6 +680,84 @@ final class CoreConnection {
         liveAgents[idx].status = .done
     }
 
+    // MARK: Background tasks (the assigned-agent workflow)
+
+    /// Apply one streamed event to a background task. We keep the authoritative
+    /// `assistant_text` blocks as the result (ignoring deltas to avoid double
+    /// counting), tally sub-agent launches, and settle the status on completion.
+    private func updateBackgroundTask(at idx: Int, kind: String, event: MsgPackValue) {
+        guard idx < backgroundTasks.count else { return }
+        switch kind {
+        case "assistant_text":
+            let full = event["text"]?.stringValue ?? ""
+            if !full.isEmpty {
+                backgroundTasks[idx].result = backgroundTasks[idx].result.isEmpty
+                    ? full : backgroundTasks[idx].result + "\n\n" + full
+            }
+        case "tool_use":
+            let name = event["name"]?.stringValue ?? ""
+            if name == "Task" || name == "Agent" { backgroundTasks[idx].subAgentCount += 1 }
+        case "result":
+            let cost = event["cost_usd"]?.doubleValue ?? 0
+            if cost > 0 { backgroundTasks[idx].costUSD = cost }
+            if backgroundTasks[idx].status == .running { backgroundTasks[idx].status = .done }
+        case "done":
+            if backgroundTasks[idx].status == .running { backgroundTasks[idx].status = .done }
+        case "error":
+            backgroundTasks[idx].status = .failed
+            if backgroundTasks[idx].result.isEmpty {
+                backgroundTasks[idx].result = event["message"]?.stringValue ?? "error"
+            }
+        case "stopped":
+            backgroundTasks[idx].status = .stopped
+        default:
+            break
+        }
+    }
+
+    /// Dispatch `prompt` as a background task — its own Claude session that runs
+    /// concurrently without blocking the main conversation. Returns immediately
+    /// after launch; the result streams into ``backgroundTasks``.
+    @discardableResult
+    func dispatchBackgroundTask(prompt: String, cwd: String?, model: String?, effort: String?,
+                                agentName: String, systemPrompt: String?) async -> Bool {
+        guard isConnected, let client else { return false }
+        let wire = wireParams(prompt: prompt, effort: effort)
+        guard let id = try? await client.startSession(
+            prompt: wire.prompt, cwd: cwd, model: model,
+            systemPrompt: systemPrompt, effort: wire.effort, resume: nil), !id.isEmpty
+        else { return false }
+        backgroundTasks.insert(
+            BackgroundTask(id: id, title: String(prompt.prefix(100)), agentName: agentName,
+                           status: .running, result: "", subAgentCount: 0, costUSD: 0,
+                           startedAt: Date()),
+            at: 0)
+        await reloadSessions()
+        return true
+    }
+
+    /// Stop a running background task (best-effort).
+    func stopBackgroundTask(_ id: String) {
+        guard let client else { return }
+        Task { _ = try? await client.stopSession(sessionId: id) }
+        if let i = backgroundTasks.firstIndex(where: { $0.id == id }) {
+            backgroundTasks[i].status = .stopped
+        }
+    }
+
+    /// Remove a background task from the list (does not affect the archive).
+    func dismissBackgroundTask(_ id: String) {
+        backgroundTasks.removeAll { $0.id == id }
+    }
+
+    /// Effort translation shared by foreground and background launches. "Ultra"
+    /// runs at `--effort max` with an ultrathink directive appended to the prompt.
+    private func wireParams(prompt: String, effort: String?) -> (prompt: String, effort: String?) {
+        guard let effort, let option = EffortOption(rawValue: effort) else { return (prompt, effort) }
+        let wirePrompt = option.promptDirective.map { "\(prompt)\n\n\($0)" } ?? prompt
+        return (wirePrompt, option.cliValue)
+    }
+
     /// Resolve any still-running sub-agents when the session ends.
     private func finishLiveAgents(_ status: LiveAgent.Status) {
         for idx in liveAgents.indices where liveAgents[idx].status == .running {
@@ -668,18 +779,11 @@ final class CoreConnection {
                       append: Bool = false) async {
         guard isConnected, let client else { return }
         // "Ultra" effort isn't a CLI level: it runs at the maximum (`--effort
-        // max`) AND injects an ultrathink directive into the prompt for the
-        // deepest reasoning. Every other level passes through unchanged. The
-        // visible transcript keeps the user's original prompt; only the wire
-        // copy carries the directive.
-        var wireEffort = effort
-        var wirePrompt = prompt
-        if let effort, let option = EffortOption(rawValue: effort) {
-            wireEffort = option.cliValue
-            if let directive = option.promptDirective {
-                wirePrompt = "\(prompt)\n\n\(directive)"
-            }
-        }
+        // max`) with an ultrathink directive appended. The visible transcript
+        // keeps the user's original prompt; only the wire copy carries it.
+        let wire = wireParams(prompt: prompt, effort: effort)
+        let wirePrompt = wire.prompt
+        let wireEffort = wire.effort
         let resumeId = resume ?? (append ? liveClaudeSessionId : nil)
         streamingIndex = nil
         if append {

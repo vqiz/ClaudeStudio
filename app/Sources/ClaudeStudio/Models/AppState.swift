@@ -189,6 +189,32 @@ final class AppState {
         }
     }
 
+    /// True when the project has agents assigned — the trigger for the
+    /// background assigned-agent workflow (instead of a foreground run).
+    func agentsEnabled(for project: Project) -> Bool {
+        !project.assignedAgentIDs.isEmpty && !agentStore.agents.isEmpty
+    }
+
+    /// Dispatch a request as a background "assigned-agent" task: a concurrent
+    /// Claude session that extracts the task, delegates to the project's
+    /// configured agents (via the Task tool), coordinates them, and returns the
+    /// consolidated result — all without blocking the main conversation.
+    func dispatchProjectTask(prompt: String, project: Project) async {
+        let agents = project.assignedAgentIDs.compactMap { aid in
+            agentStore.agents.first { $0.id == aid }
+        }
+        let agentName: String
+        switch agents.count {
+        case 0: agentName = "Agent"
+        case 1: agentName = agents[0].name
+        default: agentName = "\(agents.count) agents"
+        }
+        let system = ClaudeMdAgents.orchestratorSystemPrompt(agents: agents)
+        await core.dispatchBackgroundTask(
+            prompt: prompt, cwd: project.path, model: project.model,
+            effort: project.effort, agentName: agentName, systemPrompt: system)
+    }
+
     /// Resume an archived conversation (like `claude --resume`): load its
     /// transcript, arm resume, select (or add) its project, and jump to it so the
     /// user can continue in the Session tab.

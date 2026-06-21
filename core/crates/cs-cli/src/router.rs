@@ -995,9 +995,20 @@ impl Router {
                     .cloned()
                     .filter(|s| !s.is_empty())
                     .unwrap_or_else(|| command.clone());
+                // Use the frontmatter description; if there is none, generate one
+                // from the SKILL.md body (first heading / prose line) so every
+                // skill has a meaningful description.
+                let description = {
+                    let d = fm.get("description").cloned().unwrap_or_default();
+                    if d.trim().is_empty() {
+                        derive_skill_description(&content)
+                    } else {
+                        d
+                    }
+                };
                 meta.entry(command).or_insert((
                     name,
-                    fm.get("description").cloned().unwrap_or_default(),
+                    description,
                     dir.join("SKILL.md").to_string_lossy().to_string(),
                     scope,
                 ));
@@ -1023,7 +1034,9 @@ impl Router {
                 } else {
                     "user"
                 };
-                skills.push(json!({ "command": command, "name": command, "description": "", "path": "", "scope": scope }));
+                // No local SKILL.md (plugin / built-in command): synthesize a
+                // readable description from the command so it's never blank.
+                skills.push(json!({ "command": command, "name": command, "description": humanize_skill_command(command), "path": "", "scope": scope }));
             }
         }
         for (command, (name, desc, path, scope)) in &meta {
@@ -1309,6 +1322,81 @@ fn parse_frontmatter(content: &str) -> HashMap<String, String> {
         }
     }
     map
+}
+
+/// Return the SKILL.md body with a leading `--- ... ---` frontmatter removed.
+fn strip_frontmatter(content: &str) -> &str {
+    let trimmed = content.trim_start_matches([' ', '\n', '\r']);
+    if let Some(rest) = trimmed.strip_prefix("---") {
+        // Find the closing fence at the start of a line and return what follows.
+        if let Some(idx) = rest.find("\n---") {
+            let after = &rest[idx + 4..];
+            return after.trim_start_matches(|c| c != '\n').trim_start_matches('\n');
+        }
+    }
+    content
+}
+
+/// Trim a candidate line into a clean one-line description (markers stripped,
+/// length-capped).
+fn truncate_desc(s: &str) -> String {
+    let s = s.trim().trim_start_matches(['#', '*', '-', '>', ' ']).trim();
+    let max = 160;
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(max).collect();
+        t.push('…');
+        t
+    }
+}
+
+/// Generate a one-line description from a SKILL.md body when its frontmatter has
+/// none: prefer the first prose line; otherwise the first heading's text.
+fn derive_skill_description(content: &str) -> String {
+    let body = strip_frontmatter(content);
+    let mut first_heading: Option<String> = None;
+    for raw in body.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('#') {
+            if first_heading.is_none() {
+                let text = line.trim_start_matches('#').trim().to_string();
+                if !text.is_empty() {
+                    first_heading = Some(text);
+                }
+            }
+            continue;
+        }
+        // First non-empty, non-heading line is the best summary.
+        return truncate_desc(line);
+    }
+    first_heading.map(|h| truncate_desc(&h)).unwrap_or_default()
+}
+
+/// A readable description for a `/`-command skill we have no local SKILL.md for
+/// (plugin or built-in), synthesized from the command token.
+fn humanize_skill_command(command: &str) -> String {
+    let prettify = |s: &str| -> String {
+        s.split(['-', '_'])
+            .filter(|w| !w.is_empty())
+            .map(|w| {
+                let mut chars = w.chars();
+                match chars.next() {
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    None => String::new(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if let Some((plugin, skill)) = command.split_once(':') {
+        format!("{} skill (from the {plugin} plugin)", prettify(skill))
+    } else {
+        format!("The /{command} skill")
+    }
 }
 
 /// The `claude` binary to invoke (honors `CLAUDESTUDIO_CLAUDE_BIN`).

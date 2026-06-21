@@ -258,6 +258,10 @@ private struct ProjectSessionTab: View {
             VStack(spacing: 0) {
                 ModelEffortBar(project: project)
                 Divider()
+                if !appState.core.backgroundTasks.isEmpty {
+                    BackgroundTasksPanel(onAddToChat: { insert($0) })
+                    Divider()
+                }
                 LiveTranscriptView()
                 if appState.core.runningSessionId != nil {
                     RunningStatusBar(effort: project.effort)
@@ -326,7 +330,10 @@ private struct ProjectSessionTab: View {
     }
 
     private var placeholder: String {
-        appState.core.liveClaudeSessionId != nil
+        if appState.agentsEnabled(for: project) {
+            return "Dispatch a task to your agents — runs in the background…"
+        }
+        return appState.core.liveClaudeSessionId != nil
             ? "Reply to continue the conversation…"
             : "Ask Claude, or apply a skill / task / definition…"
     }
@@ -363,10 +370,19 @@ private struct ProjectSessionTab: View {
 
     private func run() {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
+        guard !text.isEmpty else { return }
+        // Assigned-agent workflow: when agents are configured for this project,
+        // a request is dispatched to run in the background as its own session
+        // (which delegates to the configured sub-agents). The composer frees up
+        // immediately, so you can keep sending — several tasks run at once.
+        if appState.agentsEnabled(for: project) {
+            prompt = ""
+            Task { await appState.dispatchProjectTask(prompt: text, project: project) }
+            return
+        }
+        // Plain foreground conversation (no agents configured).
+        guard appState.core.runningSessionId == nil else { return }
         prompt = ""
-        // Continue the conversation when one is active; otherwise start fresh
-        // (and apply any selected definitions as the system prompt).
         let continuing = appState.core.liveClaudeSessionId != nil
         Task {
             await appState.core.startSession(
@@ -589,6 +605,106 @@ private struct InfoPopoverButton: View {
             .padding(12)
             .frame(width: 260)
         }
+    }
+}
+
+/// Lists the project's background "assigned-agent" tasks — running concurrently
+/// with the main conversation. Each row shows status, the assigned agent, how
+/// many sub-agents it spawned, and (expanded) its result, which can be added
+/// back into the chat.
+private struct BackgroundTasksPanel: View {
+    @Environment(AppState.self) private var appState
+    let onAddToChat: (String) -> Void
+    @State private var expanded: Set<String> = []
+
+    private var tasks: [BackgroundTask] { appState.core.backgroundTasks }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.2.badge.gearshape").font(.caption2.weight(.bold)).foregroundStyle(.brandRich)
+                Text("BACKGROUND TASKS").font(.caption2.weight(.bold)).tracking(0.5).foregroundStyle(.secondary)
+                Spacer()
+                let running = tasks.filter { $0.status == .running }.count
+                Text(running > 0 ? "\(running) running · \(tasks.count) total" : "\(tasks.count) total")
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach(tasks) { task in row(task) }
+                }
+                .padding(.horizontal, 10).padding(.bottom, 8)
+            }
+            .frame(maxHeight: 220)
+        }
+        .background(.bar.opacity(0.4))
+    }
+
+    @ViewBuilder
+    private func row(_ task: BackgroundTask) -> some View {
+        let isOpen = expanded.contains(task.id)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                statusIcon(task.status).frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(task.title).font(.caption.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(task.agentName).font(.caption2.weight(.medium)).foregroundStyle(.tint)
+                        if task.subAgentCount > 0 {
+                            Label("\(task.subAgentCount)", systemImage: "arrow.triangle.branch")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        if task.costUSD > 0 {
+                            Text(String(format: "$%.4f", task.costUSD)).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Spacer()
+                if task.status == .running {
+                    Button { appState.core.stopBackgroundTask(task.id) } label: {
+                        Image(systemName: "stop.circle")
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).help("Stop this task")
+                } else {
+                    Button { appState.core.dismissBackgroundTask(task.id) } label: {
+                        Image(systemName: "xmark.circle")
+                    }.buttonStyle(.plain).foregroundStyle(.secondary).help("Dismiss")
+                }
+                Button { toggle(task.id) } label: {
+                    Image(systemName: isOpen ? "chevron.up" : "chevron.down").font(.caption2)
+                }.buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            if isOpen {
+                if task.result.isEmpty {
+                    Text(task.status == .running ? "Working…" : "No output.")
+                        .font(.caption2).foregroundStyle(.tertiary)
+                } else {
+                    Text(task.result).font(.caption2).foregroundStyle(.secondary)
+                        .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    if task.status != .running {
+                        Button("Add result to chat") { onAddToChat(task.result) }
+                            .font(.caption2).buttonStyle(.borderless)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .background(.background.secondary, in: RoundedRectangle(cornerRadius: DS.rSm, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: DS.rSm, style: .continuous).strokeBorder(.primary.opacity(0.06), lineWidth: 1))
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ status: BackgroundTask.Status) -> some View {
+        switch status {
+        case .running: ProgressView().controlSize(.small)
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+        case .stopped: Image(systemName: "stop.circle.fill").foregroundStyle(.secondary)
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
     }
 }
 
