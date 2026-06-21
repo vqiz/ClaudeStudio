@@ -59,10 +59,18 @@ struct VoiceLogView: View {
                 VStack(spacing: 5) {
                     MicLevelMeter(level: voice.inputLevel)
                         .frame(width: 260, height: 20)
-                    Text(voice.conversationActive
-                         ? "Mic input — these bars move when audio is coming in"
-                         : "Start a conversation, then watch this while you speak")
-                        .font(.caption2).foregroundStyle(.tertiary)
+                    if voice.conversationActive {
+                        Text("audio buffers: \(voice.bufferCount) · peak \(Int(voice.peakLevel * 100))%")
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(voice.bufferCount > 0 ? Color.secondary : Color.orange)
+                        Text(voice.bufferCount == 0
+                             ? "No audio buffers are arriving — the engine isn't capturing the mic."
+                             : "Bars move when audio arrives. Speak to test.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    } else {
+                        Text("Start a conversation, then watch this while you speak")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
                 .padding(.vertical, 2)
             }

@@ -1,6 +1,9 @@
 import AVFoundation
 import Observation
+import os
 import Speech
+
+private let voiceLog = Logger(subsystem: "dev.claudestudio.voice", category: "capture")
 
 /// Thread-safe holder for the active recognition request, so the (non-isolated)
 /// realtime audio tap can forward buffers to whichever request is current
@@ -68,6 +71,13 @@ final class VoiceController: NSObject {
     /// independent of speech recognition. Drives the level meter so you can see
     /// whether any audio is actually arriving.
     private(set) var inputLevel: Float = 0
+    /// Number of audio buffers the tap has received since the engine started.
+    /// If this stays 0 while listening, the engine isn't capturing at all; if it
+    /// climbs but the level is ~0, audio is arriving but silent (wrong input /
+    /// muted / silent grant). A visible diagnostic.
+    private(set) var bufferCount: Int = 0
+    /// Highest input level seen this session (for the diagnostic readout).
+    private(set) var peakLevel: Float = 0
 
     var isSpeaking: Bool { synthesizer.isSpeaking }
     var isListening: Bool { state == .listening }
@@ -112,9 +122,15 @@ final class VoiceController: NSObject {
     /// Begin a hands-free conversation: ask permission once, bring up the audio
     /// engine, and start listening for your first turn.
     func startConversation() {
-        guard sttAvailable, !conversationActive else { return }
+        guard sttAvailable, !conversationActive else {
+            voiceLog.info("startConversation skipped (stt=\(self.sttAvailable, privacy: .public) active=\(self.conversationActive, privacy: .public))")
+            return
+        }
+        voiceLog.info("startConversation: requesting authorization")
         Task {
-            guard await ensureAuthorized() else {
+            let authorized = await ensureAuthorized()
+            voiceLog.info("authorization granted=\(authorized, privacy: .public)")
+            guard authorized else {
                 authorizationDenied = true
                 return
             }
@@ -123,6 +139,7 @@ final class VoiceController: NSObject {
                 try startEngine()
                 conversationActive = true
                 openWindow(listening: true)
+                voiceLog.info("conversation active, listening")
             } catch VoiceError.microphoneUnavailable {
                 // HAL not ready right after a fresh grant — retry once.
                 teardownEngine()
@@ -163,19 +180,35 @@ final class VoiceController: NSObject {
         let input = audioEngine.inputNode
         input.removeTap(onBus: 0)
 
-        // A 0 sample-rate / 0-channel format means the mic isn't ready; calling
+        // Prefer the node's OUTPUT format for the tap (the Apple-standard for an
+        // input-node tap); fall back to the hardware input format. A 0
+        // sample-rate / 0-channel format means the mic isn't ready, and calling
         // installTap with it throws an uncatchable Obj-C exception, so validate.
-        let format = input.inputFormat(forBus: 0)
+        var format = input.outputFormat(forBus: 0)
+        if format.sampleRate <= 0 || format.channelCount == 0 {
+            format = input.inputFormat(forBus: 0)
+        }
+        voiceLog.info("startEngine format=\(format.sampleRate, privacy: .public)Hz ch=\(format.channelCount, privacy: .public)")
         guard format.sampleRate > 0, format.channelCount > 0 else {
+            voiceLog.error("startEngine: invalid input format — mic unavailable")
             throw VoiceError.microphoneUnavailable
         }
+        bufferCount = 0
+        peakLevel = 0
+        inputLevel = 0
         // Feed the recognizer AND report the live input level for the meter.
         installMicTap(on: input, format: format, forwardingTo: requestBox) { [weak self] level in
             Task { @MainActor in self?.updateLevel(level) }
         }
         audioEngine.prepare()
-        try audioEngine.start()
+        do {
+            try audioEngine.start()
+        } catch {
+            voiceLog.error("audioEngine.start failed: \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
         engineRunning = true
+        voiceLog.info("audioEngine started OK")
     }
 
     private func teardownEngine() {
@@ -188,9 +221,14 @@ final class VoiceController: NSObject {
     }
 
     /// Smooth the raw RMS level for a readable meter: snap up on attack, ease
-    /// down on release.
+    /// down on release. Also tracks the diagnostic buffer count + peak.
     private func updateLevel(_ raw: Float) {
+        bufferCount += 1
+        if raw > peakLevel { peakLevel = raw }
         inputLevel = raw > inputLevel ? raw : (inputLevel * 0.82 + raw * 0.18)
+        if bufferCount == 1 || bufferCount % 50 == 0 {
+            voiceLog.info("tap buffers=\(self.bufferCount, privacy: .public) level=\(Int(raw * 100), privacy: .public)% peak=\(Int(self.peakLevel * 100), privacy: .public)%")
+        }
     }
 
     // MARK: - Recognition windows (one per turn; the engine stays up)
