@@ -63,6 +63,46 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Encode an embedding vector as little-endian f32 bytes for BLOB storage.
+fn encode_vec(v: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(v.len() * 4);
+    for x in v {
+        out.extend_from_slice(&x.to_le_bytes());
+    }
+    out
+}
+
+/// Decode a little-endian f32 BLOB back into an embedding vector.
+fn decode_vec(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+/// Cosine similarity of two equal-length vectors; `0.0` on length mismatch or a
+/// zero vector. Stored embeddings are pre-normalized, but we divide by the
+/// norms anyway so this stays correct regardless.
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
+    let mut dot = 0f32;
+    let mut na = 0f32;
+    let mut nb = 0f32;
+    for i in 0..a.len() {
+        dot += a[i] * b[i];
+        na += a[i] * a[i];
+        nb += b[i] * b[i];
+    }
+    let denom = na.sqrt() * nb.sqrt();
+    if denom == 0.0 {
+        0.0
+    } else {
+        dot / denom
+    }
+}
+
 /// Data required to create a new session row.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NewSession {
@@ -333,6 +373,18 @@ pub struct Stats {
     pub events: i64,
 }
 
+/// A transcript message still missing a semantic embedding, returned by
+/// [`SessionStore::unembedded_messages`] for backfilling the vector index.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnembeddedItem {
+    /// The source message id (used as the embedding's `owner_id`).
+    pub owner_id: String,
+    /// Session the message belongs to.
+    pub session_id: String,
+    /// The message body to embed.
+    pub content: String,
+}
+
 /// The permanent SQLite-backed session archive.
 pub struct SessionStore {
     conn: Connection,
@@ -420,6 +472,25 @@ impl SessionStore {
                 source     UNINDEXED,
                 body
             );
+
+            -- Semantic-search index: one neural embedding per transcript item.
+            -- `vec` is the raw f32 vector (little-endian bytes); `model` tags
+            -- which embedder produced it so vectors from different models are
+            -- never compared. `owner_id` (the message/diff id) + `model` is the
+            -- key, so re-embedding an item replaces rather than duplicates.
+            CREATE TABLE IF NOT EXISTS embeddings (
+                owner_id    TEXT NOT NULL,
+                model       TEXT NOT NULL,
+                session_id  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+                source      TEXT NOT NULL,
+                snippet     TEXT NOT NULL,
+                dim         INTEGER NOT NULL,
+                vec         BLOB NOT NULL,
+                created_at  INTEGER NOT NULL,
+                PRIMARY KEY (owner_id, model)
+            );
+            CREATE INDEX IF NOT EXISTS idx_embeddings_session ON embeddings(session_id);
+            CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
             "#,
         )?;
         // Migration: add `claude_session_id` to databases created before it
@@ -665,6 +736,127 @@ impl SessionStore {
         Ok(hits)
     }
 
+    /// Store (or replace) the semantic embedding for one transcript item.
+    ///
+    /// `owner_id` is the source message/diff id, `model` the embedder tag (so
+    /// vectors from different models never mix), and `snippet` a short excerpt
+    /// returned with search hits. Re-embedding the same `(owner_id, model)`
+    /// overwrites the previous vector.
+    #[allow(clippy::too_many_arguments)]
+    pub fn upsert_embedding(
+        &self,
+        owner_id: &str,
+        session_id: &str,
+        source: HitSource,
+        snippet: &str,
+        model: &str,
+        vector: &[f32],
+        created_at: i64,
+    ) -> Result<()> {
+        let source = match source {
+            HitSource::FileDiff => "file_diff",
+            HitSource::Message => "message",
+        };
+        let blob = encode_vec(vector);
+        self.conn.execute(
+            "INSERT OR REPLACE INTO embeddings
+                (owner_id, model, session_id, source, snippet, dim, vec, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                owner_id,
+                model,
+                session_id,
+                source,
+                snippet,
+                vector.len() as i64,
+                blob,
+                created_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Semantic nearest-neighbour search: rank stored embeddings (for `model`)
+    /// by cosine similarity to `query`, returning the top `limit` as
+    /// [`SearchHit`]s. `score` here is cosine similarity (higher is closer).
+    ///
+    /// Brute-force cosine over the archive — trivial for thousands of vectors
+    /// and entirely local. Each hit carries only a short snippet, so this is as
+    /// token-frugal as the FTS path.
+    pub fn vector_search(&self, query: &[f32], model: &str, limit: i64) -> Result<Vec<SearchHit>> {
+        let limit = limit.clamp(1, 50) as usize;
+        let mut stmt = self.conn.prepare(
+            "SELECT e.session_id, s.title, e.source, e.snippet, e.vec
+             FROM embeddings e
+             JOIN sessions s ON s.id = e.session_id
+             WHERE e.model = ?1",
+        )?;
+        let rows = stmt.query_map(params![model], |row| {
+            let source: String = row.get(2)?;
+            let source = match source.as_str() {
+                "file_diff" => HitSource::FileDiff,
+                _ => HitSource::Message,
+            };
+            let blob: Vec<u8> = row.get(4)?;
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                source,
+                row.get::<_, String>(3)?,
+                decode_vec(&blob),
+            ))
+        })?;
+        let mut scored: Vec<SearchHit> = Vec::new();
+        for r in rows {
+            let (session_id, title, source, snippet, vec) = r?;
+            scored.push(SearchHit {
+                session_id,
+                title,
+                source,
+                snippet,
+                score: f64::from(cosine(query, &vec)),
+            });
+        }
+        // Highest cosine first; drop anything essentially orthogonal so the
+        // model never sees padding of irrelevant sessions.
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scored.retain(|h| h.score > 0.15);
+        scored.truncate(limit);
+        Ok(scored)
+    }
+
+    /// Transcript messages that have no embedding yet for `model` (used to
+    /// backfill the semantic index for sessions recorded before embeddings
+    /// existed, or with a different model). Oldest first, at most `limit`.
+    pub fn unembedded_messages(&self, model: &str, limit: i64) -> Result<Vec<UnembeddedItem>> {
+        let limit = limit.clamp(1, 10_000);
+        let mut stmt = self.conn.prepare(
+            "SELECT m.id, m.session_id, m.content
+             FROM messages m
+             LEFT JOIN embeddings e
+               ON e.owner_id = m.id AND e.model = ?1
+             WHERE e.owner_id IS NULL
+             ORDER BY m.created_at ASC, m.rowid ASC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![model, limit], |row| {
+            Ok(UnembeddedItem {
+                owner_id: row.get(0)?,
+                session_id: row.get(1)?,
+                content: row.get(2)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Return aggregate counts describing the archive.
     pub fn stats(&self) -> Result<Stats> {
         let count = |table: &str| -> Result<i64> {
@@ -791,5 +983,91 @@ mod tests {
         let page = store.list_sessions(1, 1).unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].title, "second", "offset skips the newest");
+    }
+
+    #[test]
+    fn vector_search_ranks_by_cosine_and_respects_model() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let sid = store
+            .insert_session(&NewSession::new("Vec session", "/repo"))
+            .unwrap();
+        let m1 = store
+            .append_message(&NewMessage::new(&sid, "user", "alpha"))
+            .unwrap();
+        let m2 = store
+            .append_message(&NewMessage::new(&sid, "user", "beta"))
+            .unwrap();
+        store
+            .upsert_embedding(
+                &m1,
+                &sid,
+                HitSource::Message,
+                "alpha",
+                "m",
+                &[1.0, 0.0, 0.0],
+                1,
+            )
+            .unwrap();
+        store
+            .upsert_embedding(
+                &m2,
+                &sid,
+                HitSource::Message,
+                "beta",
+                "m",
+                &[0.0, 1.0, 0.0],
+                2,
+            )
+            .unwrap();
+
+        // Query aligned with the first vector: only it clears the 0.15 floor.
+        let hits = store.vector_search(&[0.9, 0.1, 0.0], "m", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "alpha");
+        assert!(hits[0].score > 0.9);
+
+        // A different model tag must not surface these vectors.
+        assert!(store
+            .vector_search(&[1.0, 0.0, 0.0], "other", 5)
+            .unwrap()
+            .is_empty());
+
+        // Re-embedding the same (owner, model) replaces rather than duplicates.
+        store
+            .upsert_embedding(
+                &m1,
+                &sid,
+                HitSource::Message,
+                "alpha-v2",
+                "m",
+                &[1.0, 0.0, 0.0],
+                3,
+            )
+            .unwrap();
+        let hits = store.vector_search(&[1.0, 0.0, 0.0], "m", 5).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].snippet, "alpha-v2");
+    }
+
+    #[test]
+    fn unembedded_messages_tracks_backfill_state() {
+        let store = SessionStore::open_in_memory().unwrap();
+        let sid = store
+            .insert_session(&NewSession::new("Backfill", "/repo"))
+            .unwrap();
+        let m1 = store
+            .append_message(&NewMessage::new(&sid, "user", "one"))
+            .unwrap();
+        store
+            .append_message(&NewMessage::new(&sid, "user", "two"))
+            .unwrap();
+
+        assert_eq!(store.unembedded_messages("m", 10).unwrap().len(), 2);
+        store
+            .upsert_embedding(&m1, &sid, HitSource::Message, "one", "m", &[1.0, 0.0], 1)
+            .unwrap();
+        let pending = store.unembedded_messages("m", 10).unwrap();
+        assert_eq!(pending.len(), 1, "only the un-embedded message remains");
+        assert_eq!(pending[0].content, "two");
     }
 }

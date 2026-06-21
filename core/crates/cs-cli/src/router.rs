@@ -12,14 +12,27 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use cs_agentic_os::{EventBus, SystemEvent};
 use cs_config::{AppConfig, ContextAssembler, LayerKind};
 use cs_git::{GitBackend, SystemGit};
 use cs_ipc::IpcEnvelope;
-use cs_sessions::{NewEvent, NewMessage, NewSession, NewToolCall, SessionStore};
+use cs_sessions::{
+    now_millis, HitSource, NewEvent, NewMessage, NewSession, NewToolCall, SessionStore,
+};
+use cs_vector::{Embedder, HashEmbedder};
 use serde_json::{json, Value};
+
+use crate::embedding::{self, HASH_TAG};
+
+/// The active embedder plus the tag stored next to the vectors it produces.
+/// Held behind an [`RwLock`] in [`Inner`] so the core can hot-swap a freshly
+/// downloaded neural model in while the socket is already serving.
+struct EmbedderState {
+    embedder: Arc<dyn Embedder>,
+    tag: String,
+}
 
 /// What every handler returns: a JSON payload or a human-readable error message.
 type HandlerResult = std::result::Result<Value, String>;
@@ -38,10 +51,17 @@ struct Inner {
     event_bus: EventBus,
     /// Per-running-session cancel signals, so `session.stop` can kill a live run.
     cancels: Mutex<HashMap<String, Arc<tokio::sync::Notify>>>,
+    /// Active semantic embedder; swappable so a background download can upgrade
+    /// the hash fallback to the neural model without restarting.
+    embedder: RwLock<EmbedderState>,
 }
 
 impl Router {
     /// Build a router from the loaded application components.
+    ///
+    /// The semantic embedder starts as the dependency-free hash fallback;
+    /// production swaps in the neural model via [`Router::set_embedder`] once a
+    /// background task has loaded it.
     pub fn new(
         config: AppConfig,
         sessions: SessionStore,
@@ -57,8 +77,27 @@ impl Router {
                 sessions: Mutex::new(sessions),
                 event_bus,
                 cancels: Mutex::new(HashMap::new()),
+                embedder: RwLock::new(EmbedderState {
+                    embedder: Arc::new(HashEmbedder::default()),
+                    tag: HASH_TAG.to_string(),
+                }),
             }),
         }
+    }
+
+    /// Replace the active embedder (and its vector tag). Used by the core to
+    /// upgrade from the hash fallback to the neural model once it is ready.
+    pub fn set_embedder(&self, embedder: Arc<dyn Embedder>, tag: String) {
+        let mut slot = self.inner.embedder.write().unwrap();
+        slot.embedder = embedder;
+        slot.tag = tag;
+    }
+
+    /// Snapshot the current embedder and its tag (cheap `Arc`/`String` clone),
+    /// taken without holding the lock across an embed call.
+    fn current_embedder(&self) -> (Arc<dyn Embedder>, String) {
+        let slot = self.inner.embedder.read().unwrap();
+        (slot.embedder.clone(), slot.tag.clone())
     }
 
     /// Register a cancel signal for a running session and return it. The session
@@ -274,11 +313,22 @@ impl Router {
             .get("query")
             .and_then(Value::as_str)
             .ok_or("missing 'query'")?;
-        let limit = p.get("limit").and_then(Value::as_i64).unwrap_or(50);
+        // Small default keeps results token-frugal (title + short snippet each).
+        let limit = p.get("limit").and_then(Value::as_i64).unwrap_or(8);
+        // Semantic-first: rank by meaning via the neural index, falling back to
+        // keyword FTS when the semantic index has nothing (e.g. before the
+        // model has finished backfilling).
+        let (embedder, tag) = self.current_embedder();
+        let query_vec = embedder.embed(query);
         let store = self.inner.sessions.lock().unwrap();
-        let hits = store
-            .full_text_search(query, limit)
+        let mut hits = store
+            .vector_search(&query_vec, &tag, limit)
             .map_err(|e| e.to_string())?;
+        if hits.is_empty() {
+            hits = store
+                .full_text_search(query, limit)
+                .map_err(|e| e.to_string())?;
+        }
         Ok(json!({ "hits": hits }))
     }
 
@@ -368,10 +418,67 @@ impl Router {
         store.insert_session(&ns).unwrap_or_default()
     }
 
-    /// Append a transcript message (best-effort).
+    /// Append a transcript message (best-effort) and add it to the semantic
+    /// index so it is recallable by meaning, not just keywords.
     pub fn record_message(&self, session_id: &str, role: &str, content: &str) {
+        let id = {
+            let store = self.inner.sessions.lock().unwrap();
+            store
+                .append_message(&NewMessage::new(session_id, role, content))
+                .unwrap_or_default()
+        };
+        if id.is_empty() {
+            return;
+        }
+        // Embed outside the sessions lock — the neural forward pass is the slow
+        // part and must not serialize other DB work.
+        let (embedder, tag) = self.current_embedder();
+        let vector = embedder.embed(content);
+        let snippet = embedding::snippet(content);
         let store = self.inner.sessions.lock().unwrap();
-        let _ = store.append_message(&NewMessage::new(session_id, role, content));
+        let _ = store.upsert_embedding(
+            &id,
+            session_id,
+            HitSource::Message,
+            &snippet,
+            &tag,
+            &vector,
+            now_millis(),
+        );
+    }
+
+    /// Embed transcript messages that still lack a vector for the active model
+    /// (e.g. recorded before the neural model loaded). Returns how many were
+    /// embedded. Idempotent — safe to call repeatedly.
+    pub fn backfill_embeddings(&self, max_items: i64) -> usize {
+        let (embedder, tag) = self.current_embedder();
+        let pending = {
+            let store = self.inner.sessions.lock().unwrap();
+            store
+                .unembedded_messages(&tag, max_items)
+                .unwrap_or_default()
+        };
+        let mut count = 0;
+        for item in pending {
+            let vector = embedder.embed(&item.content);
+            let snippet = embedding::snippet(&item.content);
+            let store = self.inner.sessions.lock().unwrap();
+            if store
+                .upsert_embedding(
+                    &item.owner_id,
+                    &item.session_id,
+                    HitSource::Message,
+                    &snippet,
+                    &tag,
+                    &vector,
+                    now_millis(),
+                )
+                .is_ok()
+            {
+                count += 1;
+            }
+        }
+        count
     }
 
     /// Append a tool-call record (best-effort).

@@ -17,6 +17,7 @@ cs-types = { workspace = true }
 cs-config = { workspace = true }
 cs-ipc = { workspace = true }
 cs-sessions = { workspace = true }
+cs-vector = { workspace = true, features = ["neural"] }
 cs-agentic-os = { workspace = true }
 cs-git = { workspace = true }
 cs-mcp = { workspace = true }

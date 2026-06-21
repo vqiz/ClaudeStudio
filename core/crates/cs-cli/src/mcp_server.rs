@@ -11,15 +11,25 @@
 //! without spawning a process.
 
 use cs_sessions::SessionStore;
+use cs_vector::Embedder;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
+use std::sync::Arc;
 
 /// MCP protocol revision we implement (matches what the `claude` CLI negotiates).
 const PROTOCOL_VERSION: &str = "2024-11-05";
 
 /// Run the MCP stdio loop until stdin closes. Reads one JSON-RPC message per
 /// line; writes one JSON response per line. Notifications produce no output.
-pub fn run(store: SessionStore) -> anyhow::Result<()> {
+///
+/// `embedder` / `model_tag` power semantic search: the query is embedded and
+/// matched against the vector index; keyword FTS is the fallback when the index
+/// is empty (e.g. before the core has finished backfilling).
+pub fn run(
+    store: SessionStore,
+    embedder: Arc<dyn Embedder>,
+    model_tag: String,
+) -> anyhow::Result<()> {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut reader = stdin.lock();
@@ -37,7 +47,7 @@ pub fn run(store: SessionStore) -> anyhow::Result<()> {
             Ok(v) => v,
             Err(_) => continue, // ignore unparseable lines rather than crash
         };
-        if let Some(response) = handle_message(&store, &request) {
+        if let Some(response) = handle_message(&store, embedder.as_ref(), &model_tag, &request) {
             let encoded = serde_json::to_string(&response)?;
             stdout.write_all(encoded.as_bytes())?;
             stdout.write_all(b"\n")?;
@@ -50,7 +60,12 @@ pub fn run(store: SessionStore) -> anyhow::Result<()> {
 /// Dispatch a single JSON-RPC message. Returns `Some(response)` for requests and
 /// `None` for notifications (messages without an `id`, e.g.
 /// `notifications/initialized`).
-pub fn handle_message(store: &SessionStore, request: &Value) -> Option<Value> {
+pub fn handle_message(
+    store: &SessionStore,
+    embedder: &dyn Embedder,
+    model_tag: &str,
+    request: &Value,
+) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
     match method {
@@ -65,7 +80,13 @@ pub fn handle_message(store: &SessionStore, request: &Value) -> Option<Value> {
         "notifications/initialized" => None,
         "ping" => Some(ok(id, json!({}))),
         "tools/list" => Some(ok(id, json!({ "tools": tool_definitions() }))),
-        "tools/call" => Some(handle_tool_call(store, id, request.get("params"))),
+        "tools/call" => Some(handle_tool_call(
+            store,
+            embedder,
+            model_tag,
+            id,
+            request.get("params"),
+        )),
         _ => {
             // Don't reply to unknown notifications (no id); error on unknown requests.
             id.as_ref()?;
@@ -74,7 +95,13 @@ pub fn handle_message(store: &SessionStore, request: &Value) -> Option<Value> {
     }
 }
 
-fn handle_tool_call(store: &SessionStore, id: Option<Value>, params: Option<&Value>) -> Value {
+fn handle_tool_call(
+    store: &SessionStore,
+    embedder: &dyn Embedder,
+    model_tag: &str,
+    id: Option<Value>,
+    params: Option<&Value>,
+) -> Value {
     let name = params
         .and_then(|p| p.get("name"))
         .and_then(Value::as_str)
@@ -83,7 +110,7 @@ fn handle_tool_call(store: &SessionStore, id: Option<Value>, params: Option<&Val
         .and_then(|p| p.get("arguments"))
         .cloned()
         .unwrap_or_else(|| json!({}));
-    match call_tool(store, name, &args) {
+    match call_tool(store, embedder, model_tag, name, &args) {
         Ok(value) => ok(
             id,
             json!({
@@ -102,7 +129,13 @@ fn handle_tool_call(store: &SessionStore, id: Option<Value>, params: Option<&Val
 }
 
 /// Execute a tool against the session store. Read-only.
-pub fn call_tool(store: &SessionStore, name: &str, args: &Value) -> Result<Value, String> {
+pub fn call_tool(
+    store: &SessionStore,
+    embedder: &dyn Embedder,
+    model_tag: &str,
+    name: &str,
+    args: &Value,
+) -> Result<Value, String> {
     match name {
         "list_sessions" => {
             let limit = args.get("limit").and_then(Value::as_i64).unwrap_or(20);
@@ -125,9 +158,17 @@ pub fn call_tool(store: &SessionStore, name: &str, args: &Value) -> Result<Value
             // Default to a small result set; each hit is just a title + short
             // snippet, so this stays cheap on tokens.
             let limit = args.get("limit").and_then(Value::as_i64).unwrap_or(8);
-            let hits = store
-                .full_text_search(query, limit)
+            // Semantic-first: embed the query and rank by meaning. Fall back to
+            // keyword FTS only when the vector index returns nothing.
+            let query_vec = embedder.embed(query);
+            let mut hits = store
+                .vector_search(&query_vec, model_tag, limit)
                 .map_err(|e| e.to_string())?;
+            if hits.is_empty() {
+                hits = store
+                    .full_text_search(query, limit)
+                    .map_err(|e| e.to_string())?;
+            }
             Ok(json!({ "hits": hits }))
         }
         "session_stats" => {
@@ -143,11 +184,11 @@ fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "search_sessions",
-            "description": "PREFER THIS. Token-cheap full-text search over the ClaudeStudio session transcript. Returns only the best-matching sessions as {session_id, title, short snippet} — never full transcripts. Use a focused query and read the snippets; only call get_session afterwards if you truly need a specific session's metadata. This is the efficient way to recall past work.",
+            "description": "PREFER THIS. Token-cheap SEMANTIC search over the ClaudeStudio session archive: ranks past sessions by meaning (a local neural embedding), not just keywords, and falls back to keyword matching automatically. Returns only the best-matching sessions as {session_id, title, short snippet} — never full transcripts. Use a natural-language query and read the snippets; only call get_session afterwards if you truly need a specific session's metadata. This is the efficient way to recall past work.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "query": { "type": "string", "description": "Focused search terms (FTS5 syntax)." },
+                    "query": { "type": "string", "description": "Natural-language description of what you're looking for (semantic match)." },
                     "limit": { "type": "integer", "description": "Max hits to return (default 8). Keep small.", "minimum": 1, "maximum": 50 }
                 },
                 "required": ["query"]
@@ -192,6 +233,13 @@ fn err(id: Option<Value>, code: i64, message: &str) -> Value {
 mod tests {
     use super::*;
     use cs_sessions::{NewSession, SessionStore};
+    use cs_vector::HashEmbedder;
+
+    /// A cheap, download-free embedder for tests (the neural model isn't loaded
+    /// in unit tests; search falls back to FTS anyway).
+    fn emb() -> HashEmbedder {
+        HashEmbedder::default()
+    }
 
     fn store_with_one() -> SessionStore {
         let store = SessionStore::open_in_memory().expect("in-memory store");
@@ -205,7 +253,7 @@ mod tests {
     fn initialize_returns_server_info() {
         let store = SessionStore::open_in_memory().unwrap();
         let req = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} });
-        let resp = handle_message(&store, &req).expect("response");
+        let resp = handle_message(&store, &emb(), "hash", &req).expect("response");
         assert_eq!(resp["result"]["serverInfo"]["name"], json!("claudestudio"));
         assert_eq!(resp["result"]["protocolVersion"], json!(PROTOCOL_VERSION));
         assert!(resp["result"]["capabilities"]["tools"].is_object());
@@ -215,14 +263,14 @@ mod tests {
     fn initialized_notification_has_no_response() {
         let store = SessionStore::open_in_memory().unwrap();
         let req = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
-        assert!(handle_message(&store, &req).is_none());
+        assert!(handle_message(&store, &emb(), "hash", &req).is_none());
     }
 
     #[test]
     fn tools_list_advertises_every_db_tool() {
         let store = SessionStore::open_in_memory().unwrap();
         let req = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
-        let resp = handle_message(&store, &req).expect("response");
+        let resp = handle_message(&store, &emb(), "hash", &req).expect("response");
         let names: Vec<String> = resp["result"]["tools"]
             .as_array()
             .unwrap()
@@ -246,7 +294,7 @@ mod tests {
             "jsonrpc": "2.0", "id": 3, "method": "tools/call",
             "params": { "name": "list_sessions", "arguments": { "limit": 10 } }
         });
-        let resp = handle_message(&store, &req).expect("response");
+        let resp = handle_message(&store, &emb(), "hash", &req).expect("response");
         assert_eq!(resp["result"]["isError"], json!(false));
         let text = resp["result"]["content"][0]["text"].as_str().unwrap();
         assert!(text.contains("Refactor IPC"));
@@ -259,7 +307,7 @@ mod tests {
             "jsonrpc": "2.0", "id": 4, "method": "tools/call",
             "params": { "name": "drop_tables", "arguments": {} }
         });
-        let resp = handle_message(&store, &req).expect("response");
+        let resp = handle_message(&store, &emb(), "hash", &req).expect("response");
         assert_eq!(resp["result"]["isError"], json!(true));
     }
 
@@ -267,7 +315,7 @@ mod tests {
     fn unknown_method_returns_jsonrpc_error() {
         let store = SessionStore::open_in_memory().unwrap();
         let req = json!({ "jsonrpc": "2.0", "id": 5, "method": "does.not.exist" });
-        let resp = handle_message(&store, &req).expect("response");
+        let resp = handle_message(&store, &emb(), "hash", &req).expect("response");
         assert_eq!(resp["error"]["code"], json!(-32601));
     }
 }

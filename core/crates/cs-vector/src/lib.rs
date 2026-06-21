@@ -1,4 +1,8 @@
-#![forbid(unsafe_code)]
+// The crate is unsafe-free by default. The optional `neural` feature mmaps
+// model weights via candle, which requires one `unsafe` block, so the blanket
+// forbid is relaxed (to a deny) only for that build.
+#![cfg_attr(not(feature = "neural"), forbid(unsafe_code))]
+#![cfg_attr(feature = "neural", deny(unsafe_code))]
 //! `cs-vector` — the semantic memory layer for ClaudeStudio.
 //!
 //! This crate provides two pluggable abstractions:
@@ -35,6 +39,9 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(feature = "neural")]
+pub mod neural;
 
 /// Dimensionality of vectors produced by [`HashEmbedder`].
 pub const EMBED_DIM: usize = 768;

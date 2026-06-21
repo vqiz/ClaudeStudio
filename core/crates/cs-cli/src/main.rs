@@ -18,6 +18,7 @@
 //!
 //! It shuts down gracefully on `Ctrl-C`, removing the socket file.
 
+mod embedding;
 mod mcp_server;
 mod router;
 
@@ -74,7 +75,10 @@ async fn main() -> anyhow::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("mcp") {
         let store = SessionStore::open(&state_dir.join("sessions.db"))
             .map_err(|e| anyhow::anyhow!("failed to open session store: {e}"))?;
-        return mcp_server::run(store);
+        // Load the cached neural model if present (never downloads, so the MCP
+        // handshake is never blocked); otherwise search falls back to FTS.
+        let (embedder, model_tag) = embedding::load_cached(&state_dir);
+        return mcp_server::run(store, embedder, model_tag);
     }
 
     init_tracing();
@@ -106,6 +110,24 @@ async fn main() -> anyhow::Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| state_dir.clone());
     let router = Router::new(config, sessions, event_bus, state_dir.clone(), library_dir);
+
+    // Bring up the semantic-search model in the background: the socket serves
+    // immediately with the hash fallback, and once the neural model is ready
+    // (downloaded once on first run) we hot-swap it in and backfill the vector
+    // index for any transcript recorded before it loaded.
+    {
+        let router = router.clone();
+        let state_dir = state_dir.clone();
+        tokio::task::spawn_blocking(move || {
+            let (embedder, tag) = embedding::ensure_and_load(&state_dir);
+            let is_neural = tag != embedding::HASH_TAG;
+            router.set_embedder(embedder, tag);
+            if is_neural {
+                let n = router.backfill_embeddings(10_000);
+                tracing::info!(backfilled = n, "semantic index backfill complete");
+            }
+        });
+    }
 
     // 6. Accept loop with graceful Ctrl-C shutdown.
     let result = serve(&listener, router).await;
