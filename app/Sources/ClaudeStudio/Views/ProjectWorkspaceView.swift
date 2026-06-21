@@ -119,7 +119,9 @@ private struct ProjectOverviewTab: View {
             }
             .padding(DS.s4)
         }
-        .task(id: project.id) {
+        // Re-run when the core connects, so git/worktree data loads even if the
+        // view first appeared while the core was still offline.
+        .task(id: "\(project.id)#\(appState.coreConnected)") {
             await appState.core.gitInfo(cwd: project.path)
             await appState.core.worktrees(cwd: project.path)
         }
@@ -214,7 +216,11 @@ private struct ProjectSessionTab: View {
             .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: project.path) { await appState.core.skills(cwd: project.path) }
+        // Keyed on connection state too, so skills load once the core comes up
+        // even if this view appeared while it was offline.
+        .task(id: "\(project.path)#\(appState.coreConnected)") {
+            await appState.core.skills(cwd: project.path)
+        }
     }
 
     private var appliedBar: some View {

@@ -495,7 +495,10 @@ final class CoreConnection {
             self.config = try await client.fetchConfig()
             self.budget = try await client.fetchContextBudget()
         } catch {
-            self.status = .failed(Self.describe(error))
+            // A transient RPC failure must not strand us "offline" with a still-
+            // live event stream and no skills. Fully reconnect (the AppState
+            // watchdog also backstops this).
+            await connect()
         }
     }
 
@@ -532,7 +535,21 @@ final class CoreConnection {
                 guard let self else { return }
                 self.handleEvent(envelope)
             }
+            // The stream ended: the core closed the socket (crash / restart /
+            // killed). Unless this was a deliberate disconnect (which nulls
+            // `client` and cancels this task), mark the link down so the
+            // AppState watchdog reconnects — otherwise we'd appear "online"
+            // forever with a dead core.
+            guard let self, !Task.isCancelled, self.client === client else { return }
+            self.status = .offline
         }
+    }
+
+    /// Whether the core answers a `ping` right now. Used by the watchdog to
+    /// detect a silently-dead link even if the event stream hasn't ended yet.
+    func isAlive() async -> Bool {
+        guard isConnected, let client else { return false }
+        return ((try? await client.ping()) ?? false)
     }
 
     private func handleEvent(_ envelope: IpcEnvelope) {

@@ -148,7 +148,7 @@ final class AppState {
                          status: .running)
         ]
         self.activeSession = session
-        self.busEvents = BusEvent.samples
+        self.busEvents = []
     }
 
     var selectedProject: Project? {
@@ -180,14 +180,30 @@ final class AppState {
         selectedSidebarItem = .projects
     }
 
-    /// Starts the simulated supervisor event bus feeding the OS View.
+    /// Runs the core supervisor loop: keeps the Rust core connected (auto-
+    /// reconnecting if it ever drops — e.g. after the app bundle is replaced or
+    /// the core is restarted) and mirrors the **real** core event bus into the
+    /// OS View feed. Replaces the previous simulated demo stream.
     func startEventBus() {
         guard busTask == nil else { return }
         busTask = Task { @MainActor [weak self] in
-            for await event in BusEvent.simulatedStream() {
-                guard let self, !Task.isCancelled else { return }
-                self.busEvents.insert(event, at: 0)
-                if self.busEvents.count > 200 { self.busEvents.removeLast() }
+            while !Task.isCancelled {
+                guard let self else { return }
+                // Self-heal: whenever the core isn't online — or claims to be but
+                // no longer answers a ping (silently-dead link) — (re)connect.
+                // This recovers the "core offline / no skills" state on its own.
+                var needsReconnect = !self.core.isConnected
+                if !needsReconnect {
+                    needsReconnect = !(await self.core.isAlive())
+                }
+                if needsReconnect {
+                    await self.connectCore()
+                }
+                // Reflect the genuine core events (newest first) — no fake data.
+                self.busEvents = self.core.recentEvents.map {
+                    BusEvent(severity: .info, source: "core", message: $0.label, timestamp: $0.at)
+                }
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
     }
