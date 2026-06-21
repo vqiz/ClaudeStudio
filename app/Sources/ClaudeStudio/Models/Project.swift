@@ -12,21 +12,28 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
     var model: String
     /// Per-project reasoning effort (`--effort`): low/medium/high/xhigh/max.
     var effort: String
+    /// Agents (from Agent Studio) assigned to this project. Their instructions
+    /// are written into the project's CLAUDE.md so every request follows them.
+    var assignedAgentIDs: [UUID]
     var addedAt: Date
 
     init(id: UUID = UUID(), name: String, path: String,
-         model: String = "sonnet", effort: String = "medium", addedAt: Date = .now) {
+         model: String = "sonnet", effort: String = "medium",
+         assignedAgentIDs: [UUID] = [], addedAt: Date = .now) {
         self.id = id
         self.name = name
         self.path = path
         self.model = model
         self.effort = effort
+        self.assignedAgentIDs = assignedAgentIDs
         self.addedAt = addedAt
     }
 
-    enum CodingKeys: String, CodingKey { case id, name, path, model, effort, addedAt }
+    enum CodingKeys: String, CodingKey {
+        case id, name, path, model, effort, assignedAgentIDs, addedAt
+    }
 
-    /// Tolerant decoder so projects saved before `effort` existed still load
+    /// Tolerant decoder so projects saved before a field existed still load
     /// (the missing field defaults instead of failing the whole list).
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,6 +42,7 @@ struct Project: Identifiable, Hashable, Codable, Sendable {
         path = try c.decode(String.self, forKey: .path)
         model = try c.decodeIfPresent(String.self, forKey: .model) ?? "sonnet"
         effort = try c.decodeIfPresent(String.self, forKey: .effort) ?? "medium"
+        assignedAgentIDs = try c.decodeIfPresent([UUID].self, forKey: .assignedAgentIDs) ?? []
         addedAt = try c.decodeIfPresent(Date.self, forKey: .addedAt) ?? .now
     }
 
@@ -86,6 +94,12 @@ final class ProjectStore {
     func setEffort(_ id: Project.ID, effort: String) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
         projects[index].effort = effort
+        save()
+    }
+
+    func setAssignedAgents(_ id: Project.ID, agentIDs: [UUID]) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        projects[index].assignedAgentIDs = agentIDs
         save()
     }
 

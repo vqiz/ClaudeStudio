@@ -170,6 +170,25 @@ final class AppState {
         }
     }
 
+    /// Write the project's assigned agents into its CLAUDE.md (managed section),
+    /// so every Claude request in that project follows them. Best-effort and
+    /// idempotent: it preserves the user's own CLAUDE.md content and only
+    /// rewrites the managed block. Runs in the background via the core.
+    func syncProjectAgentsToClaudeMd(_ projectID: Project.ID) async {
+        guard core.isConnected,
+              let project = projectStore.projects.first(where: { $0.id == projectID })
+        else { return }
+        let agents = project.assignedAgentIDs.compactMap { aid in
+            agentStore.agents.first { $0.id == aid }
+        }
+        let block = ClaudeMdAgents.block(for: agents)
+        let current = (await core.readFile(project.claudeMdPath))?.content ?? ""
+        let updated = ClaudeMdAgents.splice(into: current, block: block)
+        if updated != current {
+            _ = await core.writeFile(project.claudeMdPath, content: updated)
+        }
+    }
+
     /// Resume an archived conversation (like `claude --resume`): load its
     /// transcript, arm resume, select (or add) its project, and jump to it so the
     /// user can continue in the Session tab.

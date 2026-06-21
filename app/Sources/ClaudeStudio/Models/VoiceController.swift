@@ -178,12 +178,22 @@ final class VoiceController: NSObject {
         task = nil
     }
 
-    private func ensureAuthorized() async -> Bool {
-        let speechOK: Bool = await withCheckedContinuation { cont in
+    /// `nonisolated` on purpose: `SFSpeechRecognizer.requestAuthorization` and
+    /// `AVCaptureDevice.requestAccess` invoke their callbacks on a background TCC
+    /// queue. If this method were `@MainActor`-isolated (it inherits the class's
+    /// isolation otherwise), those callback closures become main-actor-isolated
+    /// and the macOS 26 Swift runtime traps with a `dispatch_assert_queue`
+    /// failure when they run off-main — the crash seen when starting voice.
+    /// Nothing here touches actor-isolated state, so non-isolation is safe; the
+    /// continuation's `resume` is thread-safe.
+    nonisolated private func ensureAuthorized() async -> Bool {
+        let speechOK: Bool = await withCheckedContinuation { (cont: CheckedContinuation<Bool, Never>) in
             switch SFSpeechRecognizer.authorizationStatus() {
             case .authorized: cont.resume(returning: true)
             case .notDetermined:
-                SFSpeechRecognizer.requestAuthorization { cont.resume(returning: $0 == .authorized) }
+                SFSpeechRecognizer.requestAuthorization { status in
+                    cont.resume(returning: status == .authorized)
+                }
             default: cont.resume(returning: false)
             }
         }
@@ -239,18 +249,21 @@ final class VoiceController: NSObject {
 // MARK: - TTS delegate (state transitions)
 
 extension VoiceController: AVSpeechSynthesizerDelegate {
+    // Hop to the main actor via a Task rather than `MainActor.assumeIsolated`:
+    // the latter traps if the delegate is ever delivered off the main thread
+    // (same macOS-26 isolation-assertion crash class as ensureAuthorized).
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didStart utterance: AVSpeechUtterance) {
-        MainActor.assumeIsolated { if state != .listening { state = .speaking } }
+        Task { @MainActor in if state != .listening { state = .speaking } }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didFinish utterance: AVSpeechUtterance) {
-        MainActor.assumeIsolated { if state == .speaking { state = .idle } }
+        Task { @MainActor in if state == .speaking { state = .idle } }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                                        didCancel utterance: AVSpeechUtterance) {
-        MainActor.assumeIsolated { if state == .speaking { state = .idle } }
+        Task { @MainActor in if state == .speaking { state = .idle } }
     }
 }

@@ -101,6 +101,8 @@ private struct ProjectOverviewTab: View {
                     modelCard
                 }
 
+                agentsCard
+
                 if !worktrees.isEmpty {
                     SectionCard(title: "Worktrees (\(worktrees.count))", symbol: "square.split.2x1") {
                         VStack(alignment: .leading, spacing: 8) {
@@ -120,11 +122,62 @@ private struct ProjectOverviewTab: View {
             .padding(DS.s4)
         }
         // Re-run when the core connects, so git/worktree data loads even if the
-        // view first appeared while the core was still offline.
+        // view first appeared while the core was still offline. Also re-sync the
+        // CLAUDE.md agents block so edits made in Agent Studio propagate.
         .task(id: "\(project.id)#\(appState.coreConnected)") {
             await appState.core.gitInfo(cwd: project.path)
             await appState.core.worktrees(cwd: project.path)
+            if !project.assignedAgentIDs.isEmpty {
+                await appState.syncProjectAgentsToClaudeMd(project.id)
+            }
         }
+    }
+
+    /// Assign Agent Studio agents to this project. Toggling one updates the
+    /// project and writes the agents into CLAUDE.md in the background.
+    private var agentsCard: some View {
+        SectionCard(title: "Agents", symbol: "person.2.badge.gearshape") {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Assign agents from Agent Studio. Their instructions are written into this project's CLAUDE.md automatically, so every request here follows them.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if appState.agentStore.agents.isEmpty {
+                    Text("No agents yet — create them in Agent Studio.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                } else {
+                    ForEach(appState.agentStore.agents) { agent in
+                        Toggle(isOn: agentBinding(agent)) {
+                            HStack(spacing: 8) {
+                                Image(systemName: agent.symbol).foregroundStyle(.tint).frame(width: 18)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(agent.name).font(.callout.weight(.medium))
+                                    if !agent.role.isEmpty {
+                                        Text(agent.role).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                            }
+                        }
+                        .toggleStyle(.switch)
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentBinding(_ agent: AgentDefinition) -> Binding<Bool> {
+        Binding(
+            get: { project.assignedAgentIDs.contains(agent.id) },
+            set: { isOn in
+                var ids = project.assignedAgentIDs
+                if isOn {
+                    if !ids.contains(agent.id) { ids.append(agent.id) }
+                } else {
+                    ids.removeAll { $0 == agent.id }
+                }
+                appState.projectStore.setAssignedAgents(project.id, agentIDs: ids)
+                Task { await appState.syncProjectAgentsToClaudeMd(project.id) }
+            }
+        )
     }
 
     private var modelCard: some View {
