@@ -23,7 +23,7 @@
 //! store
 //!     .append_message(&NewMessage::new(&sid, "user", "please fix the parser bug"))
 //!     .unwrap();
-//! let hits = store.full_text_search("parser bug").unwrap();
+//! let hits = store.full_text_search("parser bug", 10).unwrap();
 //! assert_eq!(hits.len(), 1);
 //! ```
 
@@ -307,6 +307,9 @@ pub enum HitSource {
 pub struct SearchHit {
     /// Session the hit belongs to.
     pub session_id: String,
+    /// The matching session's title — so a caller can judge relevance without a
+    /// follow-up `get_session` (saves tokens for the model).
+    pub title: String,
     /// What kind of record matched.
     pub source: HitSource,
     /// A snippet of matching text with `[` / `]` marking the matched terms.
@@ -627,25 +630,32 @@ impl SessionStore {
     ///
     /// `query` uses SQLite's FTS5 MATCH syntax. Results are ordered by relevance
     /// (best match first). Returns at most 50 hits.
-    pub fn full_text_search(&self, query: &str) -> Result<Vec<SearchHit>> {
+    pub fn full_text_search(&self, query: &str, limit: i64) -> Result<Vec<SearchHit>> {
+        // Keep results small: each hit is a session id + title + a short snippet
+        // (not the full message), so callers — including the Claude MCP tool —
+        // can't accidentally pull large amounts of irrelevant transcript.
+        let limit = limit.clamp(1, 50);
         let mut stmt = self.conn.prepare(
-            "SELECT session_id, source, snippet(transcript_fts, 2, '[', ']', '…', 12), rank
+            "SELECT transcript_fts.session_id, s.title, transcript_fts.source,
+                    snippet(transcript_fts, 2, '[', ']', '…', 12), rank
              FROM transcript_fts
+             JOIN sessions s ON s.id = transcript_fts.session_id
              WHERE transcript_fts MATCH ?1
              ORDER BY rank
-             LIMIT 50",
+             LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![query], |row| {
-            let source: String = row.get(1)?;
+        let rows = stmt.query_map(params![query, limit], |row| {
+            let source: String = row.get(2)?;
             let source = match source.as_str() {
                 "file_diff" => HitSource::FileDiff,
                 _ => HitSource::Message,
             };
             Ok(SearchHit {
                 session_id: row.get(0)?,
+                title: row.get(1)?,
                 source,
-                snippet: row.get(2)?,
-                score: row.get(3)?,
+                snippet: row.get(3)?,
+                score: row.get(4)?,
             })
         })?;
         let mut hits = Vec::new();
@@ -698,7 +708,7 @@ mod tests {
             ))
             .unwrap();
 
-        let hits = store.full_text_search("parser").unwrap();
+        let hits = store.full_text_search("parser", 10).unwrap();
         assert_eq!(hits.len(), 1, "exactly one message mentions 'parser'");
         assert_eq!(hits[0].session_id, sid);
         assert_eq!(hits[0].source, HitSource::Message);
@@ -753,7 +763,7 @@ mod tests {
             ))
             .unwrap();
 
-        let hits = store.full_text_search("compute_fast").unwrap();
+        let hits = store.full_text_search("compute_fast", 10).unwrap();
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].source, HitSource::FileDiff);
     }

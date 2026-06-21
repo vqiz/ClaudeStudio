@@ -274,8 +274,11 @@ impl Router {
             .get("query")
             .and_then(Value::as_str)
             .ok_or("missing 'query'")?;
+        let limit = p.get("limit").and_then(Value::as_i64).unwrap_or(50);
         let store = self.inner.sessions.lock().unwrap();
-        let hits = store.full_text_search(query).map_err(|e| e.to_string())?;
+        let hits = store
+            .full_text_search(query, limit)
+            .map_err(|e| e.to_string())?;
         Ok(json!({ "hits": hits }))
     }
 

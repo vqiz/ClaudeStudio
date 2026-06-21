@@ -122,7 +122,12 @@ pub fn call_tool(store: &SessionStore, name: &str, args: &Value) -> Result<Value
                 .get("query")
                 .and_then(Value::as_str)
                 .ok_or("missing 'query'")?;
-            let hits = store.full_text_search(query).map_err(|e| e.to_string())?;
+            // Default to a small result set; each hit is just a title + short
+            // snippet, so this stays cheap on tokens.
+            let limit = args.get("limit").and_then(Value::as_i64).unwrap_or(8);
+            let hits = store
+                .full_text_search(query, limit)
+                .map_err(|e| e.to_string())?;
             Ok(json!({ "hits": hits }))
         }
         "session_stats" => {
@@ -137,37 +142,40 @@ pub fn call_tool(store: &SessionStore, name: &str, args: &Value) -> Result<Value
 fn tool_definitions() -> Vec<Value> {
     vec![
         json!({
-            "name": "list_sessions",
-            "description": "List the most recent ClaudeStudio sessions (newest first) from the session database.",
+            "name": "search_sessions",
+            "description": "PREFER THIS. Token-cheap full-text search over the ClaudeStudio session transcript. Returns only the best-matching sessions as {session_id, title, short snippet} — never full transcripts. Use a focused query and read the snippets; only call get_session afterwards if you truly need a specific session's metadata. This is the efficient way to recall past work.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "limit": { "type": "integer", "description": "Maximum sessions to return (default 20).", "minimum": 1 }
-                }
-            }
-        }),
-        json!({
-            "name": "get_session",
-            "description": "Get a single ClaudeStudio session's metadata by its id.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "id": { "type": "string", "description": "The session id (UUID)." } },
-                "required": ["id"]
-            }
-        }),
-        json!({
-            "name": "search_sessions",
-            "description": "Full-text search across ClaudeStudio session titles, messages, and tool calls.",
-            "inputSchema": {
-                "type": "object",
-                "properties": { "query": { "type": "string", "description": "The search query." } },
+                    "query": { "type": "string", "description": "Focused search terms (FTS5 syntax)." },
+                    "limit": { "type": "integer", "description": "Max hits to return (default 8). Keep small.", "minimum": 1, "maximum": 50 }
+                },
                 "required": ["query"]
             }
         }),
         json!({
             "name": "session_stats",
-            "description": "Aggregate counts for the ClaudeStudio session archive (sessions, messages, tool calls, file diffs, events).",
+            "description": "Tiny aggregate counts for the whole archive (sessions, messages, tool calls, file diffs, events). Cheap — use it for overview questions about totals.",
             "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "list_sessions",
+            "description": "List recent sessions (newest first) as compact metadata rows. Use a SMALL limit; for finding specific past work prefer search_sessions instead of listing many.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "description": "Maximum sessions to return (default 20; keep small).", "minimum": 1, "maximum": 100 }
+                }
+            }
+        }),
+        json!({
+            "name": "get_session",
+            "description": "Get ONE session's metadata (title, cwd, model, timestamps) by id. Metadata only — it does not return messages, tool calls, or outputs. Call sparingly, after search_sessions has pinpointed the session you need.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "id": { "type": "string", "description": "The session id (UUID)." } },
+                "required": ["id"]
+            }
         }),
     ]
 }
