@@ -27,7 +27,8 @@ struct VoiceOrchestrator: View {
                 Task {
                     await appState.core.startSession(
                         prompt: command, cwd: project?.path,
-                        model: project?.model, effort: project?.effort, origin: "voice")
+                        model: project?.model, systemPrompt: Self.voiceSystemPrompt,
+                        effort: project?.effort, origin: "voice")
                 }
             }
             // Barge-in: you started talking while Claude was thinking or speaking,
@@ -55,4 +56,14 @@ struct VoiceOrchestrator: View {
     private var lastAssistantText: String? {
         appState.core.liveSession.last { $0.kind == "assistant_text" }?.text
     }
+
+    /// Appended to voice runs so spoken replies are short and natural — the
+    /// answer is read aloud, so plain, concise prose works far better than a
+    /// long, marked-up response.
+    static let voiceSystemPrompt = """
+    This is a spoken voice conversation: your reply is read aloud by text-to-speech. \
+    Answer in 1–2 short, natural sentences of plain spoken language. Be direct and get to \
+    the point. Do NOT use markdown, code blocks, bullet lists, headers, tables, or emoji. \
+    If a complete answer would be long, give the key result concisely and offer to go deeper.
+    """
 }

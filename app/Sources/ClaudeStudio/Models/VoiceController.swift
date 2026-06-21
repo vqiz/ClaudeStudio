@@ -1,4 +1,5 @@
 import AVFoundation
+import NaturalLanguage
 import Observation
 import os
 import Speech
@@ -373,15 +374,68 @@ final class VoiceController: NSObject {
     // MARK: - Speaking (TTS)
 
     func speak(_ text: String) {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        currentSpoken = trimmed
-        let utterance = AVSpeechUtterance(string: trimmed)
+        // Read clean, spoken text (no markdown) in the most natural voice we can.
+        let spoken = Self.cleanForSpeech(text)
+        guard !spoken.isEmpty else { return }
+        currentSpoken = spoken
+        let utterance = AVSpeechUtterance(string: spoken)
+        utterance.voice = bestVoice(for: spoken)
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.prefersAssistiveTechnologySettings = false
         synthesizer.speak(utterance)
-        spokenLog.insert(trimmed, at: 0)
+        spokenLog.insert(spoken, at: 0)
         if spokenLog.count > 50 { spokenLog.removeLast() }
+    }
+
+    @ObservationIgnored private var voiceByLanguage: [String: AVSpeechSynthesisVoice] = [:]
+
+    /// Pick the most natural available voice for the text's language: prefer
+    /// premium, then enhanced, over the default (compact, robotic) voice. Cached.
+    private func bestVoice(for text: String) -> AVSpeechSynthesisVoice? {
+        let lang = Self.languageCode(of: text)
+        if let cached = voiceByLanguage[lang] { return cached }
+        let rank: (AVSpeechSynthesisVoiceQuality) -> Int = { q in
+            switch q {
+            case .premium: return 3
+            case .enhanced: return 2
+            default: return 1
+            }
+        }
+        let candidates = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix(lang) }
+        let chosen = candidates.max { rank($0.quality) < rank($1.quality) }
+            ?? AVSpeechSynthesisVoice(language: lang)
+        if let chosen { voiceByLanguage[lang] = chosen }
+        return chosen
+    }
+
+    /// Two-letter language code for `text` (e.g. "en", "de"), via on-device
+    /// language detection, falling back to the system's preferred language.
+    private static func languageCode(of text: String) -> String {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        if let lang = recognizer.dominantLanguage?.rawValue, !lang.isEmpty {
+            return String(lang.prefix(2))
+        }
+        return String((Locale.preferredLanguages.first ?? "en").prefix(2))
+    }
+
+    /// Strip markdown so the synthesizer reads natural prose instead of
+    /// "asterisk asterisk", backticks, hashes, bullets, and link URLs.
+    private static func cleanForSpeech(_ text: String) -> String {
+        var s = text
+        s = s.replacingOccurrences(of: "```", with: " ")
+        for token in ["**", "__", "`", "#", "~~"] {
+            s = s.replacingOccurrences(of: token, with: "")
+        }
+        // Markdown links [label](url) → label
+        s = s.replacingOccurrences(of: #"\[([^\]]+)\]\([^)]+\)"#, with: "$1", options: .regularExpression)
+        // Line-leading bullets / blockquotes / list numbers
+        s = s.replacingOccurrences(of: #"(?m)^\s*([-*>•]|\d+\.)\s+"#, with: "", options: .regularExpression)
+        // Stray emphasis asterisks/underscores around words
+        s = s.replacingOccurrences(of: #"[*_]([^*_\n]+)[*_]"#, with: "$1", options: .regularExpression)
+        // Collapse runs of whitespace
+        s = s.replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func stop() {
