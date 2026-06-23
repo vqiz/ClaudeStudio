@@ -59,3 +59,9 @@
   Neue IPC (router.rs): context.assemble (liest echte 6-Ebenen-Dateien von Disk, feste Reihenfolge,
   Pro-Ebene-Toggle, echtes Token-Budget), memory.get/set/append, claudemd.save (Backup-vor-Speichern).
   PASSING: F076 F077 F078 F083 F084 F087 F089 F091 F094 F095 F096. cargo test grün. 69/360.
+[SESSION 1] [2026-06-23] [BUILD-3] [PASSING] +13 Sicherheit/Permissions GEBAUT + verifiziert:
+  Neue IPC (router.rs): permissions.check (reine classify_permission-Logik: kritische Gates halten
+  selbst im YOLO — Push-auf-main, rm-rf außerhalb Projekt, Dangerous-Filter; Modus-Logik strict/
+  standard/auto/yolo; Subagent ask->deny), permissions.matrix_get/set (+default), permissions.audit_log
+  (jede Entscheidung), security.scan_output (Prompt-Injection-Guard).
+  PASSING: F286-F295,F297,F298,F299. cargo test grün. 82/360.

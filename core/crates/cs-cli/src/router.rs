@@ -322,6 +322,13 @@ impl Router {
             "memory.append" => self.memory_append(p),
             "claudemd.save" => self.claudemd_save(p),
 
+            // --- Security & permissions ---
+            "permissions.check" => self.permissions_check(p),
+            "permissions.audit_log" => self.permissions_audit_log(p),
+            "permissions.matrix_get" => self.permissions_matrix_get(),
+            "permissions.matrix_set" => self.permissions_matrix_set(p),
+            "security.scan_output" => Ok(scan_output_payload(p)),
+
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
 
@@ -627,6 +634,101 @@ impl Router {
             "layers": layers,
             "assembled_text": assembled_text,
         }))
+    }
+
+    // MARK: Security & permissions
+
+    fn audit_log_path(&self) -> PathBuf {
+        self.inner.state_dir.join("audit.log")
+    }
+    fn matrix_path(&self) -> PathBuf {
+        self.inner.state_dir.join("permissions.json")
+    }
+
+    fn read_matrix(&self) -> Value {
+        std::fs::read_to_string(self.matrix_path())
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+
+    fn permissions_matrix_get(&self) -> HandlerResult {
+        Ok(json!({ "matrix": self.read_matrix() }))
+    }
+
+    fn permissions_matrix_set(&self, p: &Value) -> HandlerResult {
+        let tool = req_str(p, "tool")?;
+        let decision = req_str(p, "decision")?;
+        if !["allow", "ask", "deny", "default"].contains(&decision) {
+            return Err(IpcFailure::invalid("decision must be allow|ask|deny|default"));
+        }
+        let mut m = self.read_matrix();
+        if decision == "default" {
+            // Remove the per-tool override, falling back to trust-mode logic.
+            if let Some(obj) = m.as_object_mut() {
+                obj.remove(tool);
+            }
+        } else {
+            m[tool] = json!(decision);
+        }
+        std::fs::write(self.matrix_path(), serde_json::to_string_pretty(&m).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "matrix": m }))
+    }
+
+    fn permissions_audit_log(&self, p: &Value) -> HandlerResult {
+        let limit = p.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        let content = std::fs::read_to_string(self.audit_log_path()).unwrap_or_default();
+        let entries: Vec<Value> = content
+            .lines()
+            .rev()
+            .take(limit)
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .collect();
+        Ok(json!({ "entries": entries }))
+    }
+
+    /// Decide whether a tool action is allowed / needs confirmation / denied,
+    /// then record the decision in the audit log (F287-F299).
+    fn permissions_check(&self, p: &Value) -> HandlerResult {
+        let mode = match p.get("trust_mode").and_then(Value::as_str) {
+            Some(m) => m.to_lowercase(),
+            None => format!("{:?}", self.trust_mode()).to_lowercase(),
+        };
+        let action = req_str(p, "action")?;
+        let command = p.get("command").and_then(Value::as_str).unwrap_or("");
+        let path = p.get("path").and_then(Value::as_str).unwrap_or("");
+        let project_root = p.get("project_root").and_then(Value::as_str).unwrap_or("");
+        let branch = p.get("branch").and_then(Value::as_str).unwrap_or("");
+        let subagent = p.get("subagent").and_then(Value::as_bool).unwrap_or(false);
+
+        let matrix = self.read_matrix();
+        let matrix_decision = matrix.get(action).and_then(Value::as_str);
+
+        let (mut decision, reason, gate) = classify_permission(
+            &mode, action, command, path, project_root, branch, matrix_decision,
+        );
+        // Subagents can never ask interactively: an 'ask' becomes 'deny' (F295).
+        if subagent && decision == "ask" {
+            decision = "deny".to_string();
+        }
+
+        // Audit EVERY decision, independent of the trust mode (F298).
+        let entry = json!({
+            "timestamp": now_millis(), "action": action, "command": command,
+            "path": path, "branch": branch, "mode": mode, "subagent": subagent,
+            "decision": decision, "gate": gate, "reason": reason,
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.audit_log_path())
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+
+        Ok(json!({ "decision": decision, "reason": reason, "gate": gate, "mode": mode }))
     }
 
     // MARK: Sessions
@@ -1875,6 +1977,136 @@ fn which_ok(bin: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+/// Pure permission classifier. Returns `(decision, reason, critical_gate)` where
+/// decision ∈ {allow, ask, deny}. Critical gates fire in EVERY trust mode —
+/// including YOLO. Deterministic and side-effect free (so it is unit-testable).
+fn classify_permission(
+    mode: &str,
+    action: &str,
+    command: &str,
+    path: &str,
+    project_root: &str,
+    branch: &str,
+    matrix: Option<&str>,
+) -> (String, String, bool) {
+    let cmd = command.to_lowercase();
+
+    // --- Critical gates: hold in every mode, including yolo ---
+    if is_recursive_delete(&cmd) {
+        let target = if !path.is_empty() { path } else { last_path_token(command) };
+        if target == "/"
+            || target.starts_with("/etc")
+            || target.starts_with("/usr")
+            || target.starts_with("/System")
+        {
+            return ("deny".into(), "kritisches Gate: rm -rf auf Systempfad".into(), true);
+        }
+        if !target.is_empty() && !project_root.is_empty() && !is_within(target, project_root) {
+            return (
+                "deny".into(),
+                format!("kritisches Gate: rekursives Löschen außerhalb des Projektpfads ({target})"),
+                true,
+            );
+        }
+    }
+    if is_dangerous_command(&cmd) {
+        return (
+            "deny".into(),
+            "Dangerous-Command-Filter: gefährlicher Befehl blockiert".into(),
+            true,
+        );
+    }
+    if action == "git.push" && is_protected_branch(branch) {
+        return (
+            "ask".into(),
+            format!("kritisches Gate: Push auf geschützten Branch '{branch}'"),
+            true,
+        );
+    }
+
+    // --- Per-tool permission matrix (after gates) ---
+    match matrix {
+        Some("deny") => return ("deny".into(), format!("Permission-Matrix: {action}=deny"), false),
+        Some("allow") => return ("allow".into(), format!("Permission-Matrix: {action}=allow"), false),
+        Some("ask") => return ("ask".into(), format!("Permission-Matrix: {action}=ask"), false),
+        _ => {}
+    }
+
+    // --- Bash blocklist ---
+    if action == "bash" && matches_blocklist(&cmd) {
+        return ("deny".into(), "Bash-Blocklist-Treffer".into(), false);
+    }
+
+    // --- Trust-mode logic ---
+    match mode {
+        "strict" => ("ask".into(), "Strict: jede Aktion einzeln bestätigen".into(), false),
+        "standard" => {
+            if is_risky_action(action, &cmd) {
+                ("ask".into(), "Standard: gefährliche Aktion -> ask".into(), false)
+            } else {
+                ("allow".into(), "Standard: sichere Aktion -> auto".into(), false)
+            }
+        }
+        "auto" => ("allow".into(), "Auto: automatisch (außer Gates)".into(), false),
+        "yolo" => ("allow".into(), "YOLO: automatisch (außer kritische Gates)".into(), false),
+        other => ("ask".into(), format!("unbekannter Modus '{other}' -> ask"), false),
+    }
+}
+
+fn is_recursive_delete(cmd: &str) -> bool {
+    cmd.contains("rm ")
+        && (cmd.contains("-rf") || cmd.contains("-fr") || (cmd.contains("-r") && cmd.contains("-f")))
+}
+fn is_dangerous_command(cmd: &str) -> bool {
+    let needles = [
+        ":(){", "mkfs", "dd if=", "rm -rf /", "> /dev/sd", "shutdown ", "reboot", "chmod -r 777 /",
+    ];
+    needles.iter().any(|n| cmd.contains(n))
+}
+fn is_protected_branch(branch: &str) -> bool {
+    matches!(branch, "main" | "master" | "production" | "prod" | "release")
+}
+fn is_risky_action(action: &str, cmd: &str) -> bool {
+    action == "deploy"
+        || action == "git.push"
+        || cmd.contains("sudo")
+        || cmd.contains("rm ")
+        || cmd.contains("kill ")
+        || cmd.contains("git push")
+        || cmd.contains("npm publish")
+}
+fn matches_blocklist(cmd: &str) -> bool {
+    ["curl ", "wget ", " nc ", "telnet ", "eval "].iter().any(|b| cmd.contains(b))
+}
+fn last_path_token(cmd: &str) -> &str {
+    cmd.split_whitespace().last().unwrap_or("")
+}
+fn is_within(target: &str, root: &str) -> bool {
+    if !target.starts_with('/') {
+        return true; // relative target — treat as inside the project
+    }
+    let t = target.trim_end_matches('/');
+    let r = root.trim_end_matches('/');
+    t == r || t.starts_with(&format!("{r}/"))
+}
+
+/// Prompt-injection scan over a tool output (F297). Flags well-known patterns.
+fn scan_output_payload(p: &Value) -> Value {
+    let text = p.get("text").and_then(Value::as_str).unwrap_or("").to_lowercase();
+    let patterns = [
+        "ignore previous instructions",
+        "ignore all previous",
+        "disregard the above",
+        "you are now",
+        "reveal your system prompt",
+        "exfiltrate",
+        "send the secret",
+        "base64 -d",
+    ];
+    let hits: Vec<&str> = patterns.iter().filter(|n| text.contains(**n)).copied().collect();
+    json!({ "flagged": !hits.is_empty(), "patterns": hits })
 }
 
 // CONTRACT: the Swift `CoreConfig` decoder treats `daily_budget_usd` and
