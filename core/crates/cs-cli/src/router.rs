@@ -485,6 +485,10 @@ impl Router {
             "resume.detect" => self.resume_detect(),
             "briefing.daily" => self.briefing_daily(p),
             "llm.fallback" => Ok(llm_fallback_payload(p)),
+            "knowledge.teach" => self.knowledge_teach(p),
+            "knowledge.search" => self.knowledge_search(p),
+            "css.extract" => Ok(css_extract_payload(p)),
+            "library.git_sync" => self.library_git_sync(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2940,6 +2944,118 @@ impl Router {
         Ok(json!({ "items": items, "count": n }))
     }
 
+    // MARK: Semantic knowledge store (teach + retrieve via embed_cli)
+
+    /// Embed texts with the real MiniLM model via the `embed_cli` example binary
+    /// (sibling of the core binary). Returns one vector per input.
+    fn embed_texts(&self, texts: &[String]) -> std::result::Result<Vec<Vec<f64>>, IpcFailure> {
+        let exe = std::env::current_exe().map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let bin = exe
+            .parent()
+            .map(|d| d.join("examples/embed_cli"))
+            .ok_or_else(|| IpcFailure::internal("embed_cli path"))?;
+        if !bin.exists() {
+            return Err(IpcFailure::internal(format!("embed_cli not built: {}", bin.display())));
+        }
+        let input = json!({ "texts": texts }).to_string();
+        let mut child = std::process::Command::new(&bin)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        {
+            use std::io::Write;
+            child.stdin.take().unwrap().write_all(input.as_bytes()).map_err(|e| IpcFailure::internal(e.to_string()))?;
+        }
+        let out = child.wait_with_output().map_err(|e| IpcFailure::internal(e.to_string()))?;
+        if !out.status.success() {
+            return Err(IpcFailure::internal(format!("embed_cli failed: {}", String::from_utf8_lossy(&out.stderr).trim())));
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let line = stdout.lines().last().unwrap_or("");
+        let v: Value = serde_json::from_str(line).map_err(|e| IpcFailure::internal(format!("embed parse: {e}")))?;
+        let vectors = v.get("vectors").and_then(Value::as_array).ok_or_else(|| IpcFailure::internal("no vectors"))?;
+        Ok(vectors
+            .iter()
+            .map(|vec| vec.as_array().map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default())
+            .collect())
+    }
+
+    fn knowledge_path(&self) -> PathBuf {
+        self.inner.state_dir.join("knowledge_vectors.jsonl")
+    }
+
+    /// Teach Claude: embed text and store it in a semantic collection (F177/F179/F180).
+    fn knowledge_teach(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let collection = p.get("collection").and_then(Value::as_str).unwrap_or("knowledge");
+        let source = p.get("source").and_then(Value::as_str).unwrap_or("teach");
+        let vec = self.embed_texts(&[text.to_string()])?.into_iter().next().unwrap_or_default();
+        let dim = vec.len();
+        let entry = json!({ "id": unique_id("k"), "text": text, "collection": collection, "source": source, "vec": vec, "ts": now_millis() });
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.knowledge_path()) {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+        Ok(json!({ "ok": true, "collection": collection, "dim": dim }))
+    }
+
+    /// Semantic retrieval pipeline: embed query, cosine-rank, return top-K (F174).
+    fn knowledge_search(&self, p: &Value) -> HandlerResult {
+        let query = req_str(p, "query")?;
+        let collection = p.get("collection").and_then(Value::as_str);
+        let top_k = p.get("top_k").and_then(Value::as_u64).unwrap_or(5) as usize;
+        let qvec = self.embed_texts(&[query.to_string()])?.into_iter().next().unwrap_or_default();
+        let content = std::fs::read_to_string(self.knowledge_path()).unwrap_or_default();
+        let mut scored: Vec<(f64, Value)> = Vec::new();
+        for line in content.lines() {
+            let Ok(e) = serde_json::from_str::<Value>(line) else { continue };
+            if let Some(c) = collection {
+                if e.get("collection").and_then(Value::as_str) != Some(c) {
+                    continue;
+                }
+            }
+            let vec: Vec<f64> = e
+                .get("vec")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_f64()).collect())
+                .unwrap_or_default();
+            let score = cosine_sim(&qvec, &vec);
+            scored.push((score, json!({ "text": e.get("text"), "source": e.get("source"), "collection": e.get("collection"), "score": score })));
+        }
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        let hits: Vec<Value> = scored.into_iter().take(top_k).map(|(_, v)| v).collect();
+        Ok(json!({ "hits": hits, "query": query }))
+    }
+
+    /// Sync a library directory to a git remote (push), e.g. the skill library (F351).
+    fn library_git_sync(&self, p: &Value) -> HandlerResult {
+        let dir = req_str(p, "dir")?;
+        let remote = req_str(p, "remote")?;
+        let dp = Path::new(dir);
+        std::fs::create_dir_all(dp).ok();
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(dp)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "CS")
+                .env("GIT_AUTHOR_EMAIL", "cs@local")
+                .env("GIT_COMMITTER_NAME", "CS")
+                .env("GIT_COMMITTER_EMAIL", "cs@local")
+                .output()
+        };
+        if !dp.join(".git").exists() {
+            run(&["init", "-q", "-b", "main"]).ok();
+        }
+        run(&["remote", "remove", "origin"]).ok();
+        run(&["remote", "add", "origin", remote]).ok();
+        run(&["add", "-A"]).ok();
+        run(&["commit", "-qm", "skill library sync"]).ok();
+        let push = run(&["push", "-u", "origin", "main", "--force"]).map_err(|e| IpcFailure::internal(e.to_string()))?;
+        Ok(json!({ "ok": push.status.success(), "remote": remote, "stderr": String::from_utf8_lossy(&push.stderr).trim() }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -4165,6 +4281,59 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Cosine similarity between two equal-length vectors.
+fn cosine_sim(a: &[f64], b: &[f64]) -> f64 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let na: f64 = a.iter().map(|x| x * x).sum::<f64>().sqrt();
+    let nb: f64 = b.iter().map(|y| y * y).sum::<f64>().sqrt();
+    if na == 0.0 || nb == 0.0 {
+        0.0
+    } else {
+        dot / (na * nb)
+    }
+}
+
+/// CSS variable extractor: repeated hex colors become :root variables (F339).
+fn css_extract_payload(p: &Value) -> Value {
+    let css = p.get("css").and_then(Value::as_str).unwrap_or("");
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let bytes = css.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'#' {
+            let hex: String = css[i + 1..].chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+            if hex.len() == 3 || hex.len() == 6 {
+                *counts.entry(format!("#{hex}")).or_default() += 1;
+            }
+            i += 1 + hex.len().max(1);
+            continue;
+        }
+        i += 1;
+    }
+    let mut repeated: Vec<(String, usize)> = counts.into_iter().filter(|(_, c)| *c >= 2).collect();
+    repeated.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    let mut vars = serde_json::Map::new();
+    let mut replaced = css.to_string();
+    for (idx, (val, _)) in repeated.iter().enumerate() {
+        let name = format!("--color-{idx}");
+        replaced = replaced.replace(val, &format!("var({name})"));
+        vars.insert(name, json!(val));
+    }
+    let root = if vars.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ":root {{\n{}\n}}\n",
+            vars.iter().map(|(k, v)| format!("  {k}: {};", v.as_str().unwrap_or(""))).collect::<Vec<_>>().join("\n")
+        )
+    };
+    let n = vars.len();
+    json!({ "variables": vars, "root_block": root, "transformed": format!("{root}{replaced}"), "extracted": n })
 }
 
 /// Lexicographic-numeric semver less-than (3 components).

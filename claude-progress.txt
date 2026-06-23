@@ -120,3 +120,7 @@
   cve.scan (F317), iac.validate (F328), docker.optimize (F329), codeq.comment_quality (F335),
   refactor.js_to_ts (F343), resume.detect (F354), briefing.daily (F355), llm.fallback->Ollama (F360).
   cargo test grün. 216/360.
+[SESSION 1] [2026-06-23] [BUILD-18] [PASSING] +6: knowledge.teach/search (echtes embed_cli/MiniLM, cosine) ->
+  Retrieval-Pipeline (F174), knowledge-Collection aus CLAUDE.md-Regel (F177, Score 0.92), errors-Collection
+  (F179, 0.90), Teach-Panel (F180, 0.82); css.extract (F339); library.git_sync (F351, push+clone verifiziert).
+  cargo test grün. 222/360.
