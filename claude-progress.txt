@@ -68,3 +68,9 @@
 [SESSION 1] [2026-06-23] [BUILD-4] [PASSING] +3 Definitionen GEBAUT: context.assemble lädt benannte
   Definitionen in die Ebene active_definitions (echter Token-Zähler); definitions.suggest (Keyword-
   Match). PASSING: F099 F101 F102. cargo test grün. 85/360.
+[SESSION 1] [2026-06-23] [BUILD-5] [PASSING] +9 Agentic-OS-Entscheidungslogik GEBAUT: rules.add/list/eval
+  (WENN-DANN), routing.route, queue.order (Prioritäten), scheduler.admit (Ressourcen-Limit),
+  monitor.health_check (echtes HTTP/curl), monitor.cost_guard, supervisor.evaluate (restart/pause/escalate).
+  PASSING: F301 F302 F303 F304 F308 F309 F310 F313 F314. cargo test grün. 94/360.
+  HINWEIS: Entscheidungslogik verifiziert; echte Dauer-Hintergrundagenten (Supervisor-Loop, realer
+  Scan-Start F306/F307, OS-View F315) brauchen die Agent-Runtime -> separat blocked.

@@ -329,6 +329,17 @@ impl Router {
             "permissions.matrix_set" => self.permissions_matrix_set(p),
             "security.scan_output" => Ok(scan_output_payload(p)),
 
+            // --- Agentic OS: rules, routing, scheduler, monitors, supervisor ---
+            "rules.add" => self.rules_add(p),
+            "rules.list" => self.rules_list(),
+            "rules.eval" => self.rules_eval(p),
+            "routing.route" => Ok(routing_route_payload(p)),
+            "queue.order" => Ok(queue_order_payload(p)),
+            "scheduler.admit" => Ok(scheduler_admit_payload(p)),
+            "monitor.health_check" => Ok(health_check_payload(p)),
+            "monitor.cost_guard" => Ok(cost_guard_payload(p)),
+            "supervisor.evaluate" => Ok(supervisor_evaluate_payload(p)),
+
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
 
@@ -684,6 +695,55 @@ impl Router {
         suggestions.sort_by(|a, b| b.0.cmp(&a.0));
         let out: Vec<Value> = suggestions.into_iter().map(|(_, v)| v).collect();
         Ok(json!({ "suggestions": out }))
+    }
+
+    // MARK: Agentic OS — event rules (WENN-DANN)
+
+    fn rules_path(&self) -> PathBuf {
+        self.inner.state_dir.join("rules.json")
+    }
+    fn read_rules(&self) -> Vec<Value> {
+        std::fs::read_to_string(self.rules_path())
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Add a WENN-DANN rule: `{ when: { event, branch? }, then: [action,…] }`.
+    fn rules_add(&self, p: &Value) -> HandlerResult {
+        let when = p.get("when").cloned().ok_or_else(|| IpcFailure::invalid("missing 'when'"))?;
+        let then = p.get("then").cloned().ok_or_else(|| IpcFailure::invalid("missing 'then'"))?;
+        let id = format!("rule-{}", now_millis());
+        let mut rules = self.read_rules();
+        rules.push(json!({ "id": id, "when": when, "then": then }));
+        std::fs::write(self.rules_path(), serde_json::to_string_pretty(&rules).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "id": id, "count": rules.len() }))
+    }
+
+    fn rules_list(&self) -> HandlerResult {
+        Ok(json!({ "rules": self.read_rules() }))
+    }
+
+    /// Evaluate an incoming event against all rules; return the fired actions.
+    fn rules_eval(&self, p: &Value) -> HandlerResult {
+        let event = req_str(p, "event")?;
+        let branch = p.get("branch").and_then(Value::as_str);
+        let mut fired = Vec::new();
+        for rule in self.read_rules() {
+            let w = &rule["when"];
+            if w.get("event").and_then(Value::as_str) != Some(event) {
+                continue;
+            }
+            // Optional branch condition: only matches when equal (if specified).
+            if let Some(rb) = w.get("branch").and_then(Value::as_str) {
+                if Some(rb) != branch {
+                    continue;
+                }
+            }
+            fired.push(json!({ "rule_id": rule["id"], "actions": rule["then"] }));
+        }
+        Ok(json!({ "event": event, "branch": branch, "fired": fired }))
     }
 
     // MARK: Security & permissions
@@ -2140,6 +2200,112 @@ fn is_within(target: &str, root: &str) -> bool {
     let t = target.trim_end_matches('/');
     let r = root.trim_end_matches('/');
     t == r || t.starts_with(&format!("{r}/"))
+}
+
+/// Route a task type to the agent best suited to handle it (F304).
+fn routing_route_payload(p: &Value) -> Value {
+    let task_type = p.get("task_type").and_then(Value::as_str).unwrap_or("").to_lowercase();
+    let agent = if task_type.contains("test") {
+        "test-agent"
+    } else if task_type.contains("doc") {
+        "doc-writer"
+    } else if task_type.contains("security") || task_type.contains("scan") {
+        "security-scan"
+    } else if task_type.contains("review") {
+        "review-agent"
+    } else if task_type.contains("fix") || task_type.contains("bug") {
+        "fix-agent"
+    } else if task_type.contains("feature") || task_type.contains("impl") {
+        "feature-agent"
+    } else {
+        "general-agent"
+    };
+    json!({ "task_type": task_type, "agent": agent })
+}
+
+/// Rank a priority label (lower = more urgent).
+fn priority_rank(label: &str) -> u8 {
+    match label.to_lowercase().as_str() {
+        "critical" => 0,
+        "high" => 1,
+        "normal" => 2,
+        "background" => 3,
+        _ => 2,
+    }
+}
+
+/// Order queued tasks by priority (Critical → High → Normal → Background) (F309).
+fn queue_order_payload(p: &Value) -> Value {
+    let mut tasks: Vec<Value> = p
+        .get("tasks")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    tasks.sort_by_key(|t| priority_rank(t.get("priority").and_then(Value::as_str).unwrap_or("normal")));
+    let order: Vec<&Value> = tasks.iter().map(|t| &t["id"]).collect();
+    json!({ "ordered": tasks, "order": order })
+}
+
+/// Hard resource limit: admit a new agent only if running < max_parallel (F310).
+fn scheduler_admit_payload(p: &Value) -> Value {
+    let running = p.get("running").and_then(Value::as_u64).unwrap_or(0);
+    let max_parallel = p.get("max_parallel").and_then(Value::as_u64).unwrap_or(4);
+    let admit = running < max_parallel;
+    json!({
+        "admit": admit, "running": running, "max_parallel": max_parallel,
+        "reason": if admit { "Slot frei" } else { "Limit erreicht — überzähliger Agent abgewiesen" },
+    })
+}
+
+/// Continuous health monitor: ping an endpoint, alert on HTTP != 200 (F313).
+fn health_check_payload(p: &Value) -> Value {
+    let url = p.get("url").and_then(Value::as_str).unwrap_or("");
+    let out = std::process::Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url])
+        .output();
+    let code: u32 = out
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0);
+    let ok = code == 200;
+    json!({ "url": url, "status_code": code, "ok": ok, "alert": !ok })
+}
+
+/// Cost guard: warn at ≥80 %, stop at ≥100 % of the budget (F314).
+fn cost_guard_payload(p: &Value) -> Value {
+    let spent = p.get("spent").and_then(Value::as_f64).unwrap_or(0.0);
+    let budget = p.get("budget").and_then(Value::as_f64).unwrap_or(0.0);
+    let ratio = if budget > 0.0 { spent / budget } else { 0.0 };
+    let (status, action) = if ratio >= 1.0 {
+        ("stop", "Agenten-Aktivität gestoppt")
+    } else if ratio >= 0.8 {
+        ("warn", "Warnung: 80 % des Budgets erreicht")
+    } else {
+        ("ok", "im Budget")
+    };
+    json!({ "spent": spent, "budget": budget, "ratio": ratio, "status": status, "action": action })
+}
+
+/// Supervisor decision for one agent: restart on idle, pause on budget,
+/// escalate on a repeated error loop (F301/F302/F303).
+fn supervisor_evaluate_payload(p: &Value) -> Value {
+    let error_repeats = p.get("error_repeats").and_then(Value::as_u64).unwrap_or(0);
+    let tokens_used = p.get("tokens_used").and_then(Value::as_u64);
+    let token_budget = p.get("token_budget").and_then(Value::as_u64);
+    let last_output_ms = p.get("last_output_ms").and_then(Value::as_u64);
+    let now_ms = p.get("now_ms").and_then(Value::as_u64);
+    let idle_threshold_ms = p.get("idle_threshold_ms").and_then(Value::as_u64).unwrap_or(900_000);
+
+    let (action, reason) = if error_repeats > 3 {
+        ("escalate", format!("gleicher Fehler {error_repeats}× — Eskalation an User"))
+    } else if matches!((tokens_used, token_budget), (Some(u), Some(b)) if u >= b) {
+        ("pause", "Token-Budget überschritten — Agent pausiert".to_string())
+    } else if matches!((last_output_ms, now_ms), (Some(l), Some(n)) if n.saturating_sub(l) > idle_threshold_ms) {
+        ("restart", "kein Output über Schwellwert — Restart".to_string())
+    } else {
+        ("ok", "Agent gesund".to_string())
+    };
+    json!({ "action": action, "reason": reason })
 }
 
 /// Prompt-injection scan over a tool output (F297). Flags well-known patterns.
