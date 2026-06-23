@@ -1,0 +1,13 @@
+{
+  "entities": [
+    "Maria Schmidt",
+    "Projekt Zeppelin-Migration"
+  ],
+  "embedded": 2,
+  "top_hit": {
+    "collection": "knowledge",
+    "score": 1.0,
+    "source": "entity-extraction",
+    "text": "Maria Schmidt"
+  }
+}

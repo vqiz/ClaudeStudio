@@ -155,3 +155,10 @@
   F026 Sidebar exakt 260px (feste navigationSplitViewColumnWidth(252)→sichtbar 259-260pt, ±4).
   Neu: test-harness/lib/windowid(.swift) (CGWindowList-ID-Helfer, keine AX-Rechte nötig),
   DesignGalleryView + CLAUDESTUDIO_UITEST=gallery-Seam, test-harness/probes/ui_batch1.py. 246/360.
+[SESSION 1] [2026-06-23] [BUILD-27] [PASSING] +5 Backend-Features (echter Core, echtes npm/embed):
+  F079 Global-CLAUDE.md-Save persistiert ~/.claude/CLAUDE.md auf Disk (claudemd.save, Marker verifiziert);
+  F086 agents.write_agents_md erzeugt AGENTS.md mit YAML-Frontmatter (name/description/tools), unabhängig
+  geparst; F090 memory.suggest_insight extrahiert den merkbaren Fakt 'Deploy-Server heißt prod-01' (Top-Rang);
+  F181 knowledge.extract_entities extrahiert Eigennamen + bettet sie in 'knowledge' ein, semantisch
+  wiederauffindbar (Score 1.000); F262 PostToolUse-Hook 'npm install' bei package.json-Edit befüllt
+  node_modules (offline file:-Dependency). test-harness/probes/batch27.py. 251/360.

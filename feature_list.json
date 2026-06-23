@@ -1340,7 +1340,7 @@
       "F003",
       "F015"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F080",
@@ -1453,7 +1453,7 @@
     "depends_on": [
       "F085"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F087",
@@ -1519,7 +1519,7 @@
       "F087",
       "F006"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F091",
@@ -3097,7 +3097,7 @@
       "F177",
       "F007"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F182",
@@ -4444,7 +4444,7 @@
     "depends_on": [
       "F257"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F263",

@@ -1,0 +1,20 @@
+{
+  "count": 3,
+  "suggestions": [
+    {
+      "fact": "Mein Deploy-Server heißt prod-01",
+      "preview": "Mein Deploy-Server heißt prod-01",
+      "score": 6
+    },
+    {
+      "fact": "Wir haben heute die Architektur besprochen",
+      "preview": "Wir haben heute die Architektur besprochen",
+      "score": 1
+    },
+    {
+      "fact": "Danach ging es um die Tests",
+      "preview": "Danach ging es um die Tests",
+      "score": 1
+    }
+  ]
+}

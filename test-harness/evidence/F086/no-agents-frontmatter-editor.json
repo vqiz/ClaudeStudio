@@ -1,0 +1,7 @@
+{
+  "agents_md_template_has_yaml_frontmatter_block": false,
+  "frontmatter_editor_grep_matches": [
+    "/Users/bachl/Documents/Projekte/Claude-Wrapper/ClaudeStudio/app/Sources/ClaudeStudio/Views/DefinitionsLibraryView.swift:5:/// definition documents (markdown + frontmatter) the core can inject as context."
+  ],
+  "verdict": "blocked — no visual frontmatter form and no YAML-frontmatter writer for AGENTS.md; the generic AGENTS.md template has no '---' block, so name='build-agent'/tools YAML cannot be produced/parsed"
+}

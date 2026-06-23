@@ -1,0 +1,12 @@
+{
+  "frontmatter": {
+    "name": "build-agent",
+    "description": "Builds and verifies the project",
+    "tools": [
+      "Read",
+      "Edit",
+      "Bash"
+    ]
+  },
+  "file": "---\nname: build-agent\ndescription: Builds and verifies the project\ntools: [Read, Edit, Bash]\n---\n\n# build-agent\n\nBeschreibe hier, wie sich dieser Agent verhalten soll.\n"
+}

@@ -84,7 +84,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "session.search" => LONG_HANDLER_TIMEOUT,
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
-        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "knowledge.extract_entities" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -323,6 +323,7 @@ impl Router {
             "memory.get" => self.memory_get(p),
             "memory.set" => self.memory_set(p),
             "memory.append" => self.memory_append(p),
+            "memory.suggest_insight" => self.memory_suggest_insight(p),
             "claudemd.save" => self.claudemd_save(p),
 
             // --- Security & permissions ---
@@ -383,6 +384,7 @@ impl Router {
             "prompts.favorite" => self.prompts_favorite(p),
             "prompts.chain_run" => Ok(chain_run_payload(p)),
             "agents.create" => self.agents_create(p),
+            "agents.write_agents_md" => self.agents_write_agents_md(p),
             "agents.list" => self.agents_list(),
             "agents.get" => self.agents_get(p),
             "agents.update" => self.agents_update(p),
@@ -510,6 +512,7 @@ impl Router {
             "briefing.daily" => self.briefing_daily(p),
             "llm.fallback" => Ok(llm_fallback_payload(p)),
             "knowledge.teach" => self.knowledge_teach(p),
+            "knowledge.extract_entities" => self.knowledge_extract_entities(p),
             "knowledge.search" => self.knowledge_search(p),
             "css.extract" => Ok(css_extract_payload(p)),
             "library.git_sync" => self.library_git_sync(p),
@@ -3293,6 +3296,89 @@ impl Router {
         Ok(json!({ "ok": true, "collection": collection, "dim": dim }))
     }
 
+    /// Wissensaufbau nach Session-Ende: extrahiert neue Entitäten (Eigennamen,
+    /// Projekt-/Personennamen, IDs) aus einem Transcript und bettet jede in die
+    /// 'knowledge'-Collection ein, damit sie semantisch auffindbar wird (F181).
+    /// Embeddet alle Entitäten in EINEM Batch-Aufruf (Performance).
+    fn knowledge_extract_entities(&self, p: &Value) -> HandlerResult {
+        let transcript = req_str(p, "transcript")?;
+        let collection = p.get("collection").and_then(Value::as_str).unwrap_or("knowledge");
+        let entities = extract_entities(transcript);
+        if entities.is_empty() {
+            return Ok(json!({ "entities": [], "embedded": 0, "collection": collection }));
+        }
+        let vecs = self.embed_texts(&entities)?;
+        let mut embedded = 0;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.knowledge_path()) {
+            use std::io::Write;
+            for (ent, vec) in entities.iter().zip(vecs.iter()) {
+                let entry = json!({ "id": unique_id("k"), "text": ent, "collection": collection,
+                                    "source": "entity-extraction", "vec": vec, "ts": now_millis() });
+                if writeln!(f, "{entry}").is_ok() { embedded += 1; }
+            }
+        }
+        Ok(json!({ "entities": entities, "embedded": embedded, "collection": collection }))
+    }
+
+    /// Schreibt eine AGENTS.md mit YAML-Frontmatter (name/description/tools) in das
+    /// Ziel-Verzeichnis (`cwd` für Projekt-Scope, sonst `$HOME`). Der visuelle
+    /// AGENTS.md-Editor speichert über diesen Pfad; die Formularfelder landen als
+    /// geparster Frontmatter (F086).
+    fn agents_write_agents_md(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let description = p.get("description").and_then(Value::as_str).unwrap_or("");
+        let tools: Vec<String> = p
+            .get("tools")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let body = p
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or("Beschreibe hier, wie sich dieser Agent verhalten soll.");
+        let dir = match p.get("cwd").and_then(Value::as_str) {
+            Some(c) => PathBuf::from(c),
+            None => self.home_dir(),
+        };
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join("AGENTS.md");
+        // YAML-Flow-Sequenz aus plain scalars: [Read, Edit, Bash]
+        let tools_yaml = format!("[{}]", tools.join(", "));
+        let content = format!(
+            "---\nname: {name}\ndescription: {description}\ntools: {tools_yaml}\n---\n\n# {name}\n\n{body}\n"
+        );
+        std::fs::write(&path, &content).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path.to_string_lossy(),
+                   "name": name, "tools": tools }))
+    }
+
+    /// Extrahiert nach Session-Ende merkbare Fakten aus einem Transcript für den
+    /// Erkenntnis-Vorschlag-Dialog (F090). Heuristik: Sätze mit Benennungs-/
+    /// Definitionsmustern ("heißt", "lautet", IDs wie prod-01, Eigennamen) werden
+    /// gewertet und nach Aussagekraft gerankt; Rückgabe inkl. Preview-Text.
+    fn memory_suggest_insight(&self, p: &Value) -> HandlerResult {
+        let transcript = req_str(p, "transcript")?;
+        let mut suggestions: Vec<(i32, String)> = Vec::new();
+        for raw in split_sentences(transcript) {
+            let s = raw.trim();
+            if s.chars().count() < 8 { continue; }
+            let score = insight_score(s);
+            if score > 0 {
+                suggestions.push((score, s.to_string()));
+            }
+        }
+        suggestions.sort_by(|a, b| b.0.cmp(&a.0));
+        let top: Vec<Value> = suggestions.iter().take(5).map(|(score, text)| {
+            let preview = if text.chars().count() > 120 {
+                format!("{}…", text.chars().take(120).collect::<String>())
+            } else {
+                text.clone()
+            };
+            json!({ "fact": text, "preview": preview, "score": score })
+        }).collect();
+        Ok(json!({ "suggestions": top, "count": top.len() }))
+    }
+
     /// Semantic retrieval pipeline: embed query, cosine-rank, return top-K (F174).
     fn knowledge_search(&self, p: &Value) -> HandlerResult {
         let query = req_str(p, "query")?;
@@ -5586,6 +5672,90 @@ fn model_cost_compare_payload(p: &Value) -> Value {
 }
 
 /// Prebuilt prompt templates for the prompt library (F243).
+/// Zerlegt Text in grobe Sätze (Trennung an . ! ? und Zeilenumbruch).
+fn split_sentences(text: &str) -> Vec<String> {
+    text.split(|c| c == '.' || c == '!' || c == '?' || c == '\n')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Bewertet, wie "merkbar" ein Satz als Erkenntnis ist (F090). Höher = besser.
+fn insight_score(s: &str) -> i32 {
+    let low = s.to_lowercase();
+    let mut score = 0;
+    if low.contains("heißt") || low.contains("heisst") || low.contains("lautet") {
+        score += 3;
+    }
+    if low.contains(" ist ") || low.contains(" = ") || low.contains(" sind ") {
+        score += 1;
+    }
+    // ID-artige Tokens (Buchstaben UND Ziffern), z.B. prod-01, v2, api-key
+    if s.split_whitespace().any(|t| {
+        t.chars().any(|c| c.is_alphabetic()) && t.chars().any(|c| c.is_ascii_digit())
+    }) {
+        score += 2;
+    }
+    // Eigenname: Großbuchstabe bei einem Token NICHT am Satzanfang
+    if s.split_whitespace().skip(1).any(|t| {
+        t.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+    }) {
+        score += 1;
+    }
+    score
+}
+
+/// Extrahiert Entitäten (Eigennamen, mehrteilige großgeschriebene Phrasen, IDs)
+/// aus Text (F181). Heuristik ohne externe NLP-Abhängigkeit: zusammenhängende
+/// großgeschriebene Tokens werden zu einer Entität verbunden; ID-artige Tokens
+/// (mit Ziffer + Bindestrich) zählen ebenfalls. Häufige Satz-Anfangswörter werden
+/// herausgefiltert.
+fn extract_entities(text: &str) -> Vec<String> {
+    let stop: std::collections::HashSet<&str> = [
+        "Der", "Die", "Das", "Ein", "Eine", "Ich", "Wir", "Du", "Sie", "Es", "Und", "Aber",
+        "Im", "In", "Am", "Mit", "Für", "Auf", "Von", "Zu", "Bei", "Heute", "Gestern", "Dann",
+        "Mein", "Meine", "Unser", "Unsere", "Dein", "Deine", "Hier", "Diese", "Dieser", "Dieses",
+        "The", "A", "An", "I", "We", "You", "It", "And", "But", "This", "That", "On", "With", "For",
+    ]
+    .into_iter()
+    .collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut run: Vec<String> = Vec::new();
+
+    fn is_entity_token(t: &str) -> bool {
+        let cap = t.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+        let alpha = t.chars().any(|c| c.is_alphabetic());
+        let digit = t.chars().any(|c| c.is_ascii_digit());
+        (cap && alpha) || (alpha && digit && t.contains('-'))
+    }
+    fn flush(run: &mut Vec<String>, out: &mut Vec<String>, seen: &mut std::collections::HashSet<String>) {
+        if !run.is_empty() {
+            let ent = run.join(" ");
+            if ent.chars().count() >= 3 && seen.insert(ent.clone()) {
+                out.push(ent);
+            }
+            run.clear();
+        }
+    }
+
+    for raw in text.split(|c: char| c.is_whitespace()) {
+        // führende/abschließende Satzzeichen abstreifen (Bindestrich/Unterstrich behalten)
+        let tok = raw.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '_');
+        if tok.is_empty() {
+            flush(&mut run, &mut out, &mut seen);
+            continue;
+        }
+        if is_entity_token(tok) && !stop.contains(tok) {
+            run.push(tok.to_string());
+        } else {
+            flush(&mut run, &mut out, &mut seen);
+        }
+    }
+    flush(&mut run, &mut out, &mut seen);
+    out
+}
+
 fn prompt_templates_payload() -> Value {
     json!({ "templates": [
         {"name":"Code Review","category":"review","template":"Review the following diff for correctness, security, and style:\n\n{{diff}}"},

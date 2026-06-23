@@ -1,0 +1,18 @@
+{
+  "run": {
+    "blocked": false,
+    "dry_run": false,
+    "event": "PostToolUse",
+    "fired": [
+      {
+        "blocked": false,
+        "command": "case \"$CS_FILE\" in *package.json) npm install --no-audit --no-fund --prefer-offline --silent;; esac",
+        "exit": 0,
+        "matcher": "Edit",
+        "stderr": "",
+        "stdout": ""
+      }
+    ]
+  },
+  "node_modules_mylib": true
+}

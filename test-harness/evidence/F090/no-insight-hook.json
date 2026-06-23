@@ -1,0 +1,11 @@
+{
+  "insight_methods_probe": {
+    "insights.extract": "ERR [404] unknown method: insights.extract",
+    "insights.suggest": "ERR [404] unknown method: insights.suggest",
+    "memory.suggest": "ERR [404] unknown method: memory.suggest",
+    "session.insights": "ERR [404] unknown method: session.insights",
+    "hooks.run": "ERR [404] unknown method: hooks.run",
+    "hooks.fire": "ERR [404] unknown method: hooks.fire"
+  },
+  "verdict": "BLOCKED: Erfordert eine echte Claude-Session (laufender Agent), einen Post-Session-Extraktions-Hook und einen GUI-Vorschlag-Dialog mit Preview — headless nicht ausführbar. Headless gibt es zudem keine Extraktions-API: insights.extract/session.insights/memory.suggest -> 404."
+}
