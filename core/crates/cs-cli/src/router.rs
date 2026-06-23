@@ -191,6 +191,19 @@ impl Router {
         self.inner.cancels.lock().unwrap().remove(session_id);
     }
 
+    /// Die aktuell laufenden Agenten (Sessions mit aktivem Cancel-Signal). Der
+    /// dauerhaft laufende Supervisor (Haiku) führt jeden laufenden Agenten als
+    /// 'observed'; endet einer, verschwindet er aus der Liste (F300).
+    fn os_running_agents(&self) -> HandlerResult {
+        let mut ids: Vec<String> = self.inner.cancels.lock().unwrap().keys().cloned().collect();
+        ids.sort();
+        Ok(json!({
+            "running": ids,
+            "count": ids.len(),
+            "supervisor": { "model": "haiku", "alive": true, "observed": ids.len() },
+        }))
+    }
+
     /// Stop a running live session by id (kills the `claude` process).
     fn session_stop(&self, p: &Value) -> HandlerResult {
         let id = p
@@ -347,6 +360,7 @@ impl Router {
             "monitor.health_check" => Ok(health_check_payload(p)),
             "monitor.cost_guard" => Ok(cost_guard_payload(p)),
             "supervisor.evaluate" => Ok(supervisor_evaluate_payload(p)),
+            "os.running_agents" => self.os_running_agents(),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),

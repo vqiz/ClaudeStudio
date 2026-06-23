@@ -1,0 +1,9 @@
+Router-IPC-Methoden gesamt: config.get, config.set, context.budget, definitions.create, definitions.delete, definitions.list, file.read, file.write, git.branch, git.diff, git.log, git.status, git.worktrees, hooks.list, library.load_defaults, mcp.cli_remove, mcp.list, mcp.list_all, mcp.remove, mcp.upsert, plugins.install, plugins.list, plugins.marketplace_add, plugins.marketplace_list, plugins.set_enabled, plugins.uninstall, session.create, session.get, session.list, session.messages, session.search, session.stats, session.stop, skills.create, skills.install, skills.list, skills.uninstall, tasks.create, tasks.delete, tasks.list
+Davon Agentic-OS-bezogen (Supervisor/Scheduler/Routing/Rule/Health/Cost): KEINE
+EventBus wird nur fuer events.subscribe + publish(TaskOneClick) genutzt.
+
+Belegstellen:
+- Router-Handler-Tabelle: core/crates/cs-cli/src/router.rs (handle_blocking)
+- events.subscribe-Verdrahtung: core/crates/cs-cli/src/main.rs
+- Agentic-OS-Primitive (nur Bibliothek, nicht verdrahtet): core/crates/cs-agentic-os/src/lib.rs
+Es existiert KEIN Supervisor-/Scheduler-/Monitor-/Cost-Guard-Daemon und KEINE IPC-Methode, die einen Agenten startet, ueberwacht, neustartet, pausiert, routet, einen Health-Endpunkt pingt oder Kosten erzwingt.

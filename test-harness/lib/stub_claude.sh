@@ -10,6 +10,11 @@
 [ -n "$CS_STUB_PIDFILE" ] && printf '%s' "$$" > "$CS_STUB_PIDFILE"
 printf '%s\n' "{\"type\":\"system\",\"session_id\":\"stub-$$\"}"
 printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"Schritt 1: Analyse"}]}}'
+# 'Ab hier weitermachen' (F163): wurde --resume <id> übergeben, bestätigt der Stub
+# die Fortsetzung des vorherigen Kontexts, damit der Resume-Pfad nachweisbar ist.
+prev=""; resume_id=""
+for a in "$@"; do [ "$prev" = "--resume" ] && resume_id="$a"; prev="$a"; done
+[ -n "$resume_id" ] && printf '%s\n' "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"RESUMED:$resume_id\"}]}}"
 case "$*" in
   *LONGRUN*)
     # exec ersetzt die Shell durch sleep (gleiche PID) — kein Kind-Prozess hält

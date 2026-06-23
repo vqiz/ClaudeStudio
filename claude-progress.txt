@@ -184,3 +184,8 @@
   (neue session_id, erste User-Nachricht == Original); F307 events.publish 'test.failed' -> Regel startet
   Fix-Agent, der das Test-Kommando real ausführt und den roten Test (exit 1) aufnimmt, eine Korrelations-ID;
   'test.passed' feuert nicht. test-harness/probes/batch31.py. 261/360.
+[SESSION 1] [2026-06-23] [BUILD-32] [PASSING] +2 Agent-Orchestrierung (Stub-claude, lebende Registry):
+  F163 'Ab hier weitermachen' startet neue Session, die den vorherigen Lauf per --resume <claude-id>
+  fortsetzt (Stub bestätigt RESUMED:<id>, neue session_id); F300 neue os.running_agents-Methode liefert
+  die lebende Agenten-Registry (Cancel-Map): 2 parallele LONGRUN-Agenten -> running=2, observed=2; nach
+  session.stop eines Agenten -> running=1. test-harness/probes/batch32.py. 263/360.

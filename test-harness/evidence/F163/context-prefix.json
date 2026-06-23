@@ -1,0 +1,25 @@
+{
+  "source_session": "acd43ed6-ec71-428d-8d3e-8e9ff9eae6f3",
+  "cutoff_index": 2,
+  "context_prefix": [
+    [
+      "user",
+      "Lege die Datei config.yaml an"
+    ],
+    [
+      "assistant",
+      "config.yaml wurde angelegt"
+    ]
+  ],
+  "expected_prefix": [
+    [
+      "user",
+      "Lege die Datei config.yaml an"
+    ],
+    [
+      "assistant",
+      "config.yaml wurde angelegt"
+    ]
+  ],
+  "note": "Prefix exakt rekonstruierbar; 'Claude referenziert Prefix' braucht echten Agent"
+}

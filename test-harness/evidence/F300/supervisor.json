@@ -1,0 +1,25 @@
+{
+  "both_running": {
+    "count": 2,
+    "running": [
+      "3cee0db7-f767-41e1-87d5-412ec5cb3d7f",
+      "d8608cf4-6a93-47ec-ba29-d76eb6710a99"
+    ],
+    "supervisor": {
+      "alive": true,
+      "model": "haiku",
+      "observed": 2
+    }
+  },
+  "after_stop_one": {
+    "count": 1,
+    "running": [
+      "d8608cf4-6a93-47ec-ba29-d76eb6710a99"
+    ],
+    "supervisor": {
+      "alive": true,
+      "model": "haiku",
+      "observed": 1
+    }
+  }
+}
