@@ -141,3 +141,6 @@
 [SESSION 1] [2026-06-23] [BUILD-23] [PASSING] +4: teams.create-edges (F121), teams.review_and_merge (Review-Gate:
   'approved' vor echtem git merge, F124), teams.escalate (Worker->Orchestrator A2A + Reassign/Fail, F128),
   WorktreeRemove-Hook committet via hooks.run+git (F264). cargo test grün. 238/360.
+[SESSION 1] [2026-06-23] [BUILD-24] [PASSING] +3: memory.mark_stale (>90 Tage veraltet, F092), knowledge.chunk_text
+  (token-genaues ~300-Token-Chunking + Batch-Embedding in 'sessions', F175), npm-test-PostToolUse-Hook (echtes
+  npm test, F259). Fix: knowledge.* in LONG_HANDLER_TIMEOUT (embed_cli-Modell-Load). cargo test grün. 241/360.

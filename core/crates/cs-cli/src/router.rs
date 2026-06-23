@@ -82,6 +82,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Genuinely-long read-only handlers on large repos / archives.
         "git.status" | "git.diff" | "git.log" | "git.branch" | "git.worktrees"
         | "session.search" => LONG_HANDLER_TIMEOUT,
+        // Embedding-backed handlers spawn the neural model (one load per call).
+        "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -487,6 +489,8 @@ impl Router {
             "context.diff" => self.context_diff(p),
             "memory.categorize" => self.memory_categorize(p),
             "memory.token_usage" => self.memory_token_usage(p),
+            "memory.mark_stale" => Ok(memory_mark_stale_payload(p)),
+            "knowledge.chunk_text" => self.knowledge_chunk_text(p),
             "definitions.grouped" => self.definitions_grouped(),
             "cost.estimate" => Ok(cost_estimate_payload(p)),
             "metrics.productivity" => self.metrics_productivity(p),
@@ -3314,6 +3318,38 @@ impl Router {
         Ok(json!({ "hits": hits, "query": query }))
     }
 
+    /// Auto-chunk a long transcript into ~N-token pieces, embed + store each (F175).
+    fn knowledge_chunk_text(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let chunk_tokens = p.get("chunk_tokens").and_then(Value::as_u64).unwrap_or(300) as usize;
+        let collection = p.get("collection").and_then(Value::as_str).unwrap_or("sessions");
+        let words: Vec<&str> = text.split_whitespace().collect();
+        // Accumulate words until the chunk reaches ~chunk_tokens (token-accurate).
+        let mut texts = Vec::new();
+        let mut cur: Vec<&str> = Vec::new();
+        for w in words {
+            cur.push(w);
+            if estimate_tokens(&cur.join(" ")) >= chunk_tokens {
+                texts.push(cur.join(" "));
+                cur.clear();
+            }
+        }
+        if !cur.is_empty() {
+            texts.push(cur.join(" "));
+        }
+        let vectors = self.embed_texts(&texts)?;
+        let mut chunks = Vec::new();
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.knowledge_path()) {
+            use std::io::Write;
+            for (chunk, vec) in texts.iter().zip(vectors.into_iter()) {
+                let entry = json!({ "id": unique_id("k"), "text": chunk, "collection": collection, "source": "auto-chunk", "vec": vec, "ts": now_millis() });
+                let _ = writeln!(f, "{entry}");
+                chunks.push(json!({ "tokens": estimate_tokens(chunk), "chars": chunk.len() }));
+            }
+        }
+        Ok(json!({ "chunk_count": chunks.len(), "chunks": chunks, "collection": collection }))
+    }
+
     /// Sync a library directory to a git remote (push), e.g. the skill library (F351).
     fn library_git_sync(&self, p: &Value) -> HandlerResult {
         let dir = req_str(p, "dir")?;
@@ -4722,6 +4758,25 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Mark memory entries unused for > threshold days as stale (F092).
+fn memory_mark_stale_payload(p: &Value) -> Value {
+    let now = p.get("now_ms").and_then(Value::as_i64).filter(|n| *n > 0).unwrap_or_else(now_millis);
+    let threshold_days = p.get("threshold_days").and_then(Value::as_i64).unwrap_or(90);
+    let cutoff = now - threshold_days * 86_400_000;
+    let entries = p.get("entries").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    let mut stale_count = 0;
+    for e in &entries {
+        let last = e.get("last_used_ms").and_then(Value::as_i64).unwrap_or(now);
+        let stale = last < cutoff;
+        if stale {
+            stale_count += 1;
+        }
+        out.push(json!({ "name": e.get("name"), "last_used_ms": last, "stale": stale, "age_days": (now - last) / 86_400_000 }));
+    }
+    json!({ "entries": out, "threshold_days": threshold_days, "stale_count": stale_count })
 }
 
 /// gzip + AES-256-GCM encrypt; returns (hex(nonce||ciphertext), orig_len, gzip_len) (F165).
