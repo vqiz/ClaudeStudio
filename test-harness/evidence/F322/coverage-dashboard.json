@@ -1,0 +1,18 @@
+{
+  "total_percent": 86.0,
+  "module_count": 3,
+  "modules": [
+    {
+      "file": "math.js",
+      "percent": 75.0
+    },
+    {
+      "file": "test.mjs",
+      "percent": 100.0
+    },
+    {
+      "file": "util.js",
+      "percent": 67.0
+    }
+  ]
+}

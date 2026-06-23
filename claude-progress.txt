@@ -231,3 +231,8 @@
   (sauber), gelb=arbeitend (uncommitted), rot=Fehler (detached HEAD/Konflikt); F315 os.mission_control
   bündelt laufende Agenten + Event-Stream + Queue-Board + A2A-Feed + Resource-Gauges gleichzeitig.
   test-harness/probes/batch41.py. 278/360.
+[SESSION 1] [2026-06-23] [BUILD-42] [PASSING] +2 Coverage (echter Core, node --test coverage):
+  coverage.measure führt ein echtes Coverage-Kommando aus und parst den lcov-Report (SF/LF/LH/FNF/FNH)
+  zu Pro-Modul-% + Gesamt-Coverage. F204 echte Test-Abdeckung (86%, math.js 75% da mul/bye ungetestet);
+  F322 Coverage-Dashboard zeigt Gesamt-% + 3 Module je mit %-Wert. Node 22 eingebauter Test-Runner +
+  lcov-Reporter (kein npm-Install). test-harness/probes/batch42.py. 280/360.

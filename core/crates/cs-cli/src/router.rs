@@ -84,7 +84,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "session.search" => LONG_HANDLER_TIMEOUT,
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
-        | "knowledge.extract_entities" | "assets.scan"
+        | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
@@ -236,6 +236,49 @@ impl Router {
                         "queued_tasks": queue.len(),
                         "recent_events": events.len() },
         }))
+    }
+
+    /// Misst die echte Test-Abdeckung (F204/F322): führt optional ein Coverage-Kommando
+    /// im cwd aus, parst dann den lcov-Report (SF/LF/LH/FNF/FNH) zu Pro-Modul-Prozenten
+    /// und einer Gesamt-Coverage. Keine Heuristik — echte ausgeführte Coverage-Daten.
+    fn coverage_measure(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        if let Some(cmd) = p.get("command").and_then(Value::as_str) {
+            let _ = std::process::Command::new("sh").arg("-c").arg(cmd).current_dir(cwd).output();
+        }
+        let lcov = p.get("lcov").and_then(Value::as_str).unwrap_or("coverage.lcov");
+        let content = std::fs::read_to_string(Path::new(cwd).join(lcov))
+            .map_err(|e| IpcFailure::not_found(format!("lcov nicht gefunden: {e}")))?;
+
+        fn flush(modules: &mut Vec<Value>, cur: &str, lf: i64, lh: i64, fnf: i64, fnh: i64) {
+            if !cur.is_empty() && lf > 0 {
+                modules.push(json!({ "file": cur, "lines_found": lf, "lines_hit": lh,
+                    "functions_found": fnf, "functions_hit": fnh,
+                    "percent": (lh as f64 / lf as f64 * 100.0).round() }));
+            }
+        }
+        let mut modules = Vec::new();
+        let (mut cur, mut lf, mut lh, mut fnf, mut fnh) = (String::new(), 0i64, 0i64, 0i64, 0i64);
+        let (mut tot_lf, mut tot_lh) = (0i64, 0i64);
+        for line in content.lines() {
+            if let Some(f) = line.strip_prefix("SF:") {
+                flush(&mut modules, &cur, lf, lh, fnf, fnh);
+                cur = f.trim().to_string();
+                lf = 0; lh = 0; fnf = 0; fnh = 0;
+            } else if let Some(v) = line.strip_prefix("LF:") {
+                lf = v.trim().parse().unwrap_or(0); tot_lf += lf;
+            } else if let Some(v) = line.strip_prefix("LH:") {
+                lh = v.trim().parse().unwrap_or(0); tot_lh += lh;
+            } else if let Some(v) = line.strip_prefix("FNF:") {
+                fnf = v.trim().parse().unwrap_or(0);
+            } else if let Some(v) = line.strip_prefix("FNH:") {
+                fnh = v.trim().parse().unwrap_or(0);
+            }
+        }
+        flush(&mut modules, &cur, lf, lh, fnf, fnh);
+        let total = if tot_lf > 0 { (tot_lh as f64 / tot_lf as f64 * 100.0).round() } else { 0.0 };
+        Ok(json!({ "total_percent": total, "lines_found": tot_lf, "lines_hit": tot_lh,
+                   "modules": modules, "module_count": modules.len() }))
     }
 
     /// Status-Farben der Worktrees (F068): rot = git-Fehler (detached HEAD / Merge-Konflikt),
@@ -447,6 +490,7 @@ impl Router {
             "os.running_agents" => self.os_running_agents(),
             "os.mission_control" => self.os_mission_control(),
             "worktree.status" => self.worktree_status(p),
+            "coverage.measure" => self.coverage_measure(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
