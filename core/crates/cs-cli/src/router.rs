@@ -413,6 +413,13 @@ impl Router {
             "checkpoint.save" => self.checkpoint_save(p),
             "checkpoint.restore" => self.checkpoint_restore(p),
             "checkpoint.list" => self.checkpoint_list(),
+            "codeq.dead_code" => self.codeq_dead_code(p),
+            "codeq.duplicates" => self.codeq_duplicates(p),
+            "codeq.complexity" => self.codeq_complexity(p),
+            "perf.compare" => Ok(perf_compare_payload(p)),
+            "docs.arch_diagram" => self.docs_arch_diagram(p),
+            "docs.generate" => self.docs_generate(p),
+            "i18n.extract" => Ok(i18n_extract_payload(p)),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -1819,6 +1826,136 @@ impl Router {
         Ok(json!({ "checkpoints": names }))
     }
 
+    // MARK: Code-quality & documentation analyzers (static, no LLM)
+
+    /// Exported JS/TS symbols never referenced anywhere else (F318).
+    fn codeq_dead_code(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx"]);
+        let all: String = files.iter().map(|(_, c)| c.as_str()).collect::<Vec<_>>().join("\n");
+        let mut dead = Vec::new();
+        for (path, content) in &files {
+            for line in content.lines() {
+                for kw in ["export function ", "export const ", "export class "] {
+                    if let Some(idx) = line.find(kw) {
+                        let name: String = line[idx + kw.len()..]
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect();
+                        if !name.is_empty() && all.matches(name.as_str()).count() <= 1 {
+                            dead.push(json!({ "name": name, "file": path }));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(json!({ "dead_exports": dead, "scanned_files": files.len() }))
+    }
+
+    /// Duplicated line-blocks across files with a size-based similarity (F319).
+    fn codeq_duplicates(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let window = p.get("window").and_then(Value::as_u64).unwrap_or(4) as usize;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx", "rs", "py"]);
+        let mut blocks: HashMap<String, Vec<String>> = HashMap::new();
+        for (path, content) in &files {
+            let lines: Vec<&str> = content.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+            if lines.len() < window {
+                continue;
+            }
+            for i in 0..=lines.len() - window {
+                let block = lines[i..i + window].join("\n");
+                blocks.entry(block).or_default().push(format!("{path}:{}", i + 1));
+            }
+        }
+        let mut dups = Vec::new();
+        for (block, locs) in blocks {
+            if locs.len() >= 2 {
+                dups.push(json!({
+                    "locations": locs, "lines": window,
+                    "block": block.chars().take(120).collect::<String>(),
+                }));
+            }
+        }
+        Ok(json!({ "duplicates": dups, "block_size": window }))
+    }
+
+    /// Cyclomatic complexity per file (F320).
+    fn codeq_complexity(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx", "rs", "py"]);
+        let mut out = Vec::new();
+        for (path, content) in &files {
+            let c = cyclomatic_complexity(content);
+            let level = if c > 20 { "high" } else if c > 10 { "medium" } else { "low" };
+            out.push(json!({ "file": path, "complexity": c, "level": level }));
+        }
+        out.sort_by(|a, b| b["complexity"].as_u64().cmp(&a["complexity"].as_u64()));
+        Ok(json!({ "files": out }))
+    }
+
+    /// Mermaid component diagram derived from JS/TS imports (F334).
+    fn docs_arch_diagram(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx"]);
+        let mut edges: Vec<(String, String)> = Vec::new();
+        for (path, content) in &files {
+            let module = Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("mod").to_string();
+            for line in content.lines() {
+                if line.contains("import") {
+                    if let Some(idx) = line.find("from ") {
+                        let target = line[idx + 5..].trim().trim_matches(|c| c == '"' || c == '\'' || c == ';');
+                        let dep = Path::new(target).file_stem().and_then(|s| s.to_str()).unwrap_or(target).to_string();
+                        edges.push((module.clone(), dep));
+                    }
+                }
+            }
+        }
+        let nodes: HashSet<String> = edges.iter().flat_map(|(a, b)| [a.clone(), b.clone()]).collect();
+        let mut mermaid = String::from("graph TD\n");
+        for (a, b) in &edges {
+            mermaid.push_str(&format!("  {} --> {}\n", sanitize_node(a), sanitize_node(b)));
+        }
+        Ok(json!({ "mermaid": mermaid, "edges": edges.len(), "nodes": nodes.len() }))
+    }
+
+    /// Markdown docs from doc-comments + function signatures (F332).
+    fn docs_generate(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "js"]);
+        let mut md = String::from("# API\n\n");
+        let mut count = 0;
+        for (path, content) in &files {
+            let lines: Vec<&str> = content.lines().collect();
+            for i in 0..lines.len() {
+                let l = lines[i].trim();
+                if l.starts_with("export function ") || l.starts_with("function ") {
+                    let sig = l.trim_end_matches('{').trim();
+                    let mut j = i;
+                    while j > 0 {
+                        let prev = lines[j - 1].trim();
+                        if prev.starts_with("*") || prev.starts_with("/**") || prev.ends_with("*/") {
+                            j -= 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut doc = String::new();
+                    for line in lines.iter().take(i).skip(j) {
+                        let t = line.trim().trim_start_matches("/**").trim_start_matches("*/").trim_start_matches('*').trim();
+                        if !t.is_empty() {
+                            doc.push_str(t);
+                            doc.push(' ');
+                        }
+                    }
+                    md.push_str(&format!("## `{sig}`\n\n{}\n\n_({path})_\n\n", doc.trim()));
+                    count += 1;
+                }
+            }
+        }
+        Ok(json!({ "markdown": md, "documented": count }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -3033,6 +3170,91 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Recursively collect source files of the given extensions, skipping build
+/// and vendor directories. Caps each file at ~1 MB.
+fn collect_source_files(root: &Path, exts: &[&str]) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if p.is_dir() {
+                if matches!(name.as_str(), "target" | ".build" | "node_modules" | ".git" | ".claude") {
+                    continue;
+                }
+                stack.push(p);
+            } else if p.extension().and_then(|x| x.to_str()).map(|x| exts.contains(&x)).unwrap_or(false) {
+                if let Ok(c) = std::fs::read_to_string(&p) {
+                    if c.len() < 1_000_000 {
+                        out.push((p.to_string_lossy().to_string(), c));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Approximate cyclomatic complexity: 1 + branch/decision keywords (F320).
+fn cyclomatic_complexity(src: &str) -> u64 {
+    let mut c = 1u64;
+    for kw in ["if ", "if(", "for ", "for(", "while ", "while(", "case ", "catch", "&&", "||", " ? "] {
+        c += src.matches(kw).count() as u64;
+    }
+    c
+}
+
+/// Sanitize a string into a mermaid-safe node id.
+fn sanitize_node(s: &str) -> String {
+    s.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
+}
+
+/// Compare a benchmark's current time to a baseline; flag a regression (F325).
+fn perf_compare_payload(p: &Value) -> Value {
+    let baseline = p.get("baseline_ms").and_then(Value::as_f64).unwrap_or(0.0);
+    let current = p.get("current_ms").and_then(Value::as_f64).unwrap_or(0.0);
+    let threshold = p.get("threshold_pct").and_then(Value::as_f64).unwrap_or(10.0);
+    let delta_pct = if baseline > 0.0 { (current - baseline) / baseline * 100.0 } else { 0.0 };
+    json!({
+        "baseline_ms": baseline, "current_ms": current, "delta_pct": delta_pct,
+        "threshold_pct": threshold, "regression": delta_pct > threshold,
+    })
+}
+
+/// Extract hardcoded UI strings, replacing them with t('key') calls (F344).
+fn i18n_extract_payload(p: &Value) -> Value {
+    let content = p.get("content").and_then(Value::as_str).unwrap_or("");
+    let mut catalog = serde_json::Map::new();
+    let mut transformed = content.to_string();
+    let mut keys = Vec::new();
+    // Collect double-quoted literals that look like UI text (letters, len>=3).
+    let mut literals = Vec::new();
+    let mut i = 0;
+    let bytes = content.as_bytes();
+    while i < bytes.len() {
+        if bytes[i] == b'"' {
+            if let Some(end) = content[i + 1..].find('"') {
+                let lit = &content[i + 1..i + 1 + end];
+                if lit.chars().any(|c| c.is_alphabetic()) && lit.chars().count() >= 3 {
+                    literals.push(lit.to_string());
+                }
+                i = i + 1 + end + 1;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    for (idx, lit) in literals.into_iter().enumerate() {
+        let key = format!("key_{idx}");
+        catalog.insert(key.clone(), json!(lit));
+        transformed = transformed.replacen(&format!("\"{lit}\""), &format!("t('{key}')"), 1);
+        keys.push(key);
+    }
+    json!({ "transformed": transformed, "catalog": catalog, "extracted": keys.len() })
 }
 
 /// Pre-deploy checklist: blocks the deploy while any check is failing (F276).

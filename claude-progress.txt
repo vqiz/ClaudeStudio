@@ -92,3 +92,6 @@
 [SESSION 1] [2026-06-23] [BUILD-10] [PASSING] +9 Deployment/DevOps/Produktivität GEBAUT: env.add/list,
   deploy.rollback (echtes git reset), deploy.checklist, flags.set/eval/list, metrics.dora (aus git),
   report.standup, checkpoint.save/restore/list. PASSING: F271 F273 F274 F276 F327 F330 F331 F352 F353. 131/360.
+[SESSION 1] [2026-06-23] [BUILD-11] [PASSING] +7 statische Code-Analyse+Doku GEBAUT: codeq.dead_code/
+  duplicates/complexity, perf.compare, docs.generate (Markdown), docs.arch_diagram (Mermaid), i18n.extract.
+  PASSING: F318 F319 F320 F325 F332 F334 F344. cargo test grün. 138/360.
