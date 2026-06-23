@@ -502,6 +502,8 @@ impl Router {
             "projects.remove" => self.projects_remove(p),
             "projects.online_status" => Ok(project_online_status_payload(p)),
             "file.git_colors" => self.file_git_colors(p),
+            "files.status_indicators" => self.files_status_indicators(p),
+            "files.cross_project_tree" => self.files_cross_project_tree(p),
             "file.diff" => self.file_diff(p),
             "file.find" => self.file_find(p),
             "file.to_asset" => self.file_to_asset(p),
@@ -3104,6 +3106,95 @@ impl Router {
     }
 
     /// Git-status colors per file: new=green, deleted=red, modified=orange (F058).
+    /// Status-Indikatoren je Datei für den Dateibaum (F052): bearbeitet (git status),
+    /// geschützt (is_protected_path) und Brain-Graph-Asset (Asset-Knoten im Graph).
+    /// Liefert pro Datei die Flags + zugehörige Symbole für die Indikatorspalte.
+    fn files_status_indicators(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        // bearbeitete Dateien aus git status
+        let mut edited: std::collections::HashSet<String> = std::collections::HashSet::new();
+        if let Ok(out) = std::process::Command::new("git")
+            .current_dir(cwd).args(["status", "--porcelain"]).output()
+        {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if line.len() >= 3 {
+                    edited.insert(line[3..].trim().to_string());
+                }
+            }
+        }
+        // Brain-Graph-Assets (Asset-Knoten mit props.path)
+        let g = self.read_graph();
+        let asset_paths: std::collections::HashSet<String> = g["nodes"]
+            .as_array()
+            .map(|ns| {
+                ns.iter()
+                    .filter(|n| n.get("type").and_then(Value::as_str) == Some("asset"))
+                    .filter_map(|n| {
+                        n.get("props").and_then(|pr| pr.get("path")).and_then(Value::as_str).map(String::from)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let is_asset = |f: &str, full: &str| {
+            asset_paths.contains(f)
+                || asset_paths.contains(full)
+                || asset_paths.iter().any(|ap| ap.ends_with(&format!("/{f}")))
+        };
+        // zu prüfende Dateien: übergebene Liste oder Top-Level-Dateien im cwd
+        let files: Vec<String> = match p.get("files").and_then(Value::as_array) {
+            Some(arr) => arr.iter().filter_map(|f| f.as_str().map(String::from)).collect(),
+            None => std::fs::read_dir(cwd)
+                .map(|rd| {
+                    rd.flatten()
+                        .filter(|e| e.path().is_file())
+                        .filter_map(|e| e.file_name().to_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default(),
+        };
+        let mut out = Vec::new();
+        for f in files {
+            let full = Path::new(cwd).join(&f).to_string_lossy().to_string();
+            let protected = is_protected_path(&f) || is_protected_path(&full);
+            let brain_asset = is_asset(&f, &full);
+            let is_edited = edited.contains(&f);
+            let mut symbols = Vec::new();
+            if is_edited { symbols.push("pencil"); }
+            if protected { symbols.push("lock"); }
+            if brain_asset { symbols.push("brain"); }
+            out.push(json!({ "path": f, "edited": is_edited, "protected": protected,
+                             "brain_asset": brain_asset, "symbols": symbols }));
+        }
+        Ok(json!({ "files": out }))
+    }
+
+    /// Cross-Project-Modus (F063): vereint mehrere Projekt-Wurzeln in einem Baum.
+    /// Jede Wurzel wird mit Namen + Top-Level-Einträgen zurückgegeben.
+    fn files_cross_project_tree(&self, p: &Value) -> HandlerResult {
+        let roots: Vec<String> = p
+            .get("roots")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|r| r.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let mut projects = Vec::new();
+        for root in &roots {
+            let name = Path::new(root).file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+            let mut entries: Vec<Value> = Vec::new();
+            if let Ok(rd) = std::fs::read_dir(root) {
+                for e in rd.flatten() {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    if n.starts_with('.') {
+                        continue;
+                    }
+                    entries.push(json!({ "name": n, "dir": e.path().is_dir() }));
+                }
+            }
+            entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
+            projects.push(json!({ "root": root, "name": name, "entries": entries }));
+        }
+        Ok(json!({ "projects": projects, "count": projects.len() }))
+    }
+
     fn file_git_colors(&self, p: &Value) -> HandlerResult {
         let cwd = req_str(p, "cwd")?;
         let out = std::process::Command::new("git")

@@ -207,3 +207,8 @@
   F261 Post-Run/Stop-Hook POSTet bei Lauf-Ende eine Slack-Nachricht per curl an die Webhook-URL;
   lokaler HTTP-Server (Slack-Substitut) antwortet 200, der Code steht im Hook-Log; Server empfing
   die {"text":...}-Nachricht. test-harness/probes/batch36.py. 268/360.
+[SESSION 1] [2026-06-23] [BUILD-37] [PASSING] +2 Dateibaum-Backend (echter Core, echtes git):
+  F052 files.status_indicators liefert je Datei bearbeitet(git)/geschützt(is_protected_path)/Brain-Asset
+  (Graph-Knoten) als Flags+Symbole (lock/brain/pencil), keine Kreuz-Kontamination; F063
+  files.cross_project_tree vereint mehrere Projekt-Wurzeln (todo-api + landing-page) parallel mit
+  Einträgen. test-harness/probes/batch37.py. 270/360.

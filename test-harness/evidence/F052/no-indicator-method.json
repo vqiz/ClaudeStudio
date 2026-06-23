@@ -1,0 +1,12 @@
+{
+  "file.status_flags": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: file.status_flags"
+  },
+  "file.indicators": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: file.indicators"
+  }
+}

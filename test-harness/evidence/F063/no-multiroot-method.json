@@ -1,0 +1,12 @@
+{
+  "project.tree": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: project.tree"
+  },
+  "workspace.roots": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: workspace.roots"
+  }
+}

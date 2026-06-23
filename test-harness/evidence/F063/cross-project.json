@@ -1,0 +1,29 @@
+{
+  "count": 2,
+  "projects": [
+    {
+      "entries": [
+        {
+          "dir": false,
+          "name": "package.json"
+        },
+        {
+          "dir": true,
+          "name": "src"
+        }
+      ],
+      "name": "todo-api",
+      "root": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b37-cross-839y6nov/todo-api"
+    },
+    {
+      "entries": [
+        {
+          "dir": false,
+          "name": "index.html"
+        }
+      ],
+      "name": "landing-page",
+      "root": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b37-cross-839y6nov/landing-page"
+    }
+  ]
+}
