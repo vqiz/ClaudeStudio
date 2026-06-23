@@ -1,0 +1,11 @@
+{
+  "span": {
+    "name": "tool.Edit",
+    "service": "claudestudio",
+    "attributes": {
+      "file": "src/index.ts",
+      "tool": "Edit"
+    }
+  },
+  "posted": 200
+}

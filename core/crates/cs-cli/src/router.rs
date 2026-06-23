@@ -86,7 +86,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
-        | "integrations.slack_command" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "integrations.slack_command" | "telemetry.export_span"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -548,6 +549,7 @@ impl Router {
             "integrations.github_sync" => self.integrations_github_sync(p),
             "integrations.usage_report" => self.integrations_usage_report(p),
             "integrations.slack_command" => self.integrations_slack_command(p),
+            "telemetry.export_span" => self.telemetry_export_span(p),
             "model_router.set" => self.model_router_set(p),
             "model_router.resolve" => self.model_router_resolve(p),
             "model_router.fallback" => Ok(model_fallback_payload(p)),
@@ -1820,6 +1822,36 @@ impl Router {
         };
         let report: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({}));
         Ok(json!({ "http_status": code, "report": report, "authenticated": !key.is_empty() }))
+    }
+
+    /// OpenTelemetry-Span-Export via OTLP/HTTP-JSON (F263/F283): baut einen echten OTLP-Span
+    /// (resourceSpans → scopeSpans → spans mit Attributen) und POSTet ihn an den konfigurierbaren
+    /// Collector-Endpunkt (z.B. http://host:4318/v1/traces). Liefert den HTTP-Status.
+    fn telemetry_export_span(&self, p: &Value) -> HandlerResult {
+        let endpoint = req_str(p, "endpoint")?;
+        let name = p.get("name").and_then(Value::as_str).unwrap_or("span");
+        let mut attrs = Vec::new();
+        if let Some(o) = p.get("attributes").and_then(Value::as_object) {
+            for (k, v) in o {
+                let s = v.as_str().map(String::from).unwrap_or_else(|| v.to_string());
+                attrs.push(json!({ "key": k, "value": { "stringValue": s } }));
+            }
+        }
+        let payload = json!({
+            "resourceSpans": [{
+                "resource": { "attributes": [
+                    { "key": "service.name", "value": { "stringValue": "claudestudio" } }
+                ]},
+                "scopeSpans": [{
+                    "scope": { "name": "claudestudio.core" },
+                    "spans": [{ "name": name, "kind": 1, "attributes": attrs }]
+                }]
+            }]
+        })
+        .to_string();
+        let posted = curl_status("POST", endpoint, &payload);
+        Ok(json!({ "posted_status": posted, "span_name": name,
+                   "attribute_count": attrs.len(), "otlp": true }))
     }
 
     /// Slack-Bot-Modus (F358): empfängt einen Slack-Befehl (von der Slack-Ingress an diesen

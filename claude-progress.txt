@@ -264,3 +264,8 @@
   F358 integrations.slack_command: Slack-Befehl -> Task (echtes Shell-Kommando, grep->3) ausgeführt ->
   Ergebnis als in_channel-Nachricht an response_url gepostet; lokaler Slack-Server empfing die
   Nachricht. test-harness/probes/batch48.py. 286/360.
+[SESSION 1] [2026-06-23] [BUILD-49] [PASSING] +2 OTel/OTLP-Export (echter Core, echtes curl, OTLP/HTTP-JSON):
+  telemetry.export_span baut einen echten OTLP-Span (resourceSpans/scopeSpans/spans+Attribute) und
+  POSTet ihn an den Collector-Endpunkt. F263 Tool-Call-Span (Attribut tool=Edit) beim Collector
+  eingegangen; F283 Session-Span via OTLP (service.name=claudestudio) eingegangen. Lokaler OTLP/HTTP-
+  Collector-Mock (/v1/traces). test-harness/probes/batch49.py. 288/360.

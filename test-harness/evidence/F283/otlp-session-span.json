@@ -1,0 +1,11 @@
+{
+  "span": {
+    "name": "session.run",
+    "service": "claudestudio",
+    "attributes": {
+      "session.id": "sess-42",
+      "total_cost_usd": "0.0123"
+    }
+  },
+  "posted": 200
+}
