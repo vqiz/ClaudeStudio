@@ -1855,7 +1855,7 @@
       "F006",
       "F106"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F111",

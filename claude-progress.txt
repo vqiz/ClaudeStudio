@@ -198,3 +198,8 @@
   F123 zwei Team-Worker laufen parallel, jeder in eigenem git-Worktree (os.running_agents=2,
   git.worktrees zeigt feat-a/feat-b); F130 neue teams.stop-Methode beendet alle Worker eines Teams
   zentral in einem Aufruf (Cancel je Session) -> running 2->0. test-harness/probes/batch34.py. 266/360.
+[SESSION 1] [2026-06-23] [BUILD-35] [PASSING] +1 Worktree-Isolation (Core-Forwarder + git):
+  F110 session.start akzeptiert isolation='worktree'; der Core legt einen frischen git-Worktree
+  (eigener Branch agent/wt-<ts>) an und lässt den Agenten dort laufen. Stub-Edit (EDITFILE) landet
+  IM Worktree, nicht im Hauptcheckout; git worktree list/branch zeigen ihn. Ack enthält worktree-Info.
+  test-harness/probes/batch35.py. Regression F116/F117/F118 grün. 267/360.

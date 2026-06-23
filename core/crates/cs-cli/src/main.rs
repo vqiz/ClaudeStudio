@@ -245,7 +245,31 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 writer.lock().await.write_frame(&err).await?;
                 continue;
             }
-            let cwd = p.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
+            let mut cwd = p.get("cwd").and_then(|v| v.as_str()).map(str::to_string);
+            // F110: Isolation-Toggle Worktree — bei `isolation: "worktree"` legt der
+            // Core einen frischen git-Worktree (eigener Branch) an und lässt den Agenten
+            // DORT laufen; alle Datei-Edits bleiben isoliert vom Hauptcheckout.
+            let mut worktree_info = serde_json::Value::Null;
+            if p.get("isolation").and_then(|v| v.as_str()) == Some("worktree") {
+                if let Some(base) = cwd.clone() {
+                    let stamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                    let wt = format!("{base}-agentwt-{stamp}");
+                    let branch = format!("agent/wt-{stamp}");
+                    let ok = tokio::process::Command::new("git")
+                        .args(["-C", &base, "worktree", "add", &wt, "-b", &branch])
+                        .output()
+                        .await
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+                    if ok {
+                        worktree_info = serde_json::json!({ "path": wt, "branch": branch });
+                        cwd = Some(wt);
+                    }
+                }
+            }
             // Optional agent persona, appended via `--append-system-prompt`.
             let system_prompt = p
                 .get("system_prompt")
@@ -306,7 +330,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
             // Arm a cancel signal so `session.stop` can kill this run.
             let cancel = router.register_cancel(&session_id);
 
-            let ack = request.response_to(serde_json::json!({ "session_id": session_id }));
+            let ack = request.response_to(serde_json::json!({ "session_id": session_id, "worktree": worktree_info }));
             writer.lock().await.write_frame(&ack).await?;
 
             forwarders.0.push(spawn_claude_forwarder(
