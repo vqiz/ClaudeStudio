@@ -1,0 +1,10 @@
+{
+  "hub": {
+    "degree": 6,
+    "radius": 32.0
+  },
+  "leaf": {
+    "degree": 1,
+    "radius": 12.0
+  }
+}

@@ -467,6 +467,7 @@ impl Router {
             "graph.edge_types" => Ok(graph_edge_types_payload()),
             "graph.add_node" => self.graph_add_node(p),
             "graph.add_edge" => self.graph_add_edge(p),
+            "graph.layout" => self.graph_layout(p),
             "graph.export" => self.graph_export(),
             "graph.search" => self.graph_search(p),
             "graph.at" => self.graph_at(p),
@@ -2625,6 +2626,103 @@ impl Router {
     fn write_graph(&self, g: &Value) -> std::result::Result<(), IpcFailure> {
         std::fs::write(self.graph_path(), serde_json::to_string_pretty(g).unwrap_or_default())
             .map_err(|e| IpcFailure::internal(e.to_string()))
+    }
+
+    /// Force-Directed-Layout (Fruchterman-Reingold) für den Brain-Graph (F189/F190).
+    /// Nimmt `nodes`/`edges` inline oder den gespeicherten Graph, verteilt die Knoten
+    /// überlappungsfrei und vergibt einen Radius proportional zum Knotengrad (mehr
+    /// Verbindungen → größerer Knoten). Liefert die Layout-Daten, die die UI rendert.
+    /// Deterministisch (Kreis-Initialisierung statt Zufall).
+    fn graph_layout(&self, p: &Value) -> HandlerResult {
+        let (nodes, edges) = if p.get("nodes").is_some() {
+            (p.get("nodes").and_then(Value::as_array).cloned().unwrap_or_default(),
+             p.get("edges").and_then(Value::as_array).cloned().unwrap_or_default())
+        } else {
+            let g = self.read_graph();
+            (g["nodes"].as_array().cloned().unwrap_or_default(),
+             g["edges"].as_array().cloned().unwrap_or_default())
+        };
+        let ids: Vec<String> = nodes.iter().enumerate().map(|(i, n)| {
+            n.get("id").and_then(Value::as_str).map(String::from).unwrap_or_else(|| format!("n{i}"))
+        }).collect();
+        let n = ids.len();
+        if n == 0 {
+            return Ok(json!({ "nodes": [], "edges": edges, "node_count": 0, "edge_count": 0 }));
+        }
+        let idx: std::collections::HashMap<&str, usize> =
+            ids.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+        let mut deg = vec![0usize; n];
+        let mut elist: Vec<(usize, usize)> = Vec::new();
+        for e in &edges {
+            let (a, b) = edge_endpoints(e);
+            if let (Some(&i), Some(&j)) = (idx.get(a.as_str()), idx.get(b.as_str())) {
+                elist.push((i, j));
+                deg[i] += 1;
+                deg[j] += 1;
+            }
+        }
+        // Deterministische Kreis-Initialisierung.
+        let mut xs = vec![0f64; n];
+        let mut ys = vec![0f64; n];
+        let r0 = 300.0;
+        for i in 0..n {
+            let a = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
+            xs[i] = r0 * a.cos();
+            ys[i] = r0 * a.sin();
+        }
+        let k = (1_000_000.0 / (n as f64)).sqrt(); // ideale Kantenlänge
+        let mut temp = 200.0;
+        for _ in 0..120 {
+            let mut dx = vec![0f64; n];
+            let mut dy = vec![0f64; n];
+            // Abstoßung zwischen allen Knotenpaaren
+            for i in 0..n {
+                for j in 0..n {
+                    if i == j { continue; }
+                    let mut ddx = xs[i] - xs[j];
+                    let mut ddy = ys[i] - ys[j];
+                    let mut dist = (ddx * ddx + ddy * ddy).sqrt();
+                    if dist < 0.01 {
+                        ddx = 0.01 * (i as f64 - j as f64);
+                        ddy = 0.01;
+                        dist = 0.0142;
+                    }
+                    let force = k * k / dist;
+                    dx[i] += ddx / dist * force;
+                    dy[i] += ddy / dist * force;
+                }
+            }
+            // Anziehung entlang Kanten
+            for &(i, j) in &elist {
+                let ddx = xs[i] - xs[j];
+                let ddy = ys[i] - ys[j];
+                let dist = (ddx * ddx + ddy * ddy).sqrt().max(0.01);
+                let force = dist * dist / k;
+                dx[i] -= ddx / dist * force;
+                dy[i] -= ddy / dist * force;
+                dx[j] += ddx / dist * force;
+                dy[j] += ddy / dist * force;
+            }
+            for i in 0..n {
+                let d = (dx[i] * dx[i] + dy[i] * dy[i]).sqrt().max(0.01);
+                xs[i] += dx[i] / d * d.min(temp);
+                ys[i] += dy[i] / d * d.min(temp);
+            }
+            temp *= 0.95;
+        }
+        let out_nodes: Vec<Value> = (0..n).map(|i| {
+            json!({ "id": ids[i], "x": xs[i], "y": ys[i],
+                    "radius": 8.0 + 4.0 * deg[i] as f64, "degree": deg[i] })
+        }).collect();
+        let mut min_d = f64::MAX;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let d = ((xs[i] - xs[j]).powi(2) + (ys[i] - ys[j]).powi(2)).sqrt();
+                if d < min_d { min_d = d; }
+            }
+        }
+        Ok(json!({ "nodes": out_nodes, "edges": edges, "node_count": n,
+                   "edge_count": elist.len(), "min_distance": if n > 1 { min_d } else { 0.0 } }))
     }
 
     fn graph_add_node(&self, p: &Value) -> HandlerResult {
@@ -5387,11 +5485,13 @@ fn copilot_suggestions_payload(p: &Value) -> Value {
     if getn("open_findings") > 0 {
         sug.push(json!({ "priority":"red","category":"Wichtig",
             "title":format!("{} offene Security-Findings beheben", getn("open_findings")),
-            "action":"fix_findings","why":{"open_findings":getn("open_findings")} }));
+            "reason":format!("Der letzte Scan meldete {} offene Security-Findings — vor dem nächsten Deploy beheben.", getn("open_findings")),
+            "action":"fix_findings","action_label":"Jetzt beheben","why":{"open_findings":getn("open_findings")} }));
     }
     if getn("failing_tests") > 0 {
         sug.push(json!({ "priority":"red","category":"Wichtig","title":"Fehlschlagende Tests reparieren",
-            "action":"fix_tests","why":{"failing_tests":getn("failing_tests")} }));
+            "reason":format!("{} Test(s) schlagen aktuell fehl und blockieren grüne Builds.", getn("failing_tests")),
+            "action":"fix_tests","action_label":"Tests reparieren","why":{"failing_tests":getn("failing_tests")} }));
     }
     if getn("last_backup_days") > 7 {
         sug.push(json!({ "priority":"yellow","category":"Empfohlen",
@@ -5720,6 +5820,20 @@ fn model_cost_compare_payload(p: &Value) -> Value {
 }
 
 /// Prebuilt prompt templates for the prompt library (F243).
+/// Liest die beiden Endpunkt-IDs einer Kante (unterstützt {from,to},
+/// {source,target} und [a, b]-Form).
+fn edge_endpoints(e: &Value) -> (String, String) {
+    if let Some(arr) = e.as_array() {
+        return (
+            arr.first().and_then(Value::as_str).unwrap_or("").to_string(),
+            arr.get(1).and_then(Value::as_str).unwrap_or("").to_string(),
+        );
+    }
+    let a = e.get("from").or_else(|| e.get("source")).and_then(Value::as_str).unwrap_or("").to_string();
+    let b = e.get("to").or_else(|| e.get("target")).and_then(Value::as_str).unwrap_or("").to_string();
+    (a, b)
+}
+
 /// Erzeugt die Projekt-CLAUDE.md für ein Scaffold-Template (F085). Bekannte
 /// Templates (z.B. `fastapi`) liefern charakteristischen Stack-/Regel-Inhalt;
 /// sonst ein generisches Gerüst aus der erkannten Stack-Signatur.

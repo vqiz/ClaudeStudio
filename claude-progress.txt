@@ -168,3 +168,8 @@
   (FastAPI/uvicorn/pydantic); F178 assets.scan extrahiert OCR-Text (PNG via echtem tesseract → 'ACME CORP
   LOGO') + SVG-Semantik ('Firmenlogo'), bettet in 'assets' ein, semantische Suche findet es (Score 0.856).
   test-harness/probes/batch28.py. 254/360.
+[SESSION 1] [2026-06-23] [BUILD-29] [PASSING] +3 Backend-Features (echter Core, deterministisch):
+  F189 graph.layout Force-Directed (Fruchterman-Reingold) verteilt 10 Nodes/12 Edges überlappungsfrei
+  (min-Abstand 272 > Radien-Summen); F190 Node-Radius proportional zum Grad (Hub Grad6 r=32 > Blatt
+  Grad1 r=12); F216 copilot.suggestions liefert Vorschlagskarte mit Titel + Begründungstext (reason) +
+  Aktions-Button (action_label 'Jetzt beheben'). test-harness/probes/batch29.py. 257/360.

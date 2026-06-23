@@ -1,0 +1,37 @@
+{
+  "card": {
+    "action": "fix_findings",
+    "action_label": "Jetzt beheben",
+    "category": "Wichtig",
+    "priority": "red",
+    "reason": "Der letzte Scan meldete 2 offene Security-Findings — vor dem nächsten Deploy beheben.",
+    "title": "2 offene Security-Findings beheben",
+    "why": {
+      "open_findings": 2
+    }
+  },
+  "all": [
+    {
+      "action": "fix_findings",
+      "action_label": "Jetzt beheben",
+      "category": "Wichtig",
+      "priority": "red",
+      "reason": "Der letzte Scan meldete 2 offene Security-Findings — vor dem nächsten Deploy beheben.",
+      "title": "2 offene Security-Findings beheben",
+      "why": {
+        "open_findings": 2
+      }
+    },
+    {
+      "action": "fix_tests",
+      "action_label": "Tests reparieren",
+      "category": "Wichtig",
+      "priority": "red",
+      "reason": "1 Test(s) schlagen aktuell fehl und blockieren grüne Builds.",
+      "title": "Fehlschlagende Tests reparieren",
+      "why": {
+        "failing_tests": 1
+      }
+    }
+  ]
+}
