@@ -20,3 +20,28 @@
 [SESSION 1] [2026-06-23] [F011] [PASSING] init.sh zweimal grün (idempotent): rust-core/claude-cli/swift/qdrant/cs-home alle OK. Evidence: evidence/F011/init-run{1,2}.log.
 [SESSION 1] [2026-06-23] [F004-F014-F015] [PASSING] Echte .app gestartet (open dist/ClaudeStudio.app) gegen laufenden Core: Core hielt akzeptierte Socket-Verbindung (lsof), App zeigte echte sessions.db-Daten (IPC-Beweis). Screenshot evidence/F014/shell.png zeigt App-Shell (260px-Sidebar, Projekt-Tabs, heller GA-Look, #1A73E8-Akzent). Lektion: swift run aktiviert kein GUI-Fenster -> .app-Bundle via open nutzen; AX-Fensterzugriff (System Events) ohne Accessibility-Freigabe nicht möglich -> interaktives Klick-Testen einzelner UI-States headless blockiert.
 [SESSION 1] [2026-06-23] [MILESTONE] Foundation komplett: F001-F015 alle PASSING mit Evidence. 15/360.
+[SESSION 1] [2026-06-23] [PROBE-FANOUT] 15 Kategorie-Probe-Module (test-harness/probes/) via Workflow geschrieben, jedes führt echte Operationen gegen den echten Core/Qdrant/git aus. Zentral re-ausgeführt (run_probes.py = alleinige Wahrheit).
+[SESSION 1] [2026-06-23] [BATCH] [PASSING] +18 core-backed: git-status/diff (F072/F073), worktree (F064), definitions (F097/F103/F104), session-archive create/list/get (F151/F152/F157), task-library list/run (F196/F197/F213), prompt-studio skills (F239/F240/F242), mcp upsert/list (F249), hooks list (F266), agentic-os events (F305).
+[SESSION 1] [2026-06-23] [BATCH] [PASSING] +11 vector-db (echtes Qdrant :6333 + echtes MiniLM-Embedding via embed_cli): F168-F173 (Collections/Upsert/semantische Suche/Filter/Top-K), F176, F182-F185 (leerer Index/Concurrency/Persistenz). F170-Evidence: "Stripe payment integration" per dt. Query "Zahlungsanbieter" mit Score 0.861 gefunden.
+[SESSION 1] [2026-06-23] [MILESTONE] 44/360 PASSING, alle mit echter Evidence. cargo test --workspace: 118 passed/0 failed (Supporting).
+#
+# ── EHRLICHER STATUS / WARUM NICHT MEHR (kein Faken erlaubt, §0) ──────────────
+# Der Code ist eine frühe FOUNDATION, kein fertiges Produkt. Die Probe-Agenten haben
+# (gegen den echten Core) festgestellt, dass die große Mehrheit der Spec-Features
+# NOCH NICHT IMPLEMENTIERT ist. Verteilung der verbleibenden ~316:
+#  - NICHT IM CORE GEBAUT (~150+): file.create/rename/tree, context.assemble + Ebenen-Toggle,
+#    Memory-Injektion (global.md/projects.md in Session laden), Token/USD-Kostenspalten,
+#    Privacy-Modus (AES-256/gzip), Permission-Gates+Audit-Log, Commit-Assistent, Secret-Scanner,
+#    Großteil agent-studio/agent-teams/agentic-os/deployment. -> echte Rust+Swift-Entwicklung nötig,
+#    teils in Dateien die der User AKTUELL bearbeitet (app/, cs-cli, cs-ipc, cs-sessions) -> nicht angefasst.
+#  - UI-INTERAKTIV (~70): design-system, navigation, project-hub, session-panel, brain-graph,
+#    copilot, ui-design. Shell+Tokens per Screenshot belegbar (F014/F015 done), aber Klick-für-Klick-
+#    State-Tests brauchen GUI-Automation; System Events liefert ohne Accessibility-Freigabe keine
+#    AX-Fenster -> headless nicht zuverlässig steuerbar.
+#  - EXTERN/HARDWARE (~13 voice + Teile mcp/integrations): Audio-Roundtrip, Deepgram/ElevenLabs,
+#    echte GitHub/Slack/Linear/Gmail-MCPs, Browser-Computer-Use -> keine Credentials/Hardware hier.
+# GEFUNDENE ECHTE BUGS (für den User, nicht gefakt):
+#  - F159: session.search wirft SQLite-Fehler bei Mehrwort-Query ("no such column: ...") — FTS5-Input
+#    wird nicht escaped/gequotet. Fix-Ort: core/crates/cs-sessions/src/lib.rs full_text_search (User-WIP).
+#  - vector-db Realität: Core nutzt all-MiniLM-L6-v2 (384 dim), NICHT nomic-embed-text/768; kein OpenAI-Fallback
+#    (Fallback = HashEmbedder); Qdrant ist im Core nicht verdrahtet (qdrant_url=None, Feature-Scaffold).

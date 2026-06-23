@@ -48,6 +48,10 @@ sessions.db-*
 test-harness/evidence/*
 !test-harness/evidence/.gitkeep
 
+# ---- Build-Loop Wegwerf-Test-Projekte (eigene nested git-Repos, von Probes erzeugt) ----
+test-harness/projects/*
+!test-harness/projects/.gitkeep
+
 # ---- Logs / misc ----
 *.log
 node_modules/

@@ -44,3 +44,9 @@ neural = [
 [[example]]
 name = "semantic_demo"
 required-features = ["neural"]
+
+# Echte-Embedding-Bruecke fuer die test-harness vector-db-Probe: liest Texte auf
+# stdin und gibt echte MiniLM-Vektoren als JSON aus. Nur mit neural verfuegbar.
+[[example]]
+name = "embed_cli"
+required-features = ["neural"]

@@ -126,17 +126,33 @@ class RemoteError(Exception):
 # ---------------------------------------------------------------------------
 @contextmanager
 def running_core(home: Path | None = None, library_dir: Path | None = None,
-                 log_path: Path | None = None, env_extra: dict | None = None):
+                 log_path: Path | None = None, env_extra: dict | None = None,
+                 seed_models: bool = True):
     """Startet den echten Core mit eigenem Socket; räumt am Ende auf.
 
     home=None  → frisches Temp-HOME (isolierter State, sauberes sessions.db).
     home=Path  → dieses HOME nutzen (z.B. das echte, wenn claude-Login nötig).
+
+    seed_models=True verlinkt den bereits heruntergeladenen Modell-Cache aus dem
+    echten ~/.claudestudio/models ins Temp-HOME, damit der Core beim Start NICHT
+    erneut 90 MB lädt (sonst blockieren semantische Operationen / Hänger).
     """
     import tempfile
     tmp = None
     if home is None:
         tmp = tempfile.mkdtemp(prefix="cs-probe-home-")
         home = Path(tmp)
+    # Modell-Cache aus dem echten HOME ins Temp-HOME spiegeln (Symlink, instant).
+    if seed_models and tmp is not None:
+        real_models = Path(os.path.expanduser("~/.claudestudio/models"))
+        if real_models.is_dir():
+            (Path(home) / ".claudestudio").mkdir(parents=True, exist_ok=True)
+            link = Path(home) / ".claudestudio" / "models"
+            if not link.exists():
+                try:
+                    link.symlink_to(real_models)
+                except OSError:
+                    pass
     sock_path = Path(home) / "core.sock"
     if sock_path.exists():
         sock_path.unlink()
