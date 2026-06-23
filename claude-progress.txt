@@ -65,3 +65,6 @@
   standard/auto/yolo; Subagent ask->deny), permissions.matrix_get/set (+default), permissions.audit_log
   (jede Entscheidung), security.scan_output (Prompt-Injection-Guard).
   PASSING: F286-F295,F297,F298,F299. cargo test grün. 82/360.
+[SESSION 1] [2026-06-23] [BUILD-4] [PASSING] +3 Definitionen GEBAUT: context.assemble lädt benannte
+  Definitionen in die Ebene active_definitions (echter Token-Zähler); definitions.suggest (Keyword-
+  Match). PASSING: F099 F101 F102. cargo test grün. 85/360.

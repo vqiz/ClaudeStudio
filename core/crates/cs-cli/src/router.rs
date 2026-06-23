@@ -346,6 +346,7 @@ impl Router {
             "tasks.delete" => self.library_delete(p, "tasks", ".task.json"),
             "library.load_defaults" => self.library_load_defaults(),
             "definitions.list" => self.definitions_list(),
+            "definitions.suggest" => self.definitions_suggest(p),
             "definitions.create" => self.library_create(p, "definitions"),
             "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
             "skills.list" => self.skills_list(p),
@@ -589,7 +590,7 @@ impl Router {
             (LayerKind::CrossProjectMemory, memory),
             (LayerKind::ProjectClaudeMd, project_md),
             (LayerKind::VectorRetrieval, String::new()),
-            (LayerKind::ActiveDefinitions, String::new()),
+            (LayerKind::ActiveDefinitions, self.load_active_definitions(p.get("definitions"))),
             (LayerKind::WorktreeOverride, worktree_md),
         ];
 
@@ -634,6 +635,55 @@ impl Router {
             "layers": layers,
             "assembled_text": assembled_text,
         }))
+    }
+
+    /// Concatenate the bodies (frontmatter stripped) of the named definitions
+    /// from the library, so `context.assemble` can inject them as the active-
+    /// definitions layer. `names` is the request's `definitions` value (array).
+    fn load_active_definitions(&self, names: Option<&Value>) -> String {
+        let wanted: Vec<String> = names
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        if wanted.is_empty() {
+            return String::new();
+        }
+        let mut out = String::new();
+        for (_path, content, _w) in self.library_files("definitions", ".def.md") {
+            let fm = parse_frontmatter(&content);
+            let name = fm.get("name").cloned().unwrap_or_default();
+            if wanted.iter().any(|w| w.eq_ignore_ascii_case(&name)) {
+                if !out.is_empty() {
+                    out.push_str("\n\n");
+                }
+                out.push_str(&format!("## {name}\n{}", strip_frontmatter(&content).trim()));
+            }
+        }
+        out
+    }
+
+    /// Suggest definitions whose name/tags/category match keywords in `prompt`.
+    fn definitions_suggest(&self, p: &Value) -> HandlerResult {
+        let prompt = req_str(p, "prompt")?.to_lowercase();
+        let words: HashSet<&str> = prompt
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() >= 3)
+            .collect();
+        let mut suggestions = Vec::new();
+        for (path, content, _w) in self.library_files("definitions", ".def.md") {
+            let fm = parse_frontmatter(&content);
+            let name = fm.get("name").cloned().unwrap_or_default();
+            let tags = fm.get("tags").cloned().unwrap_or_default().to_lowercase();
+            let category = fm.get("category").cloned().unwrap_or_default().to_lowercase();
+            let hay = format!("{} {tags} {category}", name.to_lowercase());
+            let score = words.iter().filter(|w| hay.contains(**w)).count();
+            if score > 0 {
+                suggestions.push((score, json!({ "name": name, "category": fm.get("category"), "score": score, "path": path })));
+            }
+        }
+        suggestions.sort_by(|a, b| b.0.cmp(&a.0));
+        let out: Vec<Value> = suggestions.into_iter().map(|(_, v)| v).collect();
+        Ok(json!({ "suggestions": out }))
     }
 
     // MARK: Security & permissions
