@@ -55,3 +55,7 @@
   PASSING: F046 F047 F048 F049 F050 F051 F053 F061 F065 F066 F069 F071 F074 F159. cargo test grün.
   HINWEIS: router.rs + cs-sessions/lib.rs trugen bereits User-WIP; mein Build liegt auf demselben
   Working-Tree. main.rs + cs-ipc/envelope.rs (reine User-WIP) NICHT mitcommittet. 58/360.
+[SESSION 1] [2026-06-23] [BUILD-2] [PASSING] +11 Kontext/Memory GEBAUT + verifiziert:
+  Neue IPC (router.rs): context.assemble (liest echte 6-Ebenen-Dateien von Disk, feste Reihenfolge,
+  Pro-Ebene-Toggle, echtes Token-Budget), memory.get/set/append, claudemd.save (Backup-vor-Speichern).
+  PASSING: F076 F077 F078 F083 F084 F087 F089 F091 F094 F095 F096. cargo test grün. 69/360.

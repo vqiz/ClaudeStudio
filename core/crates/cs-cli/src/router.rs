@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
 use cs_agentic_os::{EventBus, SystemEvent};
-use cs_config::{AppConfig, ContextAssembler, LayerKind};
+use cs_config::{estimate_tokens, AppConfig, ContextAssembler, LayerKind};
 use cs_git::{GitBackend, SystemGit};
 use cs_ipc::{ErrorCode, IpcEnvelope, IpcFailure};
 use cs_sessions::{
@@ -316,6 +316,11 @@ impl Router {
             "config.get" => Ok(self.config_payload()),
             "config.set" => self.config_set(p),
             "context.budget" => Ok(self.budget_payload()),
+            "context.assemble" => self.context_assemble(p),
+            "memory.get" => self.memory_get(p),
+            "memory.set" => self.memory_set(p),
+            "memory.append" => self.memory_append(p),
+            "claudemd.save" => self.claudemd_save(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
@@ -437,6 +442,191 @@ impl Router {
             "remaining": budget.remaining(),
             "layers": layers,
         })
+    }
+
+    // MARK: Context assembly & memory
+
+    /// The user HOME (parent of the state dir `~/.claudestudio`).
+    fn home_dir(&self) -> PathBuf {
+        self.inner
+            .state_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
+    /// Path of a memory document for the given scope.
+    fn memory_path(&self, scope: &str, project: Option<&str>) -> PathBuf {
+        match (scope, project) {
+            ("project", Some(name)) => self
+                .inner
+                .state_dir
+                .join("memory/projects")
+                .join(format!("{name}.md")),
+            _ => self.inner.state_dir.join("memory/global.md"),
+        }
+    }
+
+    fn memory_get(&self, p: &Value) -> HandlerResult {
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("global");
+        let project = p.get("project").and_then(Value::as_str);
+        let path = self.memory_path(scope, project);
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        Ok(json!({
+            "scope": scope, "project": project, "path": path.to_string_lossy(),
+            "exists": path.exists(), "content": content, "tokens": estimate_tokens(&content),
+        }))
+    }
+
+    fn memory_set(&self, p: &Value) -> HandlerResult {
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("global");
+        let project = p.get("project").and_then(Value::as_str);
+        let content = req_str(p, "content")?;
+        let path = self.memory_path(scope, project);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path.to_string_lossy(), "bytes": content.len() }))
+    }
+
+    fn memory_append(&self, p: &Value) -> HandlerResult {
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("global");
+        let project = p.get("project").and_then(Value::as_str);
+        let text = req_str(p, "text")?;
+        let path = self.memory_path(scope, project);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let mut existing = std::fs::read_to_string(&path).unwrap_or_default();
+        if !existing.is_empty() && !existing.ends_with('\n') {
+            existing.push('\n');
+        }
+        existing.push_str(text);
+        existing.push('\n');
+        std::fs::write(&path, &existing).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path.to_string_lossy(), "tokens": estimate_tokens(&existing) }))
+    }
+
+    /// Save a CLAUDE.md (default: global `~/.claude/CLAUDE.md`), backing up the
+    /// previous version under `<state_dir>/backups/` first.
+    fn claudemd_save(&self, p: &Value) -> HandlerResult {
+        let path = match p.get("path").and_then(Value::as_str) {
+            Some(pp) => PathBuf::from(pp),
+            None => self.home_dir().join(".claude/CLAUDE.md"),
+        };
+        let content = req_str(p, "content")?;
+        let mut backup_path = Value::Null;
+        if path.exists() {
+            let backups = self.inner.state_dir.join("backups");
+            std::fs::create_dir_all(&backups).ok();
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            let bp = backups.join(format!("{name}.{stamp}.bak"));
+            std::fs::copy(&path, &bp).ok();
+            backup_path = json!(bp.to_string_lossy());
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::write(&path, content).map_err(|e| e.to_string())?;
+        Ok(json!({
+            "ok": true, "path": path.to_string_lossy(),
+            "backup": backup_path, "tokens": estimate_tokens(content),
+        }))
+    }
+
+    /// Assemble the real six-layer context from the actual files on disk, in
+    /// fixed priority order, honoring per-layer enable toggles (`layers` map).
+    fn context_assemble(&self, p: &Value) -> HandlerResult {
+        let cwd = p.get("cwd").and_then(Value::as_str);
+        let project = p.get("project").and_then(Value::as_str);
+        let worktree = p.get("worktree").and_then(Value::as_str);
+        let toggles = p.get("layers");
+        let enabled = |label: &str| -> bool {
+            toggles
+                .and_then(|t| t.get(label))
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        };
+
+        // Layer 1: global ~/.claude/CLAUDE.md
+        let global =
+            std::fs::read_to_string(self.home_dir().join(".claude/CLAUDE.md")).unwrap_or_default();
+        // Layer 2: cross-project memory + per-project memory (same band)
+        let mut memory =
+            std::fs::read_to_string(self.inner.state_dir.join("memory/global.md")).unwrap_or_default();
+        if let Some(name) = project {
+            let pm = std::fs::read_to_string(self.memory_path("project", Some(name))).unwrap_or_default();
+            if !pm.trim().is_empty() {
+                if !memory.is_empty() {
+                    memory.push_str("\n\n");
+                }
+                memory.push_str(&pm);
+            }
+        }
+        // Layer 3: project CLAUDE.md
+        let project_md = cwd
+            .map(|c| std::fs::read_to_string(Path::new(c).join(".claude/CLAUDE.md")).unwrap_or_default())
+            .unwrap_or_default();
+        // Layer 6: worktree CLAUDE.md override
+        let worktree_md = worktree
+            .map(|w| std::fs::read_to_string(Path::new(w).join("CLAUDE.md")).unwrap_or_default())
+            .unwrap_or_default();
+
+        let raw: Vec<(LayerKind, String)> = vec![
+            (LayerKind::GlobalClaudeMd, global),
+            (LayerKind::CrossProjectMemory, memory),
+            (LayerKind::ProjectClaudeMd, project_md),
+            (LayerKind::VectorRetrieval, String::new()),
+            (LayerKind::ActiveDefinitions, String::new()),
+            (LayerKind::WorktreeOverride, worktree_md),
+        ];
+
+        let total = self.inner.config.lock().unwrap().context_token_budget;
+        let mut assembler = ContextAssembler::new(total);
+        for (kind, content) in &raw {
+            let req = if enabled(kind.label()) {
+                estimate_tokens(content)
+            } else {
+                0
+            };
+            assembler = assembler.with_layer(*kind, req);
+        }
+        let budget = assembler.assemble();
+
+        let mut assembled_text = String::new();
+        let layers: Vec<Value> = raw
+            .iter()
+            .map(|(kind, content)| {
+                let on = enabled(kind.label());
+                let granted = budget.layer(*kind).map(|l| l.granted_tokens).unwrap_or(0);
+                if on && !content.trim().is_empty() {
+                    if !assembled_text.is_empty() {
+                        assembled_text.push_str("\n\n");
+                    }
+                    assembled_text.push_str(&format!("# [{}]\n{}", kind.label(), content));
+                }
+                json!({
+                    "layer": kind.label(),
+                    "enabled": on,
+                    "tokens": estimate_tokens(content),
+                    "granted_tokens": granted,
+                    "content": if on { content.clone() } else { String::new() },
+                })
+            })
+            .collect();
+
+        Ok(json!({
+            "total_budget": total,
+            "granted_total": budget.granted_total(),
+            "order": LayerKind::ALL.iter().map(|k| k.label()).collect::<Vec<_>>(),
+            "layers": layers,
+            "assembled_text": assembled_text,
+        }))
     }
 
     // MARK: Sessions
