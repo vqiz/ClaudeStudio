@@ -260,3 +260,7 @@
   F285 integrations.usage_report ruft GET /v1/organizations/usage_report/claude_code mit Admin-Key auf
   + parst die Antwort: HTTP 200 + Tokens/Kosten; ohne Key 401. api_base konfigurierbar (lokaler
   Anthropic-Admin-API-Mock im Test). test-harness/probes/batch47.py. 285/360.
+[SESSION 1] [2026-06-23] [BUILD-48] [PASSING] +1 Slack-Bot-Modus (echter Core, echtes Shell+curl):
+  F358 integrations.slack_command: Slack-Befehl -> Task (echtes Shell-Kommando, grep->3) ausgeführt ->
+  Ergebnis als in_channel-Nachricht an response_url gepostet; lokaler Slack-Server empfing die
+  Nachricht. test-harness/probes/batch48.py. 286/360.

@@ -1,0 +1,12 @@
+{
+  "command_result": {
+    "command": "/cs count-todos todo-api",
+    "exit": 0,
+    "output": "3",
+    "posted_status": 200
+  },
+  "slack_message": {
+    "response_type": "in_channel",
+    "text": "Task '/cs count-todos todo-api' fertig (exit 0):\n3"
+  }
+}

@@ -86,7 +86,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
-        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "integrations.slack_command" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -547,6 +547,7 @@ impl Router {
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
             "integrations.usage_report" => self.integrations_usage_report(p),
+            "integrations.slack_command" => self.integrations_slack_command(p),
             "model_router.set" => self.model_router_set(p),
             "model_router.resolve" => self.model_router_resolve(p),
             "model_router.fallback" => Ok(model_fallback_payload(p)),
@@ -1819,6 +1820,32 @@ impl Router {
         };
         let report: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({}));
         Ok(json!({ "http_status": code, "report": report, "authenticated": !key.is_empty() }))
+    }
+
+    /// Slack-Bot-Modus (F358): empfängt einen Slack-Befehl (von der Slack-Ingress an diesen
+    /// Handler weitergereicht), führt den zugehörigen Task (Shell-Kommando) aus und postet das
+    /// Ergebnis als Slack-Nachricht an die `response_url` zurück (in_channel).
+    fn integrations_slack_command(&self, p: &Value) -> HandlerResult {
+        let command = req_str(p, "command")?.to_string();
+        let response_url = req_str(p, "response_url")?;
+        let cwd = p.get("cwd").and_then(Value::as_str).unwrap_or(".");
+        let exec = p.get("exec").and_then(Value::as_str).unwrap_or("");
+        let (output, exit) = if exec.is_empty() {
+            (String::new(), 0)
+        } else {
+            match std::process::Command::new("sh").arg("-c").arg(exec).current_dir(cwd).output() {
+                Ok(o) => (
+                    String::from_utf8_lossy(&o.stdout).trim().to_string(),
+                    o.status.code().unwrap_or(-1),
+                ),
+                Err(e) => (e.to_string(), -1),
+            }
+        };
+        let msg = json!({ "response_type": "in_channel",
+                          "text": format!("Task '{command}' fertig (exit {exit}):\n{output}") })
+        .to_string();
+        let posted = curl_status("POST", response_url, &msg);
+        Ok(json!({ "command": command, "exit": exit, "output": output, "posted_status": posted }))
     }
 
     fn model_router_route(&self, p: &Value) -> HandlerResult {
@@ -6552,6 +6579,19 @@ fn curl_json(method: &str, url: &str, body: Option<&str>) -> Value {
         .ok()
         .and_then(|o| serde_json::from_slice(&o.stdout).ok())
         .unwrap_or_else(|| json!({}))
+}
+
+/// POSTet `body` an `url` und liefert nur den HTTP-Statuscode (für slack_command).
+fn curl_status(method: &str, url: &str, body: &str) -> u32 {
+    std::process::Command::new("curl")
+        .args([
+            "-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", method,
+            "-H", "Content-Type: application/json", "-d", body, url,
+        ])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0)
 }
 
 /// Extrahiert den Assistenten-Text und die Kosten aus `claude` stream-json-stdout
