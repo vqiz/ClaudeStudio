@@ -1,0 +1,15 @@
+{
+  "png": "test-harness/evidence/F026/shell.png",
+  "divider_x_pt": 259,
+  "candidates": [
+    [
+      259,
+      258
+    ],
+    [
+      260,
+      258
+    ]
+  ],
+  "spec": "260 ±4"
+}

@@ -147,3 +147,11 @@
 [SESSION 1] [2026-06-23] [BUILD-25] [PASSING] +2: pipeline.visualize (GitHub-Actions-YAML -> Job-Graph mit
   needs-Kanten, F269); definitions.vector_inject (Vector-Suche findet Definition Score>0.7 + Ebene5-Injektion,
   F105). cargo test grün. 243/360.
+[SESSION 1] [2026-06-23] [BUILD-26 / UI-1] [PASSING] +3 GUI-Features echt verifiziert via fenster-
+  gezieltem Screenshot (screencapture -l <CGWindowID>, fokus-unabhängig) + sips→sRGB + PIL/Pixel-Inspektion:
+  F025 Statusfarben-Token (Badges = #1A73E8/#34A853/#FBBC04/#EA4335, ±2) — dafür gYellow→#FBBC04,
+  gRed→#EA4335 korrigiert + semantische statusAccent/Success/Warning/Error-Token ergänzt;
+  F022 dsCard(elevated:) Schatten-Gradient (eleviert 252.8 < flach/Weiss 255.0, monotone Erholung);
+  F026 Sidebar exakt 260px (feste navigationSplitViewColumnWidth(252)→sichtbar 259-260pt, ±4).
+  Neu: test-harness/lib/windowid(.swift) (CGWindowList-ID-Helfer, keine AX-Rechte nötig),
+  DesignGalleryView + CLAUDESTUDIO_UITEST=gallery-Seam, test-harness/probes/ui_batch1.py. 246/360.

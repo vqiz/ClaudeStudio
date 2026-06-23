@@ -1,0 +1,14 @@
+{
+  "png": "test-harness/evidence/F025/gallery.png",
+  "shadow_band_elevated": 252.75,
+  "flat_band": 255.0,
+  "white_baseline": 255.0,
+  "gradient_profile": {
+    "+0px": 232.84,
+    "+2px": 250.11,
+    "+4px": 252.42,
+    "+6px": 254.14,
+    "+8px": 254.81,
+    "+10px": 254.87
+  }
+}

@@ -11,17 +11,30 @@ struct ClaudeStudioApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var appState = AppState()
 
+    /// Headless-UITest-Seam: `CLAUDESTUDIO_UITEST=gallery` rendert die
+    /// deterministische Design-Galerie statt der App-Shell, damit die
+    /// Design-System-Features (F022/F025) per Bild-Inspektion reproduzierbar
+    /// verifiziert werden können. Im Normalbetrieb leer.
+    private var uiTestMode: String? {
+        ProcessInfo.processInfo.environment["CLAUDESTUDIO_UITEST"]
+    }
+
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(appState)
-                .frame(minWidth: 1040, idealWidth: 1320, minHeight: 680, idealHeight: 860)
-                .tint(.brandIndigo)
-                .task {
-                    appState.startEventBus()
-                    appState.activeSession?.startSimulatedStream()
-                    await appState.connectCore()
-                }
+            if uiTestMode == "gallery" {
+                DesignGalleryView()
+                    .environment(appState)
+            } else {
+                RootView()
+                    .environment(appState)
+                    .frame(minWidth: 1040, idealWidth: 1320, minHeight: 680, idealHeight: 860)
+                    .tint(.brandIndigo)
+                    .task {
+                        appState.startEventBus()
+                        appState.activeSession?.startSimulatedStream()
+                        await appState.connectCore()
+                    }
+            }
         }
         .defaultSize(width: 1320, height: 860)
         .windowStyle(.titleBar)

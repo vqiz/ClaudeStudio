@@ -1,0 +1,73 @@
+{
+  "png": "test-harness/evidence/F025/gallery.png",
+  "badges": {
+    "accent": {
+      "rgb": [
+        27,
+        115,
+        232
+      ],
+      "expected": [
+        26,
+        115,
+        232
+      ],
+      "sample_center": [
+        364,
+        224
+      ],
+      "max_delta": 1
+    },
+    "success": {
+      "rgb": [
+        52,
+        168,
+        83
+      ],
+      "expected": [
+        52,
+        168,
+        83
+      ],
+      "sample_center": [
+        524,
+        224
+      ],
+      "max_delta": 0
+    },
+    "warning": {
+      "rgb": [
+        251,
+        188,
+        2
+      ],
+      "expected": [
+        251,
+        188,
+        4
+      ],
+      "sample_center": [
+        684,
+        224
+      ],
+      "max_delta": 2
+    },
+    "error": {
+      "rgb": [
+        234,
+        67,
+        53
+      ],
+      "expected": [
+        234,
+        67,
+        53
+      ],
+      "sample_center": [
+        844,
+        224
+      ],
+      "max_delta": 0
+    }
+  }
+}

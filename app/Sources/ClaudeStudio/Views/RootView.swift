@@ -12,7 +12,11 @@ struct RootView: View {
 
         NavigationSplitView {
             SidebarView(selection: $appState.selectedSidebarItem)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 230, max: 280)
+                // 260px sichtbare Sidebar (Konzept-Spezifikation F026). Feste Spaltenbreite
+                // — überschreibt die intrinsische Mindestbreite der längsten Zeile, damit die
+                // sichtbare Spalte exakt 260pt misst (Zeilen kürzen statt Spalte aufzuweiten).
+                .navigationSplitViewColumnWidth(252)
+                .frame(maxWidth: 252)
         } detail: {
             detailColumn
         }
