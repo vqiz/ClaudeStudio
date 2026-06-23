@@ -85,7 +85,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
-        | "models.compare" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "models.compare" | "integrations.github_sync"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -544,6 +545,7 @@ impl Router {
             "agents.context" => self.agents_context(p),
             "model_router.route" => self.model_router_route(p),
             "models.compare" => self.models_compare(p),
+            "integrations.github_sync" => self.integrations_github_sync(p),
             "model_router.set" => self.model_router_set(p),
             "model_router.resolve" => self.model_router_resolve(p),
             "model_router.fallback" => Ok(model_fallback_payload(p)),
@@ -1747,6 +1749,49 @@ impl Router {
             .collect();
         let responses: Vec<Value> = handles.into_iter().filter_map(|h| h.join().ok()).collect();
         Ok(json!({ "models": models, "responses": responses, "count": responses.len() }))
+    }
+
+    /// Bidirektionaler GitHub-Issues-Sync (F357): legt für Tasks ohne Issue ein GitHub-Issue
+    /// an (POST /repos/{repo}/issues) und merkt sich die Nummer; für Tasks mit Issue wird der
+    /// Status zurückgelesen (GET) und ein geschlossenes Issue markiert den Task als 'closed'.
+    /// `api_base` ist konfigurierbar (echtes api.github.com im Betrieb, lokaler Mock im Test).
+    fn integrations_github_sync(&self, p: &Value) -> HandlerResult {
+        let repo = req_str(p, "repo")?;
+        let api_base = p.get("api_base").and_then(Value::as_str).unwrap_or("https://api.github.com");
+        let tasks = p.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut out = Vec::new();
+        let mut log = Vec::new();
+        for t in tasks {
+            let mut task = t.clone();
+            let title = task.get("title").and_then(Value::as_str).unwrap_or("Task").to_string();
+            match task.get("issue_number").and_then(Value::as_i64) {
+                None => {
+                    let url = format!("{api_base}/repos/{repo}/issues");
+                    let body = json!({ "title": title }).to_string();
+                    let resp = curl_json("POST", &url, Some(&body));
+                    if let Some(n) = resp.get("number").and_then(Value::as_i64) {
+                        if let Some(o) = task.as_object_mut() {
+                            o.insert("issue_number".into(), json!(n));
+                            o.insert("state".into(), json!("open"));
+                        }
+                        log.push(json!({ "op": "create_issue", "task": task.get("id"), "issue": n }));
+                    }
+                }
+                Some(n) => {
+                    let url = format!("{api_base}/repos/{repo}/issues/{n}");
+                    let resp = curl_json("GET", &url, None);
+                    if let Some(state) = resp.get("state").and_then(Value::as_str) {
+                        if let Some(o) = task.as_object_mut() {
+                            o.insert("state".into(), json!(state));
+                        }
+                        log.push(json!({ "op": "reconcile", "task": task.get("id"),
+                                         "issue": n, "state": state }));
+                    }
+                }
+            }
+            out.push(task);
+        }
+        Ok(json!({ "tasks": out, "log": log }))
     }
 
     fn model_router_route(&self, p: &Value) -> HandlerResult {
@@ -6459,6 +6504,27 @@ fn ocr_image(path: &Path) -> String {
         }
         _ => String::new(),
     }
+}
+
+/// Minimaler HTTP-JSON-Aufruf über das System-`curl` (für integrations.github_sync).
+/// Liefert die geparste JSON-Antwort oder `{}` bei Fehler.
+fn curl_json(method: &str, url: &str, body: Option<&str>) -> Value {
+    let mut args: Vec<String> = vec![
+        "-s".into(), "-X".into(), method.into(),
+        "-H".into(), "Content-Type: application/json".into(),
+        "-H".into(), "Accept: application/json".into(),
+    ];
+    if let Some(b) = body {
+        args.push("-d".into());
+        args.push(b.into());
+    }
+    args.push(url.into());
+    std::process::Command::new("curl")
+        .args(&args)
+        .output()
+        .ok()
+        .and_then(|o| serde_json::from_slice(&o.stdout).ok())
+        .unwrap_or_else(|| json!({}))
 }
 
 /// Extrahiert den Assistenten-Text und die Kosten aus `claude` stream-json-stdout

@@ -251,3 +251,8 @@
   session.join löst es zur session_id auf; ein zweiter Client liest live via session.messages mit,
   WÄHREND A's LONGRUN-Lauf noch läuft (Schritt 1 in DB). Ungültiges Token abgelehnt.
   test-harness/probes/batch45.py. 283/360.
+[SESSION 1] [2026-06-23] [BUILD-46] [PASSING] +1 GitHub-Issues-Sync (echter Core, echtes curl/HTTP):
+  F357 integrations.github_sync: Task ohne Issue -> POST legt Issue an + Nummer gemerkt; bei Tasks mit
+  Issue GET-Reconcile -> geschlossenes Issue markiert Task als 'closed'. api_base konfigurierbar
+  (lokaler GitHub-API-Mock im Test, echtes api.github.com im Betrieb). test-harness/probes/batch46.py.
+  284/360.

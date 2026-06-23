@@ -1,0 +1,29 @@
+{
+  "after_create": {
+    "id": "t1",
+    "issue_number": 1,
+    "state": "open",
+    "title": "Add health endpoint"
+  },
+  "after_close_resync": {
+    "id": "t1",
+    "issue_number": 1,
+    "state": "closed",
+    "title": "Add health endpoint"
+  },
+  "create_log": [
+    {
+      "issue": 1,
+      "op": "create_issue",
+      "task": "t1"
+    }
+  ],
+  "reconcile_log": [
+    {
+      "issue": 1,
+      "op": "reconcile",
+      "state": "closed",
+      "task": "t1"
+    }
+  ]
+}
