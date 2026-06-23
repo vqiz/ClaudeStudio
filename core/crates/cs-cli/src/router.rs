@@ -518,6 +518,7 @@ impl Router {
             // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
             "tasks.create" => self.library_create(p, "tasks"),
+            "tasks.save" => self.tasks_save(p),
             "tasks.delete" => self.library_delete(p, "tasks", ".task.json"),
             "library.load_defaults" => self.library_load_defaults(),
             "definitions.list" => self.definitions_list(),
@@ -4396,6 +4397,37 @@ impl Router {
     }
 
     // MARK: Task & definition libraries (filesystem-backed)
+
+    /// Speichert einen im Task-Builder zusammengestellten Custom-Task (F210). Verlangt
+    /// die sechs Tab-Sektionen (Grunddaten=name, agent, inputs, workflow, output, schedule),
+    /// schreibt ihn nach tasks/custom/<slug>.task.json — danach erscheint er in tasks.list.
+    fn tasks_save(&self, p: &Value) -> HandlerResult {
+        let task = p.get("task").cloned().ok_or_else(|| IpcFailure::invalid("missing 'task'"))?;
+        let name = task
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| IpcFailure::invalid("task.name erforderlich"))?
+            .to_string();
+        let required = ["name", "agent", "inputs", "workflow", "output", "schedule"];
+        let missing: Vec<&str> = required.iter().filter(|s| task.get(**s).is_none()).copied().collect();
+        if !missing.is_empty() {
+            return Err(IpcFailure::invalid(format!("fehlende Pflicht-Sektionen: {}", missing.join(", "))));
+        }
+        let slug = slugify(&name);
+        let dir = self.inner.state_dir.join("tasks").join("custom");
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let mut t = task;
+        if let Some(o) = t.as_object_mut() {
+            o.entry("id".to_string()).or_insert(json!(slug));
+            o.entry("category".to_string()).or_insert(json!("custom"));
+        }
+        let path = dir.join(format!("{slug}.task.json"));
+        std::fs::write(&path, serde_json::to_string_pretty(&t).unwrap_or_default()).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path.to_string_lossy(), "id": slug, "saved": t,
+                   "sections": required }))
+    }
 
     /// Persistenter Agenten-Queue-Pfad.
     fn queue_path(&self) -> PathBuf {

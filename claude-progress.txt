@@ -236,3 +236,8 @@
   zu Pro-Modul-% + Gesamt-Coverage. F204 echte Test-Abdeckung (86%, math.js 75% da mul/bye ungetestet);
   F322 Coverage-Dashboard zeigt Gesamt-% + 3 Module je mit %-Wert. Node 22 eingebauter Test-Runner +
   lcov-Reporter (kein npm-Install). test-harness/probes/batch42.py. 280/360.
+[SESSION 1] [2026-06-23] [BUILD-43] [PASSING] +1 Task-Builder-Save (echter Core):
+  F210 tasks.save persistiert einen Custom-Task mit allen sechs Builder-Sektionen (Grunddaten=name,
+  agent, inputs, workflow, output, schedule) nach tasks/custom/<slug>.task.json; erscheint danach in
+  tasks.list; unvollständige Tasks (fehlende Sektion) werden abgelehnt. test-harness/probes/batch43.py.
+  281/360.

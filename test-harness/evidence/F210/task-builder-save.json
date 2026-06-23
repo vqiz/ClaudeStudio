@@ -1,0 +1,13 @@
+{
+  "saved_id": "mein-rechnungs-audit",
+  "sections": [
+    "name",
+    "agent",
+    "inputs",
+    "workflow",
+    "output",
+    "schedule"
+  ],
+  "in_list": true,
+  "incomplete_rejected": true
+}
