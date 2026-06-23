@@ -424,6 +424,61 @@ pub struct Stats {
     pub events: i64,
 }
 
+/// A token/USD usage line to record for a session.
+#[derive(Debug, Clone, Default)]
+pub struct NewUsage {
+    /// Session this usage belongs to.
+    pub session_id: String,
+    /// Model tier (e.g. "opus", "sonnet", "haiku").
+    pub model: Option<String>,
+    /// Agent that incurred the cost.
+    pub agent: Option<String>,
+    /// Project the work belongs to.
+    pub project: Option<String>,
+    /// Input (prompt) tokens.
+    pub input_tokens: i64,
+    /// Output (completion) tokens.
+    pub output_tokens: i64,
+    /// Cache-read tokens.
+    pub cache_read_tokens: i64,
+    /// Cache-creation tokens.
+    pub cache_creation_tokens: i64,
+    /// USD cost for this call.
+    pub cost_usd: f64,
+}
+
+/// Aggregated token + cost totals.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UsageTotals {
+    /// Total input tokens.
+    pub input_tokens: i64,
+    /// Total output tokens.
+    pub output_tokens: i64,
+    /// Total cache-read tokens.
+    pub cache_read_tokens: i64,
+    /// Total cache-creation tokens.
+    pub cache_creation_tokens: i64,
+    /// Total USD cost.
+    pub cost_usd: f64,
+}
+
+/// A usage aggregate for one group key (model / agent / project).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageGroup {
+    /// The group key value.
+    pub key: String,
+    /// Total input tokens.
+    pub input_tokens: i64,
+    /// Total output tokens.
+    pub output_tokens: i64,
+    /// Total cache-read tokens.
+    pub cache_read_tokens: i64,
+    /// Total cache-creation tokens.
+    pub cache_creation_tokens: i64,
+    /// Total USD cost.
+    pub cost_usd: f64,
+}
+
 /// A transcript message still missing a semantic embedding, returned by
 /// [`SessionStore::unembedded_messages`] for backfilling the vector index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -543,6 +598,22 @@ impl SessionStore {
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_session ON embeddings(session_id);
             CREATE INDEX IF NOT EXISTS idx_embeddings_model ON embeddings(model);
+
+            -- Per-call token + USD usage, for cost dashboards and per-session totals.
+            CREATE TABLE IF NOT EXISTS usage (
+                id                    TEXT PRIMARY KEY,
+                session_id            TEXT NOT NULL,
+                model                 TEXT,
+                agent                 TEXT,
+                project               TEXT,
+                input_tokens          INTEGER NOT NULL DEFAULT 0,
+                output_tokens         INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+                cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd              REAL    NOT NULL DEFAULT 0,
+                created_at            INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id);
             "#,
         )?;
         // Migration: add `claude_session_id` to databases created before it
@@ -1023,6 +1094,97 @@ impl SessionStore {
             file_diffs: count("file_diffs")?,
             events: count("events")?,
         })
+    }
+
+    /// Record a token/USD usage line for a session.
+    pub fn record_usage(&self, u: &NewUsage) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.conn.execute(
+            "INSERT INTO usage (id, session_id, model, agent, project,
+                input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, cost_usd, created_at)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+            params![
+                id, u.session_id, u.model, u.agent, u.project,
+                u.input_tokens, u.output_tokens, u.cache_read_tokens,
+                u.cache_creation_tokens, u.cost_usd, now_millis()
+            ],
+        )?;
+        Ok(id)
+    }
+
+    /// Aggregate token + cost totals for one session.
+    pub fn session_usage(&self, session_id: &str) -> Result<UsageTotals> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
+                    COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_creation_tokens),0),
+                    COALESCE(SUM(cost_usd),0)
+             FROM usage WHERE session_id = ?1",
+            params![session_id],
+            |r| {
+                Ok(UsageTotals {
+                    input_tokens: r.get(0)?,
+                    output_tokens: r.get(1)?,
+                    cache_read_tokens: r.get(2)?,
+                    cache_creation_tokens: r.get(3)?,
+                    cost_usd: r.get(4)?,
+                })
+            },
+        )?)
+    }
+
+    /// Aggregate cost + tokens grouped by a column (model / agent / project).
+    pub fn usage_summary(&self, group_by: &str) -> Result<Vec<UsageGroup>> {
+        let col = match group_by {
+            "agent" => "agent",
+            "project" => "project",
+            _ => "model",
+        };
+        let sql = format!(
+            "SELECT COALESCE({col},'(none)'), COALESCE(SUM(input_tokens),0),
+                    COALESCE(SUM(output_tokens),0), COALESCE(SUM(cache_read_tokens),0),
+                    COALESCE(SUM(cache_creation_tokens),0), COALESCE(SUM(cost_usd),0)
+             FROM usage GROUP BY {col} ORDER BY SUM(cost_usd) DESC"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], |r| {
+            Ok(UsageGroup {
+                key: r.get(0)?,
+                input_tokens: r.get(1)?,
+                output_tokens: r.get(2)?,
+                cache_read_tokens: r.get(3)?,
+                cache_creation_tokens: r.get(4)?,
+                cost_usd: r.get(5)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Cache hit rate = cache_read / (cache_read + input). 0.0 when no usage.
+    pub fn cache_hit_rate(&self) -> Result<f64> {
+        let (read, input): (i64, i64) = self.conn.query_row(
+            "SELECT COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(input_tokens),0) FROM usage",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        let denom = (read + input) as f64;
+        Ok(if denom > 0.0 { read as f64 / denom } else { 0.0 })
+    }
+
+    /// The session id with the highest total cost (and that cost), if any.
+    pub fn most_expensive_session(&self) -> Result<Option<(String, f64)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT session_id, SUM(cost_usd) c FROM usage
+                 GROUP BY session_id ORDER BY c DESC LIMIT 1",
+                [],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?)),
+            )
+            .optional()?)
     }
 }
 

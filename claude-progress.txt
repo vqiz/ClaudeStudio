@@ -74,3 +74,7 @@
   PASSING: F301 F302 F303 F304 F308 F309 F310 F313 F314. cargo test grün. 94/360.
   HINWEIS: Entscheidungslogik verifiziert; echte Dauer-Hintergrundagenten (Supervisor-Loop, realer
   Scan-Start F306/F307, OS-View F315) brauchen die Agent-Runtime -> separat blocked.
+[SESSION 1] [2026-06-23] [BUILD-6] [PASSING] +6 Kosten/Token-Tracking GEBAUT: additive usage-Tabelle in
+  cs-sessions + record_usage/session_usage/usage_summary/cache_hit_rate/most_expensive_session; IPC
+  session.record_usage, cost.summary, cost.cache_hit_rate; session.get/stats um Kosten erweitert.
+  PASSING: F153 F154 F164 F277 F278 F281. cargo test grün. 100/360. (MEILENSTEIN 100)

@@ -32,7 +32,7 @@ use cs_config::{estimate_tokens, AppConfig, ContextAssembler, LayerKind};
 use cs_git::{GitBackend, SystemGit};
 use cs_ipc::{ErrorCode, IpcEnvelope, IpcFailure};
 use cs_sessions::{
-    now_millis, HitSource, NewEvent, NewMessage, NewSession, NewToolCall, SessionStore,
+    now_millis, HitSource, NewEvent, NewMessage, NewSession, NewToolCall, NewUsage, SessionStore,
 };
 use cs_vector::{Embedder, HashEmbedder};
 use serde_json::{json, Value};
@@ -350,6 +350,9 @@ impl Router {
             "session.search" => self.session_search(p),
             "session.create" => self.session_create(p),
             "session.stats" => self.session_stats(),
+            "session.record_usage" => self.session_record_usage(p),
+            "cost.summary" => self.cost_summary(p),
+            "cost.cache_hit_rate" => self.cost_cache_hit_rate(),
 
             // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
@@ -857,7 +860,54 @@ impl Router {
         let id = p.get("id").and_then(Value::as_str).ok_or_else(|| IpcFailure::invalid("missing 'id'"))?;
         let store = self.inner.sessions.lock().unwrap();
         let session = store.get_session(id).map_err(session_failure)?;
-        Ok(serde_json::to_value(session).unwrap_or(Value::Null))
+        let usage = store.session_usage(id).map_err(session_failure)?;
+        let mut v = serde_json::to_value(session).unwrap_or(Value::Null);
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("usage".into(), serde_json::to_value(usage).unwrap_or(Value::Null));
+        }
+        Ok(v)
+    }
+
+    /// Record a token/USD usage line against a session (cost/telemetry).
+    fn session_record_usage(&self, p: &Value) -> HandlerResult {
+        let u = NewUsage {
+            session_id: req_str(p, "session_id")?.to_string(),
+            model: p.get("model").and_then(Value::as_str).map(str::to_string),
+            agent: p.get("agent").and_then(Value::as_str).map(str::to_string),
+            project: p.get("project").and_then(Value::as_str).map(str::to_string),
+            input_tokens: p.get("input_tokens").and_then(Value::as_i64).unwrap_or(0),
+            output_tokens: p.get("output_tokens").and_then(Value::as_i64).unwrap_or(0),
+            cache_read_tokens: p.get("cache_read_tokens").and_then(Value::as_i64).unwrap_or(0),
+            cache_creation_tokens: p.get("cache_creation_tokens").and_then(Value::as_i64).unwrap_or(0),
+            cost_usd: p.get("cost_usd").and_then(Value::as_f64).unwrap_or(0.0),
+        };
+        let store = self.inner.sessions.lock().unwrap();
+        let id = store.record_usage(&u).map_err(session_failure)?;
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    /// Cost dashboard: aggregate USD + token breakdown grouped by model/agent/project.
+    fn cost_summary(&self, p: &Value) -> HandlerResult {
+        let group_by = p.get("group_by").and_then(Value::as_str).unwrap_or("model");
+        let store = self.inner.sessions.lock().unwrap();
+        let groups = store.usage_summary(group_by).map_err(session_failure)?;
+        let total: f64 = groups.iter().map(|g| g.cost_usd).sum();
+        let most = store.most_expensive_session().map_err(session_failure)?;
+        Ok(json!({
+            "group_by": group_by,
+            "groups": serde_json::to_value(&groups).unwrap_or(Value::Null),
+            "total_cost_usd": total,
+            "most_expensive_session": match most {
+                Some((sid, c)) => json!({ "session_id": sid, "cost_usd": c }),
+                None => Value::Null,
+            },
+        }))
+    }
+
+    fn cost_cache_hit_rate(&self) -> HandlerResult {
+        let store = self.inner.sessions.lock().unwrap();
+        let rate = store.cache_hit_rate().map_err(session_failure)?;
+        Ok(json!({ "cache_hit_rate": rate }))
     }
 
     fn session_messages(&self, p: &Value) -> HandlerResult {
@@ -912,7 +962,27 @@ impl Router {
     fn session_stats(&self) -> HandlerResult {
         let store = self.inner.sessions.lock().unwrap();
         let stats = store.stats().map_err(session_failure)?;
-        Ok(serde_json::to_value(stats).unwrap_or(Value::Null))
+        let cache = store.cache_hit_rate().map_err(session_failure)?;
+        let most = store.most_expensive_session().map_err(session_failure)?;
+        let total_cost: f64 = store
+            .usage_summary("model")
+            .map_err(session_failure)?
+            .iter()
+            .map(|g| g.cost_usd)
+            .sum();
+        let mut v = serde_json::to_value(stats).unwrap_or(Value::Null);
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("total_cost_usd".into(), json!(total_cost));
+            obj.insert("cache_hit_rate".into(), json!(cache));
+            obj.insert(
+                "most_expensive_session".into(),
+                match most {
+                    Some((sid, c)) => json!({ "session_id": sid, "cost_usd": c }),
+                    None => Value::Null,
+                },
+            );
+        }
+        Ok(v)
     }
 
     // MARK: Editable files
