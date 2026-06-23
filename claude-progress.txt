@@ -1,0 +1,14 @@
+# ClaudeStudio Build Progress
+# Format: [SESSION N] [DATUM] [FEATURE-ID] [STATUS] [NOTIZ]
+#
+# STATUS-Werte: PASSING | FAILING | BLOCKED | FIXING
+# Jeder PASSING-Eintrag MUSS einen Evidence-Pfad unter test-harness/evidence/ referenzieren.
+# Ein Feature gilt nur als fertig, wenn es im ECHTEN Betrieb bewiesen wurde (siehe ClaudeStudio_BuildLoop.md §0).
+#
+# ── LESSONS LEARNED ─────────────────────────────────────────────────────────
+# (Hier trägt der Loop wiederholte Fehler + ihre Lektion ein, damit künftige
+#  Sessions sie nicht wiederholen. Auch in CLAUDE.md unter "Lessons Learned".)
+#
+# ────────────────────────────────────────────────────────────────────────────
+
+[SESSION 0] [2026-06-23] [INIT] [DONE] Initializer: feature_list.json (Foundation + 11 Kategorie-Blöcke), init.sh, test-harness/ und claude-progress.txt erzeugt. Alle Features auf passes=false.

@@ -44,6 +44,10 @@ sessions.db
 sessions.db-*
 ~/.claudestudio/
 
+# ---- Build-Loop Test-Harness Evidence (Screenshots/Logs, kann groß sein) ----
+test-harness/evidence/*
+!test-harness/evidence/.gitkeep
+
 # ---- Logs / misc ----
 *.log
 node_modules/
