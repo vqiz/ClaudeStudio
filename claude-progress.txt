@@ -102,3 +102,7 @@
   teams.create/get/decompose (Verteilung+Template), tasks.render ({{param}}), migration.generate (DB-Diff),
   apiportal.render (OpenAPI), snapshot.save/compare, a11y.check (WCAG), comments.add/list.
   PASSING: F122 F125 F127 F129 F211 F323 F326 F333 F342 F350. cargo test grün. 158/360.
+[SESSION 1] [2026-06-23] [BUILD-14] [PASSING] +15 Brain-Graph + Co-Pilot GEBAUT: graph.node_types/edge_types/
+  add_node/add_edge/export/search/at/query_asset/remember (Knowledge-Graph); copilot.suggestions/focus/
+  config_get/config_set (State-basierte Vorschläge). PASSING: F186 F187 F188 F192 F193 F194 F195 F217 F218
+  F220 F221 F222 F223 F224 F225. cargo test grün. 173/360. (UI-Rendering F189-F191/F216/F219 separat blocked.)

@@ -439,6 +439,19 @@ impl Router {
             "a11y.check" => Ok(a11y_check_payload(p)),
             "comments.add" => self.comments_add(p),
             "comments.list" => self.comments_list(p),
+            "graph.node_types" => Ok(graph_node_types_payload()),
+            "graph.edge_types" => Ok(graph_edge_types_payload()),
+            "graph.add_node" => self.graph_add_node(p),
+            "graph.add_edge" => self.graph_add_edge(p),
+            "graph.export" => self.graph_export(),
+            "graph.search" => self.graph_search(p),
+            "graph.at" => self.graph_at(p),
+            "graph.query_asset" => self.graph_query_asset(p),
+            "graph.remember" => self.graph_remember(p),
+            "copilot.suggestions" => Ok(copilot_suggestions_payload(p)),
+            "copilot.focus" => Ok(copilot_focus_payload(p)),
+            "copilot.config_get" => self.copilot_config_get(),
+            "copilot.config_set" => self.copilot_config_set(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2264,6 +2277,197 @@ impl Router {
         Ok(json!({ "comments": comments }))
     }
 
+    // MARK: Brain graph (knowledge graph) + Co-Pilot
+
+    fn graph_path(&self) -> PathBuf {
+        self.inner.state_dir.join("brain_graph.json")
+    }
+    fn read_graph(&self) -> Value {
+        std::fs::read_to_string(self.graph_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({ "nodes": [], "edges": [] }))
+    }
+    fn write_graph(&self, g: &Value) -> std::result::Result<(), IpcFailure> {
+        std::fs::write(self.graph_path(), serde_json::to_string_pretty(g).unwrap_or_default())
+            .map_err(|e| IpcFailure::internal(e.to_string()))
+    }
+
+    fn graph_add_node(&self, p: &Value) -> HandlerResult {
+        let node_type = req_str(p, "type")?;
+        if !GRAPH_NODE_TYPES.contains(&node_type) {
+            return Err(IpcFailure::invalid(format!("unknown node type: {node_type}")));
+        }
+        let label = req_str(p, "label")?;
+        let id = unique_id("n");
+        let mut g = self.read_graph();
+        g["nodes"].as_array_mut().unwrap().push(json!({
+            "id": id, "type": node_type, "label": label,
+            "props": p.get("props").cloned().unwrap_or(json!({})), "created_at": now_millis(),
+        }));
+        self.write_graph(&g)?;
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    fn graph_add_edge(&self, p: &Value) -> HandlerResult {
+        let etype = req_str(p, "type")?;
+        if !GRAPH_EDGE_TYPES.contains(&etype) {
+            return Err(IpcFailure::invalid(format!("unknown edge type: {etype}")));
+        }
+        let from = req_str(p, "from")?;
+        let to = req_str(p, "to")?;
+        let mut g = self.read_graph();
+        g["edges"].as_array_mut().unwrap().push(json!({ "from": from, "to": to, "type": etype }));
+        self.write_graph(&g)?;
+        Ok(json!({ "ok": true }))
+    }
+
+    fn graph_export(&self) -> HandlerResult {
+        let g = self.read_graph();
+        let nodes = g["nodes"].as_array().map(|a| a.len()).unwrap_or(0);
+        let edges = g["edges"].as_array().map(|a| a.len()).unwrap_or(0);
+        Ok(json!({ "graph": g, "node_count": nodes, "edge_count": edges }))
+    }
+
+    fn graph_search(&self, p: &Value) -> HandlerResult {
+        let q = req_str(p, "query")?.to_lowercase();
+        let g = self.read_graph();
+        let hits: Vec<Value> = g["nodes"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| {
+                let label = n.get("label").and_then(Value::as_str).unwrap_or("").to_lowercase();
+                let props = n.get("props").map(|p| p.to_string().to_lowercase()).unwrap_or_default();
+                label.contains(&q) || props.contains(&q)
+            })
+            .collect();
+        Ok(json!({ "nodes": hits }))
+    }
+
+    fn graph_at(&self, p: &Value) -> HandlerResult {
+        let date = p.get("date_ms").and_then(Value::as_i64).unwrap_or(i64::MAX);
+        let g = self.read_graph();
+        let nodes: Vec<Value> = g["nodes"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|n| n.get("created_at").and_then(Value::as_i64).unwrap_or(0) <= date)
+            .collect();
+        let count = nodes.len();
+        Ok(json!({ "as_of": date, "nodes": nodes, "node_count": count }))
+    }
+
+    /// "Nimm das Logo aus Projekt X" -> Asset-Node via BELONGS_TO zu Projekt X (F194).
+    fn graph_query_asset(&self, p: &Value) -> HandlerResult {
+        let project = req_str(p, "project")?.to_lowercase();
+        let asset_hint = p.get("asset").and_then(Value::as_str).unwrap_or("").to_lowercase();
+        let g = self.read_graph();
+        let nodes = g["nodes"].as_array().cloned().unwrap_or_default();
+        let edges = g["edges"].as_array().cloned().unwrap_or_default();
+        let proj = nodes.iter().find(|n| {
+            n.get("type").and_then(Value::as_str) == Some("project")
+                && n.get("label").and_then(Value::as_str).unwrap_or("").to_lowercase().contains(&project)
+        });
+        let Some(proj) = proj else {
+            return Ok(json!({ "found": false, "reason": "Projekt nicht gefunden" }));
+        };
+        let pid = proj.get("id").and_then(Value::as_str).unwrap_or("");
+        for e in &edges {
+            if e.get("type").and_then(Value::as_str) == Some("BELONGS_TO")
+                && e.get("to").and_then(Value::as_str) == Some(pid)
+            {
+                let aid = e.get("from").and_then(Value::as_str).unwrap_or("");
+                if let Some(asset) = nodes.iter().find(|n| n.get("id").and_then(Value::as_str) == Some(aid)) {
+                    let label = asset.get("label").and_then(Value::as_str).unwrap_or("").to_lowercase();
+                    if asset_hint.is_empty() || label.contains(&asset_hint) {
+                        return Ok(json!({
+                            "found": true, "asset": asset, "project": proj,
+                            "path": asset.get("props").and_then(|p| p.get("path")),
+                        }));
+                    }
+                }
+            }
+        }
+        Ok(json!({ "found": false, "reason": "kein passendes Asset via BELONGS_TO" }))
+    }
+
+    /// "Merke dir dass <Asset> zu <Projekt> gehört" -> Node + BELONGS_TO (F195).
+    fn graph_remember(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let lower = text.to_lowercase();
+        let Some(idx) = lower.find(" zu ") else {
+            return Err(IpcFailure::invalid("Muster '<Asset> zu <Projekt> gehört' nicht erkannt"));
+        };
+        let asset_part = &text[..idx];
+        let project_part = &text[idx + 4..];
+        let asset_label = asset_part
+            .split_whitespace()
+            .find(|w| w.contains('.') || w.contains('/'))
+            .unwrap_or("asset")
+            .trim()
+            .to_string();
+        let project_label = project_part
+            .replace("gehört", "")
+            .replace("gehoert", "")
+            .trim()
+            .trim_end_matches('.')
+            .trim()
+            .to_string();
+        let mut g = self.read_graph();
+        let existing_pid = g["nodes"].as_array().and_then(|nodes| {
+            nodes
+                .iter()
+                .find(|n| {
+                    n.get("type").and_then(Value::as_str) == Some("project")
+                        && n.get("label").and_then(Value::as_str).map(|l| l.eq_ignore_ascii_case(&project_label)).unwrap_or(false)
+                })
+                .and_then(|n| n.get("id").and_then(Value::as_str))
+                .map(str::to_string)
+        });
+        let aid = unique_id("n");
+        let project_id = existing_pid.clone().unwrap_or_else(|| unique_id("n"));
+        let nodes = g["nodes"].as_array_mut().unwrap();
+        if existing_pid.is_none() {
+            nodes.push(json!({ "id": project_id, "type": "project", "label": project_label, "props": {}, "created_at": now_millis() }));
+        }
+        nodes.push(json!({ "id": aid, "type": "asset", "label": asset_label, "props": { "path": asset_label }, "created_at": now_millis() }));
+        g["edges"].as_array_mut().unwrap().push(json!({ "from": aid, "to": project_id, "type": "BELONGS_TO" }));
+        self.write_graph(&g)?;
+        Ok(json!({ "ok": true, "asset_id": aid, "project_id": project_id, "asset_label": asset_label, "project_label": project_label }))
+    }
+
+    fn copilot_config_path(&self) -> PathBuf {
+        self.inner.state_dir.join("copilot.json")
+    }
+    fn copilot_config_get(&self) -> HandlerResult {
+        let cfg: Value = std::fs::read_to_string(self.copilot_config_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({ "proactivity": "dezent", "quiet_hours": [], "weekend_mode": false }));
+        Ok(json!({ "config": cfg }))
+    }
+    fn copilot_config_set(&self, p: &Value) -> HandlerResult {
+        let mut cfg: Value = std::fs::read_to_string(self.copilot_config_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        if !cfg.is_object() {
+            cfg = json!({});
+        }
+        if let Some(patch) = p.as_object() {
+            let o = cfg.as_object_mut().unwrap();
+            for (k, v) in patch {
+                o.insert(k.clone(), v.clone());
+            }
+        }
+        std::fs::write(self.copilot_config_path(), serde_json::to_string_pretty(&cfg).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "config": cfg }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -3478,6 +3682,76 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// The seven Brain-Graph node types (F186) and nine edge types (F187).
+const GRAPH_NODE_TYPES: [&str; 7] =
+    ["project", "asset", "config", "person", "decision", "error_pattern", "concept"];
+const GRAPH_EDGE_TYPES: [&str; 9] = [
+    "USES_ASSET", "SHARES_MODULE", "DEPENDS_ON", "BELONGS_TO", "SIMILAR_TO",
+    "DERIVED_FROM", "CONFIGURED_WITH", "DOCUMENTED_IN", "RESOLVED_BY",
+];
+fn graph_node_types_payload() -> Value {
+    json!({ "node_types": GRAPH_NODE_TYPES })
+}
+fn graph_edge_types_payload() -> Value {
+    json!({ "edge_types": GRAPH_EDGE_TYPES })
+}
+
+/// Derive proactive suggestions from a project-state snapshot
+/// (F217 state-based, F218 priority, F220 why-data, F222 neglected, F223 cost, F224 freed-dep).
+fn copilot_suggestions_payload(p: &Value) -> Value {
+    let s = p.get("state").cloned().unwrap_or(json!({}));
+    let getn = |k: &str| s.get(k).and_then(Value::as_i64).unwrap_or(0);
+    let getb = |k: &str| s.get(k).and_then(Value::as_bool).unwrap_or(false);
+    let mut sug = Vec::new();
+    if getn("open_findings") > 0 {
+        sug.push(json!({ "priority":"red","category":"Wichtig",
+            "title":format!("{} offene Security-Findings beheben", getn("open_findings")),
+            "action":"fix_findings","why":{"open_findings":getn("open_findings")} }));
+    }
+    if getn("failing_tests") > 0 {
+        sug.push(json!({ "priority":"red","category":"Wichtig","title":"Fehlschlagende Tests reparieren",
+            "action":"fix_tests","why":{"failing_tests":getn("failing_tests")} }));
+    }
+    if getn("last_backup_days") > 7 {
+        sug.push(json!({ "priority":"yellow","category":"Empfohlen",
+            "title":format!("Backup fällig (seit {} Tagen)", getn("last_backup_days")),
+            "action":"backup","why":{"last_backup_days":getn("last_backup_days")} }));
+    }
+    if getn("outdated_deps") > 0 {
+        sug.push(json!({ "priority":"yellow","category":"Empfohlen",
+            "title":format!("{} veraltete Abhängigkeiten aktualisieren", getn("outdated_deps")),
+            "action":"update_deps","why":{"outdated_deps":getn("outdated_deps")} }));
+    }
+    if getb("agent_opus_for_simple") {
+        let in_t = getn("agent_input_tokens") as f64;
+        let out_t = getn("agent_output_tokens") as f64;
+        let savings = cost_of("opus", in_t, out_t) - cost_of("haiku", in_t, out_t);
+        sug.push(json!({ "priority":"green","category":"Optimierung","title":"Agent auf Haiku umstellen",
+            "action":"downgrade_model","why":{"savings_usd_per_run":savings} }));
+    }
+    if getb("dependency_freed") {
+        sug.push(json!({ "priority":"blue","category":"Idee",
+            "title":format!("Feature '{}' ist jetzt entsperrt", s.get("freed_feature").and_then(Value::as_str).unwrap_or("X")),
+            "action":"start_feature","why":{"freed_feature": s.get("freed_feature").cloned().unwrap_or(json!("X"))} }));
+    }
+    json!({ "suggestions": sug, "count": sug.len() })
+}
+
+/// The single highest-priority recommendation (F221).
+fn copilot_focus_payload(p: &Value) -> Value {
+    let all = copilot_suggestions_payload(p);
+    let empty = vec![];
+    let sugs = all.get("suggestions").and_then(Value::as_array).unwrap_or(&empty);
+    let mut best: Option<Value> = None;
+    for pr in ["red", "yellow", "green", "blue"] {
+        if let Some(s) = sugs.iter().find(|x| x.get("priority").and_then(Value::as_str) == Some(pr)) {
+            best = Some(s.clone());
+            break;
+        }
+    }
+    json!({ "focus": best, "total_suggestions": sugs.len() })
 }
 
 /// Assign decomposed subtasks to workers round-robin (F120/F122).
