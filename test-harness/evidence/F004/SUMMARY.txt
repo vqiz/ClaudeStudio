@@ -1,0 +1,12 @@
+# F004 — SwiftUI-App verbindet sich beim Start über den Unix-Socket mit dem Core
+
+Beweis (echter Betrieb):
+1. processes.txt: Core (claudestudio-core) UND App (dist/ClaudeStudio.app) liefen gleichzeitig.
+2. Core hielt am Socket ~/.claudestudio/core.sock zwei Unix-Socket-FDs: den Listener
+   PLUS eine AKZEPTIERTE Client-Verbindung (lsof: fd 12u Listener, fd 13u accepted) —
+   d.h. ein Client hat sich verbunden, während nur App+Core existierten.
+3. FUNKTIONALER Beweis: Der Screenshot ../F014/shell.png zeigt die App gefüllt mit
+   ECHTEN Session-Daten aus der sessions.db des Cores (Session-Liste, Tabs). Diese
+   Daten kann die App nur über den IPC-Socket vom Core bezogen haben.
+
+Fazit: Die App verbindet sich real mit dem Core und tauscht Daten aus. PASS.

@@ -18,3 +18,5 @@
 [SESSION 1] [2026-06-23] [F003] [PASSING] swift build --product ClaudeStudio grün (Exit 0). Evidence: evidence/F003/build.txt.
 [SESSION 1] [2026-06-23] [F012] [PASSING] Qdrant-Container via docker hochgefahren, /healthz passed, /collections ok. Evidence: evidence/F012/qdrant.txt.
 [SESSION 1] [2026-06-23] [F011] [PASSING] init.sh zweimal grün (idempotent): rust-core/claude-cli/swift/qdrant/cs-home alle OK. Evidence: evidence/F011/init-run{1,2}.log.
+[SESSION 1] [2026-06-23] [F004-F014-F015] [PASSING] Echte .app gestartet (open dist/ClaudeStudio.app) gegen laufenden Core: Core hielt akzeptierte Socket-Verbindung (lsof), App zeigte echte sessions.db-Daten (IPC-Beweis). Screenshot evidence/F014/shell.png zeigt App-Shell (260px-Sidebar, Projekt-Tabs, heller GA-Look, #1A73E8-Akzent). Lektion: swift run aktiviert kein GUI-Fenster -> .app-Bundle via open nutzen; AX-Fensterzugriff (System Events) ohne Accessibility-Freigabe nicht möglich -> interaktives Klick-Testen einzelner UI-States headless blockiert.
+[SESSION 1] [2026-06-23] [MILESTONE] Foundation komplett: F001-F015 alle PASSING mit Evidence. 15/360.
