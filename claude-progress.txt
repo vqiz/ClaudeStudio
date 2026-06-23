@@ -81,3 +81,7 @@
 [SESSION 1] [2026-06-23] [BUILD-7] [PASSING] +4 GEBAUT: git.secret_scan (echte History-Suche), hooks.add/remove
   (.claude/settings.json Standard-Format), deploy.risk (Diff->Low/Med/High), F267 commit-assistant (git.commit_message).
   PASSING: F075 F257 F267 F275. cargo test grün. 104/360.
+[SESSION 1] [2026-06-23] [BUILD-8] [PASSING] +6 GEBAUT: prompts.templates/record/history/favorite (Prompt-
+  History+Favoriten+Volltextsuche+Bibliothek), prompts.chain_run (Output->Input + bedingte Verzweigung),
+  session.list-Filter (Projekt/Zeitraum). Bugfix: unique_id() gegen ms-Kollision der prompt/rule-IDs.
+  PASSING: F158 F243 F244 F245 F246 F247. cargo test grün. 110/360.

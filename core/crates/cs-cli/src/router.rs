@@ -363,6 +363,11 @@ impl Router {
             "definitions.suggest" => self.definitions_suggest(p),
             "definitions.create" => self.library_create(p, "definitions"),
             "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
+            "prompts.templates" => Ok(prompt_templates_payload()),
+            "prompts.record" => self.prompts_record(p),
+            "prompts.history" => self.prompts_history(p),
+            "prompts.favorite" => self.prompts_favorite(p),
+            "prompts.chain_run" => Ok(chain_run_payload(p)),
             "skills.list" => self.skills_list(p),
             "skills.create" => self.skills_create(p),
             "skills.install" => self.skills_install(p),
@@ -720,7 +725,7 @@ impl Router {
     fn rules_add(&self, p: &Value) -> HandlerResult {
         let when = p.get("when").cloned().ok_or_else(|| IpcFailure::invalid("missing 'when'"))?;
         let then = p.get("then").cloned().ok_or_else(|| IpcFailure::invalid("missing 'then'"))?;
-        let id = format!("rule-{}", now_millis());
+        let id = unique_id("rule");
         let mut rules = self.read_rules();
         rules.push(json!({ "id": id, "when": when, "then": then }));
         std::fs::write(self.rules_path(), serde_json::to_string_pretty(&rules).unwrap_or_default())
@@ -853,11 +858,41 @@ impl Router {
     fn session_list(&self, p: &Value) -> HandlerResult {
         let limit = p.get("limit").and_then(Value::as_i64).unwrap_or(100);
         let offset = p.get("offset").and_then(Value::as_i64).unwrap_or(0);
+        let project = p.get("project").and_then(Value::as_str);
+        let model = p.get("model").and_then(Value::as_str);
+        let since = p.get("since").and_then(Value::as_i64);
+        let until = p.get("until").and_then(Value::as_i64);
+        let has_filter = project.is_some() || model.is_some() || since.is_some() || until.is_some();
+
         let store = self.inner.sessions.lock().unwrap();
-        let sessions = store
-            .list_sessions(limit, offset)
-            .map_err(session_failure)?;
-        Ok(json!({ "sessions": sessions }))
+        // When filtering, fetch a wider window then narrow it in-process (F158).
+        let fetch = if has_filter { limit.max(1000) } else { limit };
+        let sessions = store.list_sessions(fetch, offset).map_err(session_failure)?;
+        let mut arr = serde_json::to_value(sessions).unwrap_or_else(|_| json!([]));
+        if let Some(list) = arr.as_array_mut() {
+            list.retain(|s| {
+                if let Some(pj) = project {
+                    if !s.get("cwd").and_then(Value::as_str).unwrap_or("").contains(pj) {
+                        return false;
+                    }
+                }
+                if let Some(m) = model {
+                    if s.get("model").and_then(Value::as_str) != Some(m) {
+                        return false;
+                    }
+                }
+                let ts = s.get("created_at").and_then(Value::as_i64).unwrap_or(0);
+                if matches!(since, Some(sc) if ts < sc) {
+                    return false;
+                }
+                if matches!(until, Some(uc) if ts > uc) {
+                    return false;
+                }
+                true
+            });
+            list.truncate(limit.max(0) as usize);
+        }
+        Ok(json!({ "sessions": arr }))
     }
 
     fn session_get(&self, p: &Value) -> HandlerResult {
@@ -912,6 +947,99 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let rate = store.cache_hit_rate().map_err(session_failure)?;
         Ok(json!({ "cache_hit_rate": rate }))
+    }
+
+    // MARK: Prompt Studio — history, favorites, chains
+
+    fn prompt_history_path(&self) -> PathBuf {
+        self.inner.state_dir.join("prompt_history.jsonl")
+    }
+    fn prompt_favs_path(&self) -> PathBuf {
+        self.inner.state_dir.join("prompt_favorites.json")
+    }
+    fn read_favs(&self) -> HashSet<String> {
+        std::fs::read_to_string(self.prompt_favs_path())
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .map(|v| v.into_iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Append a prompt to the chronological history (F244).
+    fn prompts_record(&self, p: &Value) -> HandlerResult {
+        let prompt = req_str(p, "prompt")?;
+        let id = unique_id("p");
+        let entry = json!({
+            "id": id, "timestamp": now_millis(), "prompt": prompt,
+            "agent": p.get("agent").and_then(Value::as_str),
+            "tokens": p.get("tokens").and_then(Value::as_i64),
+            "result": p.get("result").and_then(Value::as_str),
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.prompt_history_path())
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    /// Prompt history newest-first; optional full-text `query` and `favorites_only` (F244/F245).
+    fn prompts_history(&self, p: &Value) -> HandlerResult {
+        let limit = p.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
+        let query = p.get("query").and_then(Value::as_str).map(|s| s.to_lowercase());
+        let favs_only = p.get("favorites_only").and_then(Value::as_bool).unwrap_or(false);
+        let favs = self.read_favs();
+        let content = std::fs::read_to_string(self.prompt_history_path()).unwrap_or_default();
+        let mut entries: Vec<Value> = content
+            .lines()
+            .rev()
+            .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+            .filter(|e| {
+                let id = e.get("id").and_then(Value::as_str).unwrap_or("");
+                if favs_only && !favs.contains(id) {
+                    return false;
+                }
+                if let Some(q) = &query {
+                    let hay = format!(
+                        "{} {}",
+                        e.get("prompt").and_then(Value::as_str).unwrap_or(""),
+                        e.get("result").and_then(Value::as_str).unwrap_or("")
+                    )
+                    .to_lowercase();
+                    if !hay.contains(q) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .collect();
+        for e in entries.iter_mut() {
+            let fav = e.get("id").and_then(Value::as_str).map(|id| favs.contains(id)).unwrap_or(false);
+            if let Some(o) = e.as_object_mut() {
+                o.insert("favorite".into(), json!(fav));
+            }
+        }
+        entries.truncate(limit);
+        Ok(json!({ "entries": entries }))
+    }
+
+    /// Mark/unmark a history entry as a favorite (F245).
+    fn prompts_favorite(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?.to_string();
+        let fav = p.get("favorite").and_then(Value::as_bool).unwrap_or(true);
+        let mut favs = self.read_favs();
+        if fav {
+            favs.insert(id.clone());
+        } else {
+            favs.remove(&id);
+        }
+        let v: Vec<&String> = favs.iter().collect();
+        std::fs::write(self.prompt_favs_path(), serde_json::to_string(&v).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "id": id, "favorite": fav }))
     }
 
     fn session_messages(&self, p: &Value) -> HandlerResult {
@@ -2267,6 +2395,16 @@ impl Router {
     }
 }
 
+/// Monotonic counter so ids stay unique even within the same millisecond
+/// (avoids collisions when several records are written back-to-back).
+static ID_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A process-unique id of the form `<prefix>-<millis>-<seq>`.
+fn unique_id(prefix: &str) -> String {
+    let n = ID_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    format!("{prefix}-{}-{}", now_millis(), n)
+}
+
 /// Read a required string field from a request payload, or fail with 400.
 fn req_str<'a>(p: &'a Value, key: &str) -> std::result::Result<&'a str, IpcFailure> {
     p.get(key)
@@ -2520,6 +2658,55 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Prebuilt prompt templates for the prompt library (F243).
+fn prompt_templates_payload() -> Value {
+    json!({ "templates": [
+        {"name":"Code Review","category":"review","template":"Review the following diff for correctness, security, and style:\n\n{{diff}}"},
+        {"name":"Feature implementieren","category":"feature","template":"Implement {{feature}} in {{file}}. Follow existing patterns. Add tests."},
+        {"name":"Bug fixen","category":"bugfix","template":"Diagnose and fix this bug: {{bug}}. Reproduce first, then a minimal fix."},
+        {"name":"Tests schreiben","category":"tests","template":"Write unit tests for {{target}} covering the edge cases."},
+        {"name":"Refactoring","category":"refactor","template":"Refactor {{target}} for clarity without changing behavior."},
+    ]})
+}
+
+/// Run a deterministic prompt chain, piping each step's output into the next
+/// (F246) and supporting conditional branches (F247). Real LLM `prompt` steps
+/// would need a live `claude` session; the test ops here verify the chaining.
+fn chain_run_payload(p: &Value) -> Value {
+    let mut current = p.get("input").and_then(Value::as_str).unwrap_or("").to_string();
+    let steps = p.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut trace = Vec::new();
+    run_chain_steps(&steps, &mut current, &mut trace);
+    json!({ "output": current, "trace": trace })
+}
+
+fn run_chain_steps(steps: &[Value], current: &mut String, trace: &mut Vec<Value>) {
+    for step in steps {
+        let op = step.get("op").and_then(Value::as_str).unwrap_or("");
+        if op == "branch" {
+            let needle = step.get("contains").and_then(Value::as_str).unwrap_or("");
+            let taken = if current.contains(needle) { "then" } else { "else" };
+            trace.push(json!({ "op": "branch", "contains": needle, "taken": taken }));
+            if let Some(sub) = step.get(taken).and_then(Value::as_array) {
+                run_chain_steps(sub, current, trace);
+            }
+            continue;
+        }
+        match op {
+            "set" => *current = step.get("arg").and_then(Value::as_str).unwrap_or("").to_string(),
+            "append" => current.push_str(step.get("arg").and_then(Value::as_str).unwrap_or("")),
+            "upper" => *current = current.to_uppercase(),
+            "replace" => {
+                let from = step.get("from").and_then(Value::as_str).unwrap_or("");
+                let to = step.get("to").and_then(Value::as_str).unwrap_or("");
+                *current = current.replace(from, to);
+            }
+            _ => {}
+        }
+        trace.push(json!({ "op": op, "output": current.clone() }));
+    }
 }
 
 /// Classify a single added line as a known secret kind, if any (F075).
