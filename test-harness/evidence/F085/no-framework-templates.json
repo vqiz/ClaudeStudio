@@ -1,0 +1,10 @@
+{
+  "context_templates_file": "app/Sources/ClaudeStudio/Views/ContextTemplates.swift",
+  "context_templates_has_fastapi_markers": false,
+  "repo_wide_framework_template_matches": [],
+  "available_templates": [
+    "generic CLAUDE.md",
+    "generic AGENTS.md"
+  ],
+  "verdict": "blocked — no FastAPI/Next.js/React Native templates exist; only a generic CLAUDE.md/AGENTS.md starter, so the FastAPI-marker assertion cannot hold"
+}

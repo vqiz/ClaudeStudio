@@ -84,7 +84,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "session.search" => LONG_HANDLER_TIMEOUT,
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
-        | "knowledge.extract_entities" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "knowledge.extract_entities" | "assets.scan"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -513,6 +514,7 @@ impl Router {
             "llm.fallback" => Ok(llm_fallback_payload(p)),
             "knowledge.teach" => self.knowledge_teach(p),
             "knowledge.extract_entities" => self.knowledge_extract_entities(p),
+            "assets.scan" => self.assets_scan(p),
             "knowledge.search" => self.knowledge_search(p),
             "css.extract" => Ok(css_extract_payload(p)),
             "library.git_sync" => self.library_git_sync(p),
@@ -2908,11 +2910,7 @@ impl Router {
         let template = p.get("template").and_then(Value::as_str).unwrap_or("default");
         let claude = pp.join(".claude");
         std::fs::create_dir_all(claude.join("agents")).ok();
-        let md = format!(
-            "# {}\n\nProjekt-Kontext für Claude.\n\n## Stack\n{}\n\n## Regeln\n- (Template: {template})\n",
-            pp.file_name().and_then(|n| n.to_str()).unwrap_or("project"),
-            detect_stack(pp).join(", ")
-        );
+        let md = scaffold_claude_md(pp, template);
         std::fs::write(claude.join("CLAUDE.md"), &md).map_err(|e| e.to_string())?;
         std::fs::write(
             claude.join("agents").join("default.json"),
@@ -3318,6 +3316,56 @@ impl Router {
             }
         }
         Ok(json!({ "entities": entities, "embedded": embedded, "collection": collection }))
+    }
+
+    /// Scannt ein Projekt nach Bild-/SVG-Assets, extrahiert je Asset eine
+    /// Beschreibung, OCR-Text (echtes tesseract) und SVG-Semantik, bettet den
+    /// kombinierten Text in die 'assets'-Collection ein und macht ihn damit
+    /// semantisch durchsuchbar (F178). Embeddet alle Assets in einem Batch.
+    fn assets_scan(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let collection = p.get("collection").and_then(Value::as_str).unwrap_or("assets");
+        let mut files: Vec<PathBuf> = Vec::new();
+        collect_asset_files(Path::new(cwd), &mut files, 0);
+        files.sort();
+        let mut assets: Vec<Value> = Vec::new();
+        let mut texts: Vec<String> = Vec::new();
+        for f in &files {
+            let ext = f.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let name = f.file_name().and_then(|n| n.to_str()).unwrap_or("asset").to_string();
+            let description = format!("Asset {name} ({ext})");
+            let mut ocr_text = String::new();
+            let mut svg_text = String::new();
+            if ext == "svg" {
+                if let Ok(s) = std::fs::read_to_string(f) {
+                    svg_text = extract_svg_semantics(&s);
+                }
+            } else {
+                ocr_text = ocr_image(f);
+            }
+            let combined = format!("{description}. {svg_text} {ocr_text}").trim().to_string();
+            texts.push(combined.clone());
+            assets.push(json!({ "path": f.to_string_lossy(), "type": ext, "description": description,
+                                "ocr_text": ocr_text, "svg_text": svg_text, "text": combined }));
+        }
+        let mut embedded = 0;
+        if !texts.is_empty() {
+            let vecs = self.embed_texts(&texts)?;
+            if let Ok(mut fh) =
+                std::fs::OpenOptions::new().create(true).append(true).open(self.knowledge_path())
+            {
+                use std::io::Write;
+                for (a, vec) in assets.iter().zip(vecs.iter()) {
+                    let entry = json!({ "id": unique_id("k"), "text": a.get("text"),
+                                        "collection": collection, "source": "asset-scan",
+                                        "vec": vec, "ts": now_millis() });
+                    if writeln!(fh, "{entry}").is_ok() {
+                        embedded += 1;
+                    }
+                }
+            }
+        }
+        Ok(json!({ "assets": assets, "embedded": embedded, "collection": collection }))
     }
 
     /// Schreibt eine AGENTS.md mit YAML-Frontmatter (name/description/tools) in das
@@ -5672,6 +5720,92 @@ fn model_cost_compare_payload(p: &Value) -> Value {
 }
 
 /// Prebuilt prompt templates for the prompt library (F243).
+/// Erzeugt die Projekt-CLAUDE.md für ein Scaffold-Template (F085). Bekannte
+/// Templates (z.B. `fastapi`) liefern charakteristischen Stack-/Regel-Inhalt;
+/// sonst ein generisches Gerüst aus der erkannten Stack-Signatur.
+fn scaffold_claude_md(pp: &Path, template: &str) -> String {
+    let name = pp.file_name().and_then(|n| n.to_str()).unwrap_or("project");
+    match template {
+        "fastapi" => format!(
+            "# {name}\n\nFastAPI-Projekt-Kontext für Claude.\n\n## Stack\n\
+             - Python 3.11+ mit **FastAPI**\n\
+             - ASGI-Server: **uvicorn**\n\
+             - Validierung/Schemas: **pydantic** (BaseModel)\n\
+             - Tests: pytest + httpx.AsyncClient\n\n## Regeln\n\
+             - Endpoints als `async def` mit Typannotationen und `response_model`.\n\
+             - Request/Response immer über pydantic-Modelle, keine rohen dicts.\n\
+             - Abhängigkeiten via `Depends`; DB-Sessions als Dependency injizieren.\n\
+             - Lokal starten mit `uvicorn app.main:app --reload`.\n"
+        ),
+        _ => format!(
+            "# {name}\n\nProjekt-Kontext für Claude.\n\n## Stack\n{}\n\n## Regeln\n- (Template: {template})\n",
+            detect_stack(pp).join(", ")
+        ),
+    }
+}
+
+/// Sammelt Bild-/SVG-Asset-Dateien unterhalb von `dir` (bis Tiefe 2), unter
+/// Auslassung von node_modules/.git und Dot-Verzeichnissen (F178).
+fn collect_asset_files(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
+    if depth > 2 {
+        return;
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let path = e.path();
+        if path.is_dir() {
+            let n = path.file_name().and_then(|x| x.to_str()).unwrap_or("");
+            if n == "node_modules" || n == ".git" || n.starts_with('.') {
+                continue;
+            }
+            collect_asset_files(&path, out, depth + 1);
+        } else {
+            let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+            if matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "gif" | "bmp" | "tiff" | "svg") {
+                out.push(path);
+            }
+        }
+    }
+}
+
+/// Extrahiert Semantik aus SVG-XML: <text>-Inhalte plus vorkommende Form-Tags
+/// (F178). Bewusst ohne XML-Crate — robuste, einfache Textextraktion.
+fn extract_svg_semantics(svg: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = svg;
+    while let Some(start) = rest.find("<text") {
+        if let Some(gt) = rest[start..].find('>') {
+            let after = &rest[start + gt + 1..];
+            if let Some(end) = after.find("</text>") {
+                let content = after[..end].trim();
+                if !content.is_empty() {
+                    out.push(content.to_string());
+                }
+                rest = &after[end + 7..];
+                continue;
+            }
+        }
+        break;
+    }
+    for shape in ["rect", "circle", "ellipse", "path", "polygon", "line"] {
+        if svg.contains(&format!("<{shape}")) {
+            out.push(shape.to_string());
+        }
+    }
+    out.join(" ")
+}
+
+/// Führt OCR über ein Bild aus, indem das System-`tesseract` aufgerufen wird
+/// (F178). Liefert bei fehlendem/erfolglosem tesseract einen leeren String.
+fn ocr_image(path: &Path) -> String {
+    match std::process::Command::new("tesseract").arg(path).arg("stdout").output() {
+        Ok(o) if o.status.success() => {
+            String::from_utf8_lossy(&o.stdout).split_whitespace().collect::<Vec<_>>().join(" ")
+        }
+        _ => String::new(),
+    }
+}
+
 /// Zerlegt Text in grobe Sätze (Trennung an . ! ? und Zeilenumbruch).
 fn split_sentences(text: &str) -> Vec<String> {
     text.split(|c| c == '.' || c == '!' || c == '?' || c == '\n')

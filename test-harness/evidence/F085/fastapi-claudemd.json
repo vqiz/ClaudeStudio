@@ -1,0 +1,9 @@
+{
+  "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b28-fastapi-xenx1_ww/.claude/CLAUDE.md",
+  "markers": [
+    "FastAPI",
+    "uvicorn",
+    "pydantic"
+  ],
+  "content": "# cs-b28-fastapi-xenx1_ww\n\nFastAPI-Projekt-Kontext für Claude.\n\n## Stack\n- Python 3.11+ mit **FastAPI**\n- ASGI-Server: **uvicorn**\n- Validierung/Schemas: **pydantic** (BaseModel)\n- Tests: pytest + httpx.AsyncClient\n\n## Regeln\n- Endpoints als `async def` mit Typannotationen und `response_model`.\n- Request/Response immer über pydantic-Modelle, keine rohen dicts.\n- Abhängigkeiten via `Depends`; DB-Sessions als Dependency injizieren.\n- Lokal starten mit `uvicorn app.main:app --reload`.\n"
+}

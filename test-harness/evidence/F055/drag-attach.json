@@ -1,0 +1,15 @@
+{
+  "file_read_for_content": {
+    "content": "export const ok = 1;\n",
+    "exists": true,
+    "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-fe-invoice-app-8v9d3k2r/index.ts"
+  },
+  "session_attach_method_probe": {
+    "session.attach_file": {
+      "exists": false,
+      "code": 404,
+      "message": "unknown method: session.attach_file"
+    }
+  },
+  "conclusion": "file.read kann Pfad+Inhalt liefern, ABER es existiert keine session.attach_file-Methode und kein Drag&Drop-Ziel headless; die eigentliche Anhänge-Operation ist nicht testbar."
+}

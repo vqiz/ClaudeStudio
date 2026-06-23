@@ -1,0 +1,27 @@
+{
+  "assets": [
+    {
+      "description": "Asset logo.png (png)",
+      "ocr_text": "ACME CORP LOGO",
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b28-assets-zlx8puiz/logo.png",
+      "svg_text": "",
+      "text": "Asset logo.png (png).  ACME CORP LOGO",
+      "type": "png"
+    },
+    {
+      "description": "Asset logo.svg (svg)",
+      "ocr_text": "",
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b28-assets-zlx8puiz/logo.svg",
+      "svg_text": "Firmenlogo Acme rect",
+      "text": "Asset logo.svg (svg). Firmenlogo Acme rect",
+      "type": "svg"
+    }
+  ],
+  "ocr_recognised_expected_word": true,
+  "top_hit": {
+    "collection": "assets",
+    "score": 0.8557073582458607,
+    "source": "asset-scan",
+    "text": "Asset logo.svg (svg). Firmenlogo Acme rect"
+  }
+}

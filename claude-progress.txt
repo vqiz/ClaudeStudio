@@ -162,3 +162,9 @@
   F181 knowledge.extract_entities extrahiert Eigennamen + bettet sie in 'knowledge' ein, semantisch
   wiederauffindbar (Score 1.000); F262 PostToolUse-Hook 'npm install' bei package.json-Edit befüllt
   node_modules (offline file:-Dependency). test-harness/probes/batch27.py. 251/360.
+[SESSION 1] [2026-06-23] [BUILD-28] [PASSING] +3 Backend-Features (echter Core, echtes tesseract/embed):
+  F055 file.attach baut Payload mit absolutem Pfad UND echtem Dateiinhalt (Drag&Drop-Substrat);
+  F085 projects.scaffold template=fastapi schreibt Projekt-CLAUDE.md mit charakteristischem FastAPI-Inhalt
+  (FastAPI/uvicorn/pydantic); F178 assets.scan extrahiert OCR-Text (PNG via echtem tesseract → 'ACME CORP
+  LOGO') + SVG-Semantik ('Firmenlogo'), bettet in 'assets' ein, semantische Suche findet es (Score 0.856).
+  test-harness/probes/batch28.py. 254/360.
