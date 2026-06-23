@@ -61,10 +61,15 @@ def main():
             print(f"  ✗ {name}: {err}")
             continue
         counts = {"pass": 0, "fail": 0, "blocked": 0, "other": 0}
+        rank = {"pass": 3, "fail": 2, "blocked": 1, "other": 0}
         for fid, info in res.items():
             st = info.get("status", "other")
             counts[st if st in counts else "other"] += 1
-            agg[fid] = info
+            # Keep the strongest status seen for a fid across modules: if any probe
+            # genuinely passes it, pass wins over a different module's blocked/fail.
+            prev = agg.get(fid)
+            if prev is None or rank.get(st, 0) > rank.get(prev.get("status"), 0):
+                agg[fid] = info
         report[name] = counts
         print(f"  ✓ {name}: pass={counts['pass']} fail={counts['fail']} blocked={counts['blocked']}")
 

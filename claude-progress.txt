@@ -45,3 +45,13 @@
 #    wird nicht escaped/gequotet. Fix-Ort: core/crates/cs-sessions/src/lib.rs full_text_search (User-WIP).
 #  - vector-db Realität: Core nutzt all-MiniLM-L6-v2 (384 dim), NICHT nomic-embed-text/768; kein OpenAI-Fallback
 #    (Fallback = HashEmbedder); Qdrant ist im Core nicht verdrahtet (qdrant_url=None, Feature-Scaffold).
+#
+# ── BUILD-PHASE (User: "alles baue komplett weiter") ─────────────────────────
+[SESSION 1] [2026-06-23] [BUILD-1] [PASSING] +14 Features im Core GEBAUT + echt verifiziert:
+  Neue IPC-Methoden (cs-cli/router.rs): file.create/rename/move/delete/duplicate/list/search/attach,
+  git.commit(+commit_message), worktree.add/remove/merge. Neu in cs-git: GitBackend::merge.
+  Fix cs-sessions: sanitize_fts_query() -> F159-Crash (Mehrwort-FTS) behoben. Sicherheit: file.attach
+  verweigert geschützte Pfade (.env/secrets/*.key) -> F053.
+  PASSING: F046 F047 F048 F049 F050 F051 F053 F061 F065 F066 F069 F071 F074 F159. cargo test grün.
+  HINWEIS: router.rs + cs-sessions/lib.rs trugen bereits User-WIP; mein Build liegt auf demselben
+  Working-Tree. main.rs + cs-ipc/envelope.rs (reine User-WIP) NICHT mitcommittet. 58/360.

@@ -88,6 +88,18 @@ fn tool_embed_text(tool_name: &str, input: &str, output: Option<&str>) -> String
     }
 }
 
+// TODO(A14 — keep cs-sessions transcript-only): this crate currently owns the
+// vector layer too — the `encode_vec`/`decode_vec`/`cosine` helpers below plus
+// `upsert_embedding`, `unembedded_messages`, `unembedded_tool_calls`,
+// `vector_search`, and the `embeddings` table. Per ARCHITECTURE.md, semantic
+// memory belongs in `cs-vector`. The intended extraction is a `VectorIndex`
+// trait in `cs-vector` (open/upsert/search/pending), with a SQLite-backed impl,
+// that `cs-sessions` *composes* rather than reimplements — leaving this crate
+// responsible only for the durable transcript (sessions/messages/tool_calls/
+// events/FTS). Deferred here because the embeddings table is currently joined
+// to the transcript tables in the same SQLite connection, so the split needs a
+// schema/ownership migration that is too large to land safely in this pass.
+
 /// Encode an embedding vector as little-endian f32 bytes for BLOB storage.
 fn encode_vec(v: &[f32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(v.len() * 4);
@@ -757,6 +769,15 @@ impl SessionStore {
         // (not the full message), so callers — including the Claude MCP tool —
         // can't accidentally pull large amounts of irrelevant transcript.
         let limit = limit.clamp(1, 50);
+        // Treat the caller's text as plain search terms, NOT raw FTS5 syntax.
+        // Without this, a query like "Healthcheck-Endpoint" makes FTS5 parse
+        // `-Endpoint` as a column filter and fail with "no such column". We quote
+        // each whitespace token (doubling embedded quotes) so arbitrary user
+        // input becomes a safe set of phrase terms.
+        let safe_query = sanitize_fts_query(query);
+        if safe_query.is_empty() {
+            return Ok(Vec::new());
+        }
         let mut stmt = self.conn.prepare(
             "SELECT transcript_fts.session_id, s.title, transcript_fts.source,
                     snippet(transcript_fts, 2, '[', ']', '…', 12), rank
@@ -766,7 +787,7 @@ impl SessionStore {
              ORDER BY rank
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![query, limit], |row| {
+        let rows = stmt.query_map(params![safe_query, limit], |row| {
             let source: String = row.get(2)?;
             let source = match source.as_str() {
                 "file_diff" => HitSource::FileDiff,
@@ -1003,6 +1024,24 @@ impl SessionStore {
             events: count("events")?,
         })
     }
+}
+
+/// Turn arbitrary user search text into a safe FTS5 MATCH expression.
+///
+/// Each whitespace-separated token is wrapped in double quotes (with embedded
+/// quotes doubled), so characters FTS5 treats specially — `-` (NOT), `:`
+/// (column filter), `*`, `(`, `"` — are taken literally instead of crashing the
+/// query (e.g. `Healthcheck-Endpoint` → `"Healthcheck-Endpoint"`). Tokens are
+/// joined by spaces, which FTS5 reads as an implicit AND. Returns an empty
+/// string when there is nothing to search for.
+#[must_use]
+pub fn sanitize_fts_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .filter(|t| !t.is_empty())
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[cfg(test)]

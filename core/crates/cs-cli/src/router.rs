@@ -5,10 +5,23 @@
 //! and library directories — and dispatches each incoming [`IpcEnvelope`] request
 //! to a handler keyed by its `method` string.
 //!
-//! Handlers return `Result<serde_json::Value, String>`; [`Router::dispatch`]
-//! wraps a success into a response envelope and a failure into an error envelope
-//! (`kind: error`, `{ code, message }`), so a bad request never tears down the
-//! connection.
+//! Handlers return [`HandlerResult`] (a JSON payload or a typed [`IpcFailure`]);
+//! [`Router::dispatch`] wraps a success into a response envelope and a failure
+//! into a typed error envelope (`kind: error`, `{ code, message }`), so a bad
+//! request never tears down the connection. It also enforces a per-handler
+//! server-side deadline ([`HANDLER_TIMEOUT`]) and logs `{id, method}` with timing.
+//!
+//! TODO(A1 — Router decomposition): this type has grown into a "god object"
+//! dispatching ~40 methods across config, sessions, git, libraries, MCP, skills,
+//! plugins, and hooks. The safe incremental refactor is to keep `Router` as the
+//! thin dispatcher + shared `Inner` state, and move each method *group* into its
+//! own submodule (`handlers/config.rs`, `handlers/sessions.rs`, `handlers/git.rs`,
+//! `handlers/mcp.rs`, `handlers/skills_plugins.rs`, `handlers/library.rs`) as
+//! `impl Router` blocks or free functions taking `&Inner`. The `match` in
+//! `handle` then becomes a small table delegating to those modules. This was
+//! deferred here to avoid destabilizing the build in one pass; the error-taxonomy,
+//! timeout, and logging seams added below are the prerequisites that make the
+//! split mechanical.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -17,7 +30,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use cs_agentic_os::{EventBus, SystemEvent};
 use cs_config::{AppConfig, ContextAssembler, LayerKind};
 use cs_git::{GitBackend, SystemGit};
-use cs_ipc::IpcEnvelope;
+use cs_ipc::{ErrorCode, IpcEnvelope, IpcFailure};
 use cs_sessions::{
     now_millis, HitSource, NewEvent, NewMessage, NewSession, NewToolCall, SessionStore,
 };
@@ -34,8 +47,54 @@ struct EmbedderState {
     tag: String,
 }
 
-/// What every handler returns: a JSON payload or a human-readable error message.
-type HandlerResult = std::result::Result<Value, String>;
+/// What every handler returns: a JSON payload or a typed [`IpcFailure`] (an
+/// [`ErrorCode`] plus message). Handlers may still `?` a bare `String`/`&str`
+/// error — those convert to [`ErrorCode::Internal`] via `From` — but should
+/// prefer the typed `IpcFailure::invalid` / `::not_found` / … constructors so the
+/// front-end can branch on the failure *kind* rather than parse its message.
+type HandlerResult = std::result::Result<Value, IpcFailure>;
+
+/// Default per-handler server-side deadline. A handler that wedges (e.g. a
+/// shell-out to `claude` that never returns) is abandoned after this long and
+/// answered with a typed timeout error, so a stuck handler can't pin the
+/// connection forever. The Swift client's own request timeout is deliberately a
+/// touch shorter; this is the backstop for handlers the client gave up on.
+const HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// A longer deadline for handlers that are *legitimately* slow on big inputs —
+/// git read commands on a huge monorepo, or full-archive session search /
+/// embedding backfill. Applying the 15s default to these would regress large
+/// repos (A13/A14). These are all read-only, so abandoning the future mid-flight
+/// is cancellation-safe (see [`deadline_for`]).
+const LONG_HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The server-side deadline for a given method.
+///
+/// CANCELLATION SAFETY: when the deadline fires, the handler future is *dropped*.
+/// Every method covered here is **read-only** (git status/diff/log, session
+/// search) or runs its mutation in a detached `spawn_blocking` whose `JoinHandle`
+/// outlives the drop — so dropping the dispatch future cannot leave a half-applied
+/// write. If a *write-path* handler is ever wrapped by this timeout, dropping it
+/// mid-write is NOT cancellation-safe and the deadline logic must be revisited
+/// (e.g. run the write to completion in `spawn_blocking` and only race the await).
+fn deadline_for(method: &str) -> std::time::Duration {
+    match method {
+        // Genuinely-long read-only handlers on large repos / archives.
+        "git.status" | "git.diff" | "git.log" | "git.branch" | "git.worktrees"
+        | "session.search" => LONG_HANDLER_TIMEOUT,
+        _ => HANDLER_TIMEOUT,
+    }
+}
+
+/// Map a [`cs_sessions::Error`] to a typed [`IpcFailure`]: a `NotFound` becomes
+/// [`ErrorCode::NotFound`]; everything else (SQLite, serde) is a
+/// [`ErrorCode::SessionError`].
+fn session_failure(e: cs_sessions::Error) -> IpcFailure {
+    match e {
+        cs_sessions::Error::NotFound(_) => IpcFailure::not_found(e.to_string()),
+        _ => IpcFailure::session(e.to_string()),
+    }
+}
 
 /// Shared, cloneable application state plus method dispatch.
 #[derive(Clone)]
@@ -133,7 +192,7 @@ impl Router {
         let id = p
             .get("session_id")
             .and_then(Value::as_str)
-            .ok_or("missing 'session_id'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'session_id'"))?;
         Ok(json!({ "ok": true, "stopped": self.trigger_cancel(id) }))
     }
 
@@ -150,14 +209,105 @@ impl Router {
     }
 
     /// Dispatch a request envelope, returning the response envelope to send back.
+    ///
+    /// Logs `{id, method}` at start and the outcome (ok / error code / timeout)
+    /// with elapsed time, so a request can be traced across the IPC boundary
+    /// (A20). Enforces a per-handler [`HANDLER_TIMEOUT`] (A13): a wedged handler
+    /// is abandoned and answered with a typed timeout error rather than pinning
+    /// the connection forever. The handler future keeps running until it
+    /// completes or is dropped; the dropped response is logged.
     pub async fn dispatch(&self, request: &IpcEnvelope) -> IpcEnvelope {
-        match self.handle(request).await {
-            Ok(payload) => request.response_to(payload),
-            Err(message) => cs_ipc::error_response(request, message),
+        let started = std::time::Instant::now();
+        let id = request.id.as_str();
+        let method = request.method.as_str();
+        tracing::debug!(id, method, "ipc request");
+
+        let deadline = deadline_for(method);
+        let outcome = tokio::time::timeout(deadline, self.handle(request)).await;
+        let elapsed_ms = started.elapsed().as_millis();
+
+        match outcome {
+            Ok(Ok(payload)) => {
+                tracing::debug!(id, method, elapsed_ms, "ipc ok");
+                request.response_to(payload)
+            }
+            Ok(Err(failure)) => {
+                tracing::warn!(
+                    id,
+                    method,
+                    elapsed_ms,
+                    code = failure.code.as_i64(),
+                    message = %failure.message,
+                    "ipc error"
+                );
+                cs_ipc::error_response_typed(request, &failure)
+            }
+            Err(_elapsed) => {
+                tracing::error!(
+                    id,
+                    method,
+                    elapsed_ms,
+                    timeout_ms = deadline.as_millis(),
+                    "ipc handler timed out; response dropped"
+                );
+                let failure = IpcFailure::new(
+                    ErrorCode::Internal,
+                    format!(
+                        "handler '{method}' exceeded the {}s server deadline",
+                        deadline.as_secs()
+                    ),
+                );
+                cs_ipc::error_response_typed(request, &failure)
+            }
         }
     }
 
+    /// Async dispatch front door.
+    ///
+    /// The git handlers are genuinely `async` (they shell out via `tokio::process`,
+    /// which yields at every await), so they run inline where the dispatch timeout
+    /// can race them directly. *Every other* handler is synchronous and may block
+    /// the executor thread — most dangerously the MCP / skills / plugins arms,
+    /// which call the blocking `run_claude*` shell-out. A blocking call never yields,
+    /// so wrapping a blocking handler in `tokio::time::timeout` is useless: the
+    /// timeout future is never polled until the block finally returns (A13/Finding 1).
+    /// We therefore offload the synchronous arms to `spawn_blocking`, freeing the
+    /// executor thread so the dispatch-level timeout can actually fire and unwedge
+    /// the connection. If the timeout drops us, the blocking work detaches and runs
+    /// to completion on its pool thread; every offloaded handler is read-only or a
+    /// self-contained write, so a dropped future leaves no half-applied state.
     async fn handle(&self, request: &IpcEnvelope) -> HandlerResult {
+        let p = &request.payload;
+        match request.method.as_str() {
+            // --- Git (already async / interruptible) ---
+            "git.status" => self.git_status(p).await,
+            "git.branch" => self.git_branch(p).await,
+            "git.worktrees" => self.git_worktrees(p).await,
+            "git.diff" => self.git_diff(p).await,
+            "git.log" => self.git_log(p).await,
+            "git.commit" => self.git_commit(p).await,
+            "git.commit_message" => self.git_commit_message(p).await,
+            "worktree.add" => self.worktree_add(p).await,
+            "worktree.remove" => self.worktree_remove(p).await,
+            "worktree.merge" => self.worktree_merge(p).await,
+
+            // --- Everything else is synchronous: run on the blocking pool ---
+            _ => {
+                let router = self.clone();
+                let request = request.clone();
+                tokio::task::spawn_blocking(move || router.handle_blocking(&request))
+                    .await
+                    .map_err(|e| {
+                        IpcFailure::internal(format!("handler task failed to complete: {e}"))
+                    })?
+            }
+        }
+    }
+
+    /// Synchronous handler dispatch, run on the blocking thread pool by [`handle`].
+    /// Contains every non-`async` method arm; never call this directly from the
+    /// async path — go through [`handle`] so the executor thread stays free.
+    fn handle_blocking(&self, request: &IpcEnvelope) -> HandlerResult {
         let p = &request.payload;
         match request.method.as_str() {
             "ping" => Ok(json!({ "pong": true })),
@@ -177,13 +327,6 @@ impl Router {
             "session.search" => self.session_search(p),
             "session.create" => self.session_create(p),
             "session.stats" => self.session_stats(),
-
-            // --- Git ---
-            "git.status" => self.git_status(p).await,
-            "git.branch" => self.git_branch(p).await,
-            "git.worktrees" => self.git_worktrees(p).await,
-            "git.diff" => self.git_diff(p).await,
-            "git.log" => self.git_log(p).await,
 
             // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
@@ -213,8 +356,16 @@ impl Router {
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
             "file.write" => self.file_write(p),
+            "file.create" => self.file_create(p),
+            "file.rename" => self.file_rename(p),
+            "file.move" => self.file_rename(p),
+            "file.delete" => self.file_delete(p),
+            "file.duplicate" => self.file_duplicate(p),
+            "file.list" => self.file_list(p),
+            "file.search" => self.file_search(p),
+            "file.attach" => self.file_attach(p),
 
-            other => Err(format!("unknown method: {other}")),
+            other => Err(IpcFailure::not_found(format!("unknown method: {other}"))),
         }
     }
 
@@ -234,11 +385,11 @@ impl Router {
             let mut next = cfg.clone();
             if let Some(v) = p.get("trust_mode").and_then(Value::as_str) {
                 next.trust_mode = serde_json::from_value(json!(v))
-                    .map_err(|_| format!("invalid trust_mode: {v}"))?;
+                    .map_err(|_| IpcFailure::invalid(format!("invalid trust_mode: {v}")))?;
             }
             if let Some(v) = p.get("default_model").and_then(Value::as_str) {
                 next.default_model = serde_json::from_value(json!(v))
-                    .map_err(|_| format!("invalid default_model: {v}"))?;
+                    .map_err(|_| IpcFailure::invalid(format!("invalid default_model: {v}")))?;
             }
             if let Some(v) = p.get("daily_budget_usd").and_then(Value::as_f64) {
                 next.daily_budget_usd = v.max(0.0);
@@ -247,7 +398,7 @@ impl Router {
                 next.context_token_budget = v as usize;
             }
             next.save(&self.inner.state_dir)
-                .map_err(|e| format!("failed to save settings: {e}"))?;
+                .map_err(|e| IpcFailure::config(format!("failed to save settings: {e}")))?;
             *cfg = next;
             config_to_json(&cfg)
         };
@@ -296,21 +447,21 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let sessions = store
             .list_sessions(limit, offset)
-            .map_err(|e| e.to_string())?;
+            .map_err(session_failure)?;
         Ok(json!({ "sessions": sessions }))
     }
 
     fn session_get(&self, p: &Value) -> HandlerResult {
-        let id = p.get("id").and_then(Value::as_str).ok_or("missing 'id'")?;
+        let id = p.get("id").and_then(Value::as_str).ok_or_else(|| IpcFailure::invalid("missing 'id'"))?;
         let store = self.inner.sessions.lock().unwrap();
-        let session = store.get_session(id).map_err(|e| e.to_string())?;
+        let session = store.get_session(id).map_err(session_failure)?;
         Ok(serde_json::to_value(session).unwrap_or(Value::Null))
     }
 
     fn session_messages(&self, p: &Value) -> HandlerResult {
-        let id = p.get("id").and_then(Value::as_str).ok_or("missing 'id'")?;
+        let id = p.get("id").and_then(Value::as_str).ok_or_else(|| IpcFailure::invalid("missing 'id'"))?;
         let store = self.inner.sessions.lock().unwrap();
-        let messages = store.list_messages(id).map_err(|e| e.to_string())?;
+        let messages = store.list_messages(id).map_err(session_failure)?;
         Ok(json!({ "messages": messages }))
     }
 
@@ -318,7 +469,7 @@ impl Router {
         let query = p
             .get("query")
             .and_then(Value::as_str)
-            .ok_or("missing 'query'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'query'"))?;
         // Small default keeps results token-frugal (title + short snippet each).
         let limit = p.get("limit").and_then(Value::as_i64).unwrap_or(8);
         // Semantic-first: rank by meaning via the neural index, falling back to
@@ -329,11 +480,11 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let mut hits = store
             .vector_search(&query_vec, &tag, limit)
-            .map_err(|e| e.to_string())?;
+            .map_err(session_failure)?;
         if hits.is_empty() {
             hits = store
                 .full_text_search(query, limit)
-                .map_err(|e| e.to_string())?;
+                .map_err(session_failure)?;
         }
         Ok(json!({ "hits": hits }))
     }
@@ -342,23 +493,23 @@ impl Router {
         let title = p
             .get("title")
             .and_then(Value::as_str)
-            .ok_or("missing 'title'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'title'"))?;
         let cwd = p
             .get("cwd")
             .and_then(Value::as_str)
-            .ok_or("missing 'cwd'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'cwd'"))?;
         let mut ns = NewSession::new(title, cwd);
         ns.branch = p.get("branch").and_then(Value::as_str).map(str::to_string);
         ns.model = p.get("model").and_then(Value::as_str).map(str::to_string);
         let store = self.inner.sessions.lock().unwrap();
-        let id = store.insert_session(&ns).map_err(|e| e.to_string())?;
+        let id = store.insert_session(&ns).map_err(session_failure)?;
         let _ = self.inner.event_bus.publish(SystemEvent::TaskOneClick);
         Ok(json!({ "id": id }))
     }
 
     fn session_stats(&self) -> HandlerResult {
         let store = self.inner.sessions.lock().unwrap();
-        let stats = store.stats().map_err(|e| e.to_string())?;
+        let stats = store.stats().map_err(session_failure)?;
         Ok(serde_json::to_value(stats).unwrap_or(Value::Null))
     }
 
@@ -372,28 +523,28 @@ impl Router {
         let path = p
             .get("path")
             .and_then(Value::as_str)
-            .ok_or("missing 'path'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'path'"))?;
         // Reject by size *before* reading, so a multi-GB path can't force the
         // whole file into memory before the cap is enforced. Symlinks/specials
         // that report a small (or zero) size fall through to read_to_string,
         // whose own buffering is then the only exposure.
         match std::fs::metadata(path) {
             Ok(meta) if meta.is_file() && meta.len() > MAX_BYTES => {
-                return Err("file too large to edit".to_string());
+                return Err(IpcFailure::invalid("file too large to edit"));
             }
             _ => {}
         }
         match std::fs::read_to_string(path) {
             Ok(content) => {
                 if content.len() as u64 > MAX_BYTES {
-                    return Err("file too large to edit".to_string());
+                    return Err(IpcFailure::invalid("file too large to edit"));
                 }
                 Ok(json!({ "path": path, "content": content, "exists": true }))
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 Ok(json!({ "path": path, "content": "", "exists": false }))
             }
-            Err(e) => Err(e.to_string()),
+            Err(e) => Err(IpcFailure::internal(e.to_string())),
         }
     }
 
@@ -402,16 +553,211 @@ impl Router {
         let path = p
             .get("path")
             .and_then(Value::as_str)
-            .ok_or("missing 'path'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'path'"))?;
         let content = p
             .get("content")
             .and_then(Value::as_str)
-            .ok_or("missing 'content'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'content'"))?;
         if let Some(parent) = std::path::Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
         std::fs::write(path, content).map_err(|e| e.to_string())?;
         Ok(json!({ "path": path, "ok": true, "bytes": content.len() }))
+    }
+
+    /// Create a new file (error if it already exists). Optional `content`.
+    fn file_create(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        if Path::new(path).exists() {
+            return Err(IpcFailure::invalid(format!("already exists: {path}")));
+        }
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let content = p.get("content").and_then(Value::as_str).unwrap_or("");
+        std::fs::write(path, content).map_err(|e| e.to_string())?;
+        Ok(json!({ "path": path, "ok": true, "created": true }))
+    }
+
+    /// Rename / move a file or directory from `from` to `to`.
+    fn file_rename(&self, p: &Value) -> HandlerResult {
+        let from = req_str(p, "from")?;
+        let to = req_str(p, "to")?;
+        if !Path::new(from).exists() {
+            return Err(IpcFailure::not_found(format!("source not found: {from}")));
+        }
+        if let Some(parent) = Path::new(to).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        std::fs::rename(from, to).map_err(|e| e.to_string())?;
+        Ok(json!({ "from": from, "to": to, "ok": true }))
+    }
+
+    /// Delete a file or directory (recursively for directories).
+    fn file_delete(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let meta = std::fs::metadata(path)
+            .map_err(|_| IpcFailure::not_found(format!("not found: {path}")))?;
+        if meta.is_dir() {
+            std::fs::remove_dir_all(path).map_err(|e| e.to_string())?;
+        } else {
+            std::fs::remove_file(path).map_err(|e| e.to_string())?;
+        }
+        Ok(json!({ "path": path, "ok": true, "deleted": true }))
+    }
+
+    /// Duplicate a file to `to` (defaults to "<name> copy<ext>").
+    fn file_duplicate(&self, p: &Value) -> HandlerResult {
+        let from = req_str(p, "from")?;
+        let src = Path::new(from);
+        if !src.is_file() {
+            return Err(IpcFailure::invalid(format!("not a file: {from}")));
+        }
+        let to = match p.get("to").and_then(Value::as_str) {
+            Some(t) => t.to_string(),
+            None => {
+                let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("copy");
+                let ext = src.extension().and_then(|s| s.to_str());
+                let parent = src.parent().unwrap_or_else(|| Path::new("."));
+                let name = match ext {
+                    Some(e) => format!("{stem} copy.{e}"),
+                    None => format!("{stem} copy"),
+                };
+                parent.join(name).to_string_lossy().to_string()
+            }
+        };
+        std::fs::copy(from, &to).map_err(|e| e.to_string())?;
+        Ok(json!({ "from": from, "to": to, "ok": true }))
+    }
+
+    /// List the immediate entries of a directory, flagging protected files.
+    fn file_list(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let rd = std::fs::read_dir(path)
+            .map_err(|e| IpcFailure::invalid(format!("cannot list {path}: {e}")))?;
+        let mut entries = Vec::new();
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let full = e.path().to_string_lossy().to_string();
+            entries.push(json!({
+                "name": name,
+                "path": full,
+                "is_dir": is_dir,
+                "protected": is_protected_path(&full),
+            }));
+        }
+        entries.sort_by(|a, b| {
+            let ad = a["is_dir"].as_bool().unwrap_or(false);
+            let bd = b["is_dir"].as_bool().unwrap_or(false);
+            bd.cmp(&ad).then(a["name"].as_str().cmp(&b["name"].as_str()))
+        });
+        Ok(json!({ "path": path, "entries": entries }))
+    }
+
+    /// Full-text search over a project tree (ripgrep, falling back to grep).
+    fn file_search(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let query = req_str(p, "query")?;
+        let (bin, args): (&str, Vec<String>) = if which_ok("rg") {
+            ("rg", vec![
+                "--line-number".into(), "--no-heading".into(), "--color".into(), "never".into(),
+                "--max-count".into(), "50".into(), query.into(), ".".into(),
+            ])
+        } else {
+            ("grep", vec!["-rniI".into(), "--line-number".into(), query.into(), ".".into()])
+        };
+        let out = std::process::Command::new(bin)
+            .current_dir(cwd)
+            .args(&args)
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut matches = Vec::new();
+        for line in text.lines().take(200) {
+            // rg/grep format: path:line:content
+            let mut it = line.splitn(3, ':');
+            if let (Some(fp), Some(ln), Some(content)) = (it.next(), it.next(), it.next()) {
+                matches.push(json!({ "path": fp, "line": ln.parse::<u64>().unwrap_or(0), "text": content }));
+            }
+        }
+        Ok(json!({ "cwd": cwd, "query": query, "tool": bin, "matches": matches }))
+    }
+
+    /// Attach a file's content to a session — but NEVER for protected paths
+    /// (.env, secrets/, *.key/*.pem, credentials). This is the guard that keeps
+    /// secrets from being sent to Claude.
+    fn file_attach(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        if is_protected_path(path) {
+            return Err(IpcFailure::new(
+                ErrorCode::InvalidParameter,
+                format!("protected path refused — not sent to Claude: {path}"),
+            ));
+        }
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| IpcFailure::not_found(format!("cannot read {path}: {e}")))?;
+        Ok(json!({ "path": path, "content": content, "protected": false, "attached": true }))
+    }
+
+    // MARK: Git write operations (commit assistant, worktrees, merge)
+
+    /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
+    /// generates a Conventional Commit message from the staged diff (assistant).
+    async fn git_commit(&self, p: &Value) -> HandlerResult {
+        let git = Self::git_for(p)?;
+        let message = match p.get("message").and_then(Value::as_str) {
+            Some(m) if !m.trim().is_empty() => m.to_string(),
+            _ => {
+                let mut diff = git.diff(true).await.map_err(|e| e.to_string())?;
+                if diff.trim().is_empty() {
+                    diff = git.diff(false).await.map_err(|e| e.to_string())?;
+                }
+                git.generate_conventional_commit_message(&diff)
+            }
+        };
+        let hash = git.commit(&message).await.map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "hash": hash, "message": message }))
+    }
+
+    /// Generate (but do not apply) a Conventional Commit message from the diff.
+    async fn git_commit_message(&self, p: &Value) -> HandlerResult {
+        let git = Self::git_for(p)?;
+        let mut diff = git.diff(true).await.map_err(|e| e.to_string())?;
+        if diff.trim().is_empty() {
+            diff = git.diff(false).await.map_err(|e| e.to_string())?;
+        }
+        let message = git.generate_conventional_commit_message(&diff);
+        Ok(json!({ "message": message }))
+    }
+
+    /// Create a worktree at `path` on a new `branch`.
+    async fn worktree_add(&self, p: &Value) -> HandlerResult {
+        let git = Self::git_for(p)?;
+        let path = req_str(p, "path")?;
+        let branch = req_str(p, "branch")?;
+        git.create_worktree(Path::new(path), branch)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path, "branch": branch }))
+    }
+
+    /// Remove the worktree at `path`.
+    async fn worktree_remove(&self, p: &Value) -> HandlerResult {
+        let git = Self::git_for(p)?;
+        let path = req_str(p, "path")?;
+        git.remove_worktree(Path::new(path))
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "path": path }))
+    }
+
+    /// Merge `branch` into the current branch.
+    async fn worktree_merge(&self, p: &Value) -> HandlerResult {
+        let git = Self::git_for(p)?;
+        let branch = req_str(p, "branch")?;
+        let head = git.merge(branch).await.map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "head": head, "merged": branch }))
     }
 
     // MARK: Live Claude session recording (called by the connection forwarder)
@@ -427,21 +773,24 @@ impl Router {
     /// Append a transcript message (best-effort) and add it to the semantic
     /// index so it is recallable by meaning, not just keywords.
     pub fn record_message(&self, session_id: &str, role: &str, content: &str) {
-        let id = {
-            let store = self.inner.sessions.lock().unwrap();
-            store
-                .append_message(&NewMessage::new(session_id, role, content))
-                .unwrap_or_default()
-        };
-        if id.is_empty() {
-            return;
-        }
-        // Embed outside the sessions lock — the neural forward pass is the slow
-        // part and must not serialize other DB work.
+        // Embed BEFORE taking the lock — the neural forward pass is the slow part
+        // and must not serialize other DB work. The embedding depends only on the
+        // content, not on the row id, so it can be computed up front (A15).
         let (embedder, tag) = self.current_embedder();
         let vector = embedder.embed(content);
         let snippet = embedding::snippet(content);
+
+        // Append + upsert under a SINGLE critical section: previously this took
+        // the sessions lock twice (append, drop, re-acquire for upsert), which
+        // both doubled lock churn and let another writer interleave between the
+        // message insert and its embedding.
         let store = self.inner.sessions.lock().unwrap();
+        let id = store
+            .append_message(&NewMessage::new(session_id, role, content))
+            .unwrap_or_default();
+        if id.is_empty() {
+            return;
+        }
         let _ = store.upsert_embedding(
             &id,
             session_id,
@@ -462,8 +811,12 @@ impl Router {
             + self.backfill_kind(&*embedder, &tag, HitSource::Tool, max_items)
     }
 
-    /// Embed all un-embedded items of one kind. Pending rows are fetched under
-    /// the lock; each embed (the slow neural pass) runs outside it.
+    /// Embed all un-embedded items of one kind in two phases, so the lock is
+    /// taken exactly twice instead of once-per-item (A15). Phase 1 fetches the
+    /// pending rows under the lock (held briefly); phase 2 runs every embed (the
+    /// slow neural pass) with NO lock held; phase 3 upserts the whole batch under
+    /// a single lock. Previously each item re-acquired the lock, so a backfill of
+    /// N items took N+1 lock acquisitions and interleaved with every other writer.
     fn backfill_kind(
         &self,
         embedder: &dyn Embedder,
@@ -471,6 +824,7 @@ impl Router {
         source: HitSource,
         max_items: i64,
     ) -> usize {
+        // Phase 1: snapshot the pending rows.
         let pending = {
             let store = self.inner.sessions.lock().unwrap();
             let res = match source {
@@ -479,21 +833,27 @@ impl Router {
             };
             res.unwrap_or_default()
         };
+        if pending.is_empty() {
+            return 0;
+        }
+
+        // Phase 2: embed everything off-lock (the expensive part).
+        let embedded: Vec<(String, String, String, Vec<f32>)> = pending
+            .into_iter()
+            .map(|item| {
+                let vector = embedder.embed(&item.content);
+                let snippet = embedding::snippet(&item.content);
+                (item.owner_id, item.session_id, snippet, vector)
+            })
+            .collect();
+
+        // Phase 3: upsert the batch under one critical section.
+        let ts = now_millis();
+        let store = self.inner.sessions.lock().unwrap();
         let mut count = 0;
-        for item in pending {
-            let vector = embedder.embed(&item.content);
-            let snippet = embedding::snippet(&item.content);
-            let store = self.inner.sessions.lock().unwrap();
+        for (owner_id, session_id, snippet, vector) in &embedded {
             if store
-                .upsert_embedding(
-                    &item.owner_id,
-                    &item.session_id,
-                    source,
-                    &snippet,
-                    tag,
-                    &vector,
-                    now_millis(),
-                )
+                .upsert_embedding(owner_id, session_id, source, snippet, tag, vector, ts)
                 .is_ok()
             {
                 count += 1;
@@ -550,11 +910,11 @@ impl Router {
 
     // MARK: Git (operates on the project directory named in `cwd`)
 
-    fn git_for(p: &Value) -> std::result::Result<SystemGit, String> {
+    fn git_for(p: &Value) -> std::result::Result<SystemGit, IpcFailure> {
         let cwd = p
             .get("cwd")
             .and_then(Value::as_str)
-            .ok_or("missing 'cwd'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'cwd'"))?;
         Ok(SystemGit::new(cwd))
     }
 
@@ -687,7 +1047,7 @@ impl Router {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or("missing 'name'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'name'"))?;
         let transport = p
             .get("transport")
             .and_then(Value::as_str)
@@ -702,7 +1062,7 @@ impl Router {
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .ok_or("missing 'url' for an sse/http server")?;
+                    .ok_or_else(|| IpcFailure::invalid("missing 'url' for an sse/http server"))?;
                 json!({ "type": transport, "url": url })
             }
             _ => {
@@ -711,7 +1071,7 @@ impl Router {
                     .and_then(Value::as_str)
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
-                    .ok_or("missing 'command' for a stdio server")?;
+                    .ok_or_else(|| IpcFailure::invalid("missing 'command' for a stdio server"))?;
                 let args = p.get("args").cloned().unwrap_or(json!([]));
                 let env = p.get("env").cloned().unwrap_or(json!({}));
                 json!({ "command": command, "args": args, "env": env })
@@ -742,7 +1102,7 @@ impl Router {
         let name = p
             .get("name")
             .and_then(Value::as_str)
-            .ok_or("missing 'name'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'name'"))?;
         let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
         let path = mcp_path_for_scope(scope, p.get("cwd").and_then(Value::as_str))?;
 
@@ -757,14 +1117,33 @@ impl Router {
 
     /// List **every** MCP server the `claude` CLI knows about — across all scopes
     /// *and* plugin / claude.ai connector servers (which never appear in
-    /// `~/.claude.json`) — by parsing `claude mcp list`, including each server's
-    /// live connection status. This is the authoritative, complete list.
+    /// `~/.claude.json`) — including each server's live connection status.
+    ///
+    /// SHELL-OUT BOUNDARY (A16): this is implemented by *scraping the human text
+    /// of `claude mcp list`*, not by speaking the MCP protocol. That is a
+    /// deliberate fallback — the CLI is the only source that knows about plugin
+    /// and connector servers — and it is brittle to CLI output changes. We
+    /// therefore surface failure explicitly: a CLI error returns an empty list
+    /// **plus a `warning`** so the UI can distinguish "the `claude` CLI is
+    /// unavailable / changed its output" from "no servers are configured".
+    ///
+    /// TODO(A16): replace the text scrape with a real MCP-protocol query for the
+    /// servers we can reach directly, keeping the CLI scrape only for the
+    /// plugin/connector servers it uniquely reports.
     fn mcp_list_all(&self, p: &Value) -> HandlerResult {
         // Run in the project dir (if given) so its `.mcp.json` servers are
         // included alongside user, plugin, and connector servers.
         let cwd = p.get("cwd").and_then(Value::as_str);
-        let out = run_claude_in(cwd, &["mcp", "list"]).unwrap_or_default();
-        Ok(json!({ "servers": parse_claude_mcp_list(&out) }))
+        match run_claude_in(cwd, &["mcp", "list"]) {
+            Ok(out) => Ok(json!({ "servers": parse_claude_mcp_list(&out) })),
+            Err(e) => {
+                // Best-effort, non-fatal: the file-based `mcp.list` still works,
+                // so don't fail the whole request — but make the degradation
+                // visible rather than masquerading as an empty config.
+                tracing::warn!(error = %e, "mcp.list_all: `claude mcp list` shell-out failed");
+                Ok(json!({ "servers": [], "warning": e }))
+            }
+        }
     }
 
     /// Remove an MCP server via `claude mcp remove <name>` (handles whichever
@@ -774,7 +1153,7 @@ impl Router {
         let name = p
             .get("name")
             .and_then(Value::as_str)
-            .ok_or("missing 'name'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'name'"))?;
         let output = run_claude(&["mcp", "remove", name])?;
         Ok(json!({ "ok": true, "name": name, "output": output.trim() }))
     }
@@ -949,16 +1328,19 @@ impl Router {
         let path = p
             .get("path")
             .and_then(Value::as_str)
-            .ok_or("missing 'path'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'path'"))?;
         let target = Path::new(path);
         let user_root = self.inner.state_dir.join(sub);
         if !target.starts_with(&user_root) {
-            return Err("only items in your library can be deleted".to_string());
+            return Err(IpcFailure::invalid("only items in your library can be deleted"));
         }
         if !path.ends_with(suffix) {
-            return Err("refusing to delete a non-library file".to_string());
+            return Err(IpcFailure::invalid("refusing to delete a non-library file"));
         }
-        std::fs::remove_file(target).map_err(|e| e.to_string())?;
+        std::fs::remove_file(target).map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => IpcFailure::not_found(format!("no such library item: {path}")),
+            _ => IpcFailure::internal(e.to_string()),
+        })?;
         Ok(json!({ "ok": true }))
     }
 
@@ -1073,7 +1455,7 @@ impl Router {
         let root = skills_root_for_scope(p)?;
         let dir = root.join(&command);
         if dir.exists() {
-            return Err(format!("a skill named '{command}' already exists"));
+            return Err(IpcFailure::invalid(format!("a skill named '{command}' already exists")));
         }
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let body = format!(
@@ -1093,7 +1475,7 @@ impl Router {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or("missing 'source'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'source'"))?;
         let dest_root = skills_root_for_scope(p)?;
         std::fs::create_dir_all(&dest_root).map_err(|e| e.to_string())?;
 
@@ -1106,19 +1488,19 @@ impl Router {
                 .args(["clone", "--depth", "1", source])
                 .arg(&tmp)
                 .output()
-                .map_err(|e| format!("git not available: {e}"))?;
+                .map_err(|e| IpcFailure::config(format!("git not available: {e}")))?;
             if !out.status.success() {
-                return Err(format!(
+                return Err(IpcFailure::internal(format!(
                     "git clone failed: {}",
                     String::from_utf8_lossy(&out.stderr).trim()
-                ));
+                )));
             }
             temp_holder = tmp;
             temp_holder.clone()
         } else {
             let dir = PathBuf::from(source);
             if !dir.is_dir() {
-                return Err("source is neither a git URL nor an existing directory".to_string());
+                return Err(IpcFailure::invalid("source is neither a git URL nor an existing directory"));
             }
             dir
         };
@@ -1138,7 +1520,7 @@ impl Router {
             }
         }
         if skill_dirs.is_empty() {
-            return Err("no SKILL.md found in the source".to_string());
+            return Err(IpcFailure::invalid("no SKILL.md found in the source"));
         }
 
         let mut installed = Vec::new();
@@ -1160,14 +1542,14 @@ impl Router {
         let path = p
             .get("path")
             .and_then(Value::as_str)
-            .ok_or("missing 'path'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'path'"))?;
         // The path may be the SKILL.md file or the skill directory.
         let mut dir = PathBuf::from(path);
         if dir.is_file() {
             dir = dir
                 .parent()
                 .map(Path::to_path_buf)
-                .ok_or("invalid skill path")?;
+                .ok_or_else(|| IpcFailure::invalid("invalid skill path"))?;
         }
         let inside_skills = dir
             .components()
@@ -1175,7 +1557,7 @@ impl Router {
             .windows(2)
             .any(|w| w[0].as_os_str() == ".claude" && w[1].as_os_str() == "skills");
         if !inside_skills {
-            return Err("only skills under a .claude/skills directory can be removed".to_string());
+            return Err(IpcFailure::invalid("only skills under a .claude/skills directory can be removed"));
         }
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
         Ok(json!({ "ok": true }))
@@ -1217,7 +1599,7 @@ impl Router {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or("missing 'source'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'source'"))?;
         let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
         let out = run_claude(&["plugin", "install", source, "--scope", scope])?;
         Ok(json!({ "ok": true, "output": out.trim() }))
@@ -1228,7 +1610,7 @@ impl Router {
         let name = p
             .get("name")
             .and_then(Value::as_str)
-            .ok_or("missing 'name'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'name'"))?;
         let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
         let out = run_claude(&["plugin", "uninstall", name, "--scope", scope, "-y"])?;
         Ok(json!({ "ok": true, "output": out.trim() }))
@@ -1239,11 +1621,11 @@ impl Router {
         let name = p
             .get("name")
             .and_then(Value::as_str)
-            .ok_or("missing 'name'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'name'"))?;
         let enabled = p
             .get("enabled")
             .and_then(Value::as_bool)
-            .ok_or("missing 'enabled'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'enabled'"))?;
         let verb = if enabled { "enable" } else { "disable" };
         let out = run_claude(&["plugin", verb, name])?;
         Ok(json!({ "ok": true, "output": out.trim() }))
@@ -1263,12 +1645,54 @@ impl Router {
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .ok_or("missing 'source'")?;
+            .ok_or_else(|| IpcFailure::invalid("missing 'source'"))?;
         let out = run_claude(&["plugin", "marketplace", "add", source])?;
         Ok(json!({ "ok": true, "output": out.trim() }))
     }
 }
 
+/// Read a required string field from a request payload, or fail with 400.
+fn req_str<'a>(p: &'a Value, key: &str) -> std::result::Result<&'a str, IpcFailure> {
+    p.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| IpcFailure::invalid(format!("missing '{key}'")))
+}
+
+/// Whether `path` is a protected secret that must never be sent to Claude.
+/// Matches `.env*`, anything under a `secrets/` directory, and key material.
+fn is_protected_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    name == ".env"
+        || name.starts_with(".env.")
+        || name.ends_with(".pem")
+        || name.ends_with(".key")
+        || name.starts_with("id_rsa")
+        || name == "credentials"
+        || name == ".npmrc"
+        || lower.contains("/secrets/")
+        || lower.contains("/.ssh/")
+}
+
+/// Whether an executable `bin` is resolvable on PATH (best-effort, no failure).
+fn which_ok(bin: &str) -> bool {
+    std::process::Command::new(bin)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+// CONTRACT: the Swift `CoreConfig` decoder treats `daily_budget_usd` and
+// `context_token_budget` as REQUIRED fields, and its `intValue` helper rejects a
+// msgpack float. `context_token_budget` MUST therefore stay an integer type
+// (`usize`) and `daily_budget_usd` a float — emitting `context_token_budget` as a
+// float, or dropping either key, would nil the ENTIRE CoreConfig decode on the
+// client. Guarded by `config_to_json_carries_every_field_the_swift_dto_requires`.
 fn config_to_json(cfg: &AppConfig) -> Value {
     json!({
         "trust_mode": cfg.trust_mode,
@@ -1503,16 +1927,16 @@ fn looks_like_git_url(source: &str) -> bool {
 
 /// The `.claude/skills` directory for the requested scope: `project` → `<cwd>`,
 /// anything else → `$HOME`.
-fn skills_root_for_scope(p: &Value) -> std::result::Result<PathBuf, String> {
+fn skills_root_for_scope(p: &Value) -> std::result::Result<PathBuf, IpcFailure> {
     let scope = p.get("scope").and_then(Value::as_str).unwrap_or("user");
     let base = if scope == "project" {
         let cwd = p
             .get("cwd")
             .and_then(Value::as_str)
-            .ok_or("project scope requires a 'cwd'")?;
+            .ok_or_else(|| IpcFailure::invalid("project scope requires a 'cwd'"))?;
         PathBuf::from(cwd)
     } else {
-        PathBuf::from(std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?)
+        PathBuf::from(std::env::var("HOME").map_err(|_| IpcFailure::config("HOME is not set"))?)
     };
     Ok(base.join(".claude").join("skills"))
 }
@@ -1620,14 +2044,14 @@ fn unique_path(dir: &Path, slug: &str, suffix: &str) -> PathBuf {
 
 /// The MCP config file for a scope: `project` → `<cwd>/.mcp.json` (requires a
 /// cwd), anything else → the user's `~/.claude.json`.
-fn mcp_path_for_scope(scope: &str, cwd: Option<&str>) -> std::result::Result<String, String> {
+fn mcp_path_for_scope(scope: &str, cwd: Option<&str>) -> std::result::Result<String, IpcFailure> {
     match scope {
         "project" => {
-            let cwd = cwd.ok_or("project scope requires a 'cwd'")?;
+            let cwd = cwd.ok_or_else(|| IpcFailure::invalid("project scope requires a 'cwd'"))?;
             Ok(format!("{cwd}/.mcp.json"))
         }
         _ => {
-            let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+            let home = std::env::var("HOME").map_err(|_| IpcFailure::config("HOME is not set"))?;
             Ok(format!("{home}/.claude.json"))
         }
     }
@@ -2002,6 +2426,32 @@ mod tests {
 
         let stats = r.dispatch(&new_request("session.stats", json!({}))).await;
         assert_eq!(stats.payload["sessions"], json!(1));
+    }
+
+    #[test]
+    fn config_to_json_carries_every_field_the_swift_dto_requires() {
+        // Guards the A17 round-trip contract: the Swift `CoreConfig` decoder now
+        // treats these as REQUIRED and fails to decode if any is absent (so it
+        // can never substitute 0 and write that back, clobbering the real value).
+        // If a future refactor drops one of these keys from `config_to_json`,
+        // this test fails before the app silently corrupts settings.
+        let cfg = AppConfig::default();
+        let v = config_to_json(&cfg);
+        for key in [
+            "trust_mode",
+            "default_model",
+            "daily_budget_usd",
+            "context_token_budget",
+        ] {
+            assert!(
+                v.get(key).is_some_and(|x| !x.is_null()),
+                "config_to_json must include '{key}' for the Swift DTO contract"
+            );
+        }
+        // The numeric fields must be numbers (not strings), matching the Swift
+        // decoder's `doubleValue` / `intValue` expectations.
+        assert!(v["daily_budget_usd"].is_number());
+        assert!(v["context_token_budget"].is_number());
     }
 
     #[tokio::test]

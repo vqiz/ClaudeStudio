@@ -145,6 +145,9 @@ pub trait GitBackend: Send + Sync {
 
     /// Stage all changes and commit with `message`; returns the new commit hash.
     async fn commit(&self, message: &str) -> Result<String>;
+
+    /// Merge `branch` into the current branch (no-edit); returns the new HEAD.
+    async fn merge(&self, branch: &str) -> Result<String>;
 }
 
 /// Default [`GitBackend`] that invokes the system `git` binary.
@@ -251,6 +254,12 @@ impl GitBackend for SystemGit {
     async fn commit(&self, message: &str) -> Result<String> {
         self.run(&["add", "-A"]).await?;
         self.run(&["commit", "-m", message]).await?;
+        let head = self.run(&["rev-parse", "HEAD"]).await?;
+        Ok(head.trim().to_string())
+    }
+
+    async fn merge(&self, branch: &str) -> Result<String> {
+        self.run(&["merge", "--no-edit", branch]).await?;
         let head = self.run(&["rev-parse", "HEAD"]).await?;
         Ok(head.trim().to_string())
     }
