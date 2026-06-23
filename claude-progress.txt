@@ -85,3 +85,7 @@
   History+Favoriten+Volltextsuche+Bibliothek), prompts.chain_run (Output->Input + bedingte Verzweigung),
   session.list-Filter (Projekt/Zeitraum). Bugfix: unique_id() gegen ms-Kollision der prompt/rule-IDs.
   PASSING: F158 F243 F244 F245 F246 F247. cargo test grün. 110/360.
+[SESSION 1] [2026-06-23] [BUILD-9] [PASSING] +12 Agent-Studio + Model-Router GEBAUT: agents.create/list/get/
+  update/delete (Config-CRUD, persistiert+reload), agents.check_tool (Tool-Enforcement), agents.render_prompt
+  ({{var}}), agents.context (Definition-Injektion); model_router.route/set/resolve/fallback/cost_compare.
+  PASSING: F106 F107 F108 F109 F114 F115 F119 F131 F132 F133 F134 F135. cargo test grün. 122/360.

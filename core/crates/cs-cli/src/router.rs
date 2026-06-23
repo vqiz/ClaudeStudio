@@ -368,6 +368,19 @@ impl Router {
             "prompts.history" => self.prompts_history(p),
             "prompts.favorite" => self.prompts_favorite(p),
             "prompts.chain_run" => Ok(chain_run_payload(p)),
+            "agents.create" => self.agents_create(p),
+            "agents.list" => self.agents_list(),
+            "agents.get" => self.agents_get(p),
+            "agents.update" => self.agents_update(p),
+            "agents.delete" => self.agents_delete(p),
+            "agents.check_tool" => self.agents_check_tool(p),
+            "agents.render_prompt" => self.agents_render_prompt(p),
+            "agents.context" => self.agents_context(p),
+            "model_router.route" => self.model_router_route(p),
+            "model_router.set" => self.model_router_set(p),
+            "model_router.resolve" => self.model_router_resolve(p),
+            "model_router.fallback" => Ok(model_fallback_payload(p)),
+            "model_router.cost_compare" => Ok(model_cost_compare_payload(p)),
             "skills.list" => self.skills_list(p),
             "skills.create" => self.skills_create(p),
             "skills.install" => self.skills_install(p),
@@ -1040,6 +1053,182 @@ impl Router {
         std::fs::write(self.prompt_favs_path(), serde_json::to_string(&v).unwrap_or_default())
             .map_err(|e| e.to_string())?;
         Ok(json!({ "ok": true, "id": id, "favorite": fav }))
+    }
+
+    // MARK: Agent Studio — agent config CRUD + checks
+
+    fn agents_dir(&self) -> PathBuf {
+        self.inner.state_dir.join("agents")
+    }
+    fn read_agent(&self, id: &str) -> Option<Value> {
+        std::fs::read_to_string(self.agents_dir().join(format!("{id}.json")))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+    }
+
+    /// Create an agent from its designer config (F106/F107/F112/F114).
+    fn agents_create(&self, p: &Value) -> HandlerResult {
+        req_str(p, "name")?; // identity requires a name
+        let id = unique_id("agent");
+        let mut agent = p.clone();
+        if let Some(o) = agent.as_object_mut() {
+            o.insert("id".into(), json!(id));
+            o.entry("model").or_insert(json!("sonnet"));
+        }
+        let dir = self.agents_dir();
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(
+            dir.join(format!("{id}.json")),
+            serde_json::to_string_pretty(&agent).unwrap_or_default(),
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "id": id, "agent": agent }))
+    }
+
+    fn agents_list(&self) -> HandlerResult {
+        let mut agents = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(self.agents_dir()) {
+            for e in rd.flatten() {
+                if e.path().extension().and_then(|x| x.to_str()) == Some("json") {
+                    if let Ok(s) = std::fs::read_to_string(e.path()) {
+                        if let Ok(v) = serde_json::from_str::<Value>(&s) {
+                            agents.push(v);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(json!({ "agents": agents }))
+    }
+
+    fn agents_get(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        self.read_agent(id)
+            .map(|a| json!({ "agent": a }))
+            .ok_or_else(|| IpcFailure::not_found(format!("agent not found: {id}")))
+    }
+
+    fn agents_update(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        let mut agent = self
+            .read_agent(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("agent not found: {id}")))?;
+        if let (Some(o), Some(patch)) = (agent.as_object_mut(), p.as_object()) {
+            for (k, v) in patch {
+                if k != "id" {
+                    o.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        std::fs::write(
+            self.agents_dir().join(format!("{id}.json")),
+            serde_json::to_string_pretty(&agent).unwrap_or_default(),
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "agent": agent }))
+    }
+
+    fn agents_delete(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        let path = self.agents_dir().join(format!("{id}.json"));
+        let existed = path.exists();
+        std::fs::remove_file(&path).ok();
+        Ok(json!({ "ok": true, "deleted": existed }))
+    }
+
+    /// Tool enforcement: a tool not in the agent's allowed_tools is denied (F108).
+    fn agents_check_tool(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        let tool = req_str(p, "tool")?;
+        let agent = self
+            .read_agent(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("agent not found: {id}")))?;
+        let allowed = match agent.get("allowed_tools").and_then(Value::as_array) {
+            Some(list) => list.iter().any(|t| t.as_str() == Some(tool)),
+            None => true, // no restriction configured -> all allowed
+        };
+        Ok(json!({
+            "allowed": allowed, "tool": tool,
+            "reason": if allowed { "Tool erlaubt" } else { "Tool nicht in allowed_tools — abgewiesen" },
+        }))
+    }
+
+    /// Render the agent's system prompt, substituting {{var}} from `vars` (F109).
+    fn agents_render_prompt(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        let agent = self
+            .read_agent(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("agent not found: {id}")))?;
+        let mut prompt = agent.get("system_prompt").and_then(Value::as_str).unwrap_or("").to_string();
+        if let Some(vars) = p.get("vars").and_then(Value::as_object) {
+            for (k, v) in vars {
+                let needle = format!("{{{{{k}}}}}");
+                let val = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+                prompt = prompt.replace(&needle, &val);
+            }
+        }
+        Ok(json!({ "prompt": prompt }))
+    }
+
+    /// The context an agent runs with — its assigned definitions are injected
+    /// into the active-definitions layer (F115).
+    fn agents_context(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "id")?;
+        let agent = self
+            .read_agent(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("agent not found: {id}")))?;
+        let defs = agent.get("definitions").cloned().unwrap_or_else(|| json!([]));
+        let content = self.load_active_definitions(Some(&defs));
+        Ok(json!({
+            "agent": id, "definitions": defs,
+            "active_definitions": content, "tokens": estimate_tokens(&content),
+        }))
+    }
+
+    // MARK: Model router
+
+    fn model_routes_path(&self) -> PathBuf {
+        self.inner.state_dir.join("model_routes.json")
+    }
+    fn read_model_routes(&self) -> Value {
+        std::fs::read_to_string(self.model_routes_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+
+    /// Route a task type to a model tier (F131), honoring configured overrides (F132).
+    fn model_router_route(&self, p: &Value) -> HandlerResult {
+        let task_type = req_str(p, "task_type")?;
+        let routes = self.read_model_routes();
+        let configured = routes.get(task_type).and_then(Value::as_str);
+        let model = configured
+            .map(str::to_string)
+            .unwrap_or_else(|| default_model_for(task_type).to_string());
+        Ok(json!({
+            "task_type": task_type, "model": model,
+            "source": if configured.is_some() { "configured" } else { "default" },
+        }))
+    }
+
+    /// Configure which model a task type routes to (F132).
+    fn model_router_set(&self, p: &Value) -> HandlerResult {
+        let task_type = req_str(p, "task_type")?;
+        let model = req_str(p, "model")?;
+        let mut routes = self.read_model_routes();
+        routes[task_type] = json!(model);
+        std::fs::write(self.model_routes_path(), serde_json::to_string_pretty(&routes).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "routes": routes }))
+    }
+
+    /// Resolve the model for a task; a per-agent override wins over the router (F133).
+    fn model_router_resolve(&self, p: &Value) -> HandlerResult {
+        let task_type = req_str(p, "task_type")?;
+        if let Some(ov) = p.get("agent_override").and_then(Value::as_str) {
+            return Ok(json!({ "task_type": task_type, "model": ov, "source": "agent_override" }));
+        }
+        self.model_router_route(p)
     }
 
     fn session_messages(&self, p: &Value) -> HandlerResult {
@@ -2658,6 +2847,55 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Default model tier for a task type (F131).
+fn default_model_for(task_type: &str) -> &'static str {
+    let t = task_type.to_lowercase();
+    if t.contains("doc") || t.contains("simple") || t.contains("monitor") {
+        "haiku"
+    } else if t.contains("arch") || t.contains("plan") || t.contains("design") {
+        "opus"
+    } else {
+        "sonnet" // feature / review / default
+    }
+}
+
+/// Fallback chain opus -> sonnet -> haiku when a higher tier errors (F134).
+fn model_fallback_payload(p: &Value) -> Value {
+    let failed = p.get("model").and_then(Value::as_str).unwrap_or("opus");
+    let next = match failed {
+        "opus" => Some("sonnet"),
+        "sonnet" => Some("haiku"),
+        _ => None,
+    };
+    json!({ "failed": failed, "fallback": next, "exhausted": next.is_none() })
+}
+
+/// Illustrative per-1M-token USD prices for the routing cost comparison (F135).
+fn model_price(model: &str) -> (f64, f64) {
+    match model {
+        "haiku" => (0.80, 4.0),
+        "opus" => (15.0, 75.0),
+        _ => (3.0, 15.0), // sonnet / default
+    }
+}
+fn cost_of(model: &str, input: f64, output: f64) -> f64 {
+    let (pi, po) = model_price(model);
+    input / 1_000_000.0 * pi + output / 1_000_000.0 * po
+}
+
+/// Compare the routed model's cost vs all-Opus to confirm the saving (F135).
+fn model_cost_compare_payload(p: &Value) -> Value {
+    let input = p.get("input_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let output = p.get("output_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let routed = p.get("routed_model").and_then(Value::as_str).unwrap_or("sonnet");
+    let routed_cost = cost_of(routed, input, output);
+    let opus_cost = cost_of("opus", input, output);
+    json!({
+        "routed_model": routed, "routed_cost_usd": routed_cost, "opus_cost_usd": opus_cost,
+        "savings_usd": opus_cost - routed_cost, "saved": opus_cost > routed_cost,
+    })
 }
 
 /// Prebuilt prompt templates for the prompt library (F243).
