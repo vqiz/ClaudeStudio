@@ -189,3 +189,8 @@
   fortsetzt (Stub bestätigt RESUMED:<id>, neue session_id); F300 neue os.running_agents-Methode liefert
   die lebende Agenten-Registry (Cancel-Map): 2 parallele LONGRUN-Agenten -> running=2, observed=2; nach
   session.stop eines Agenten -> running=1. test-harness/probes/batch32.py. 263/360.
+[SESSION 1] [2026-06-23] [BUILD-33] [PASSING] +1 Post-Run-Hook (echter Core-Forwarder + git):
+  F116 session.start akzeptiert post_run_hook; nach Lauf-Ende führt der Core das Kommando im cwd aus.
+  Agent (Stub) ändert per EDITFILE eine Datei, Hook 'git commit' committet sie automatisch -> git log -1
+  zeigt den neuen Commit, Core meldet post_run_hook-Event Exit 0. main.rs-Forwarder erweitert.
+  test-harness/probes/batch33.py. 264/360.

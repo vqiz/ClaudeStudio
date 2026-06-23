@@ -1,0 +1,13 @@
+{
+  "session_id": "53396b5e-62e6-4227-9376-bc54603fe406",
+  "commits_before": "1",
+  "commits_after": "2",
+  "last_commit": "agent run committed by post-run hook",
+  "hook_event": {
+    "command": "git add -A && git -c user.name=Hook -c user.email=h@h commit -m \"agent run committed by post-run hook\"",
+    "exit": 0,
+    "kind": "post_run_hook",
+    "stderr": "",
+    "stdout": "[main 1d980dd] agent run committed by post-run hook\n 1 file changed, 1 insertion(+)\n create mode 100644 agent_edit.txt"
+  }
+}

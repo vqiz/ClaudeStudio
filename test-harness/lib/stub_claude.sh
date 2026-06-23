@@ -15,6 +15,11 @@ printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"
 prev=""; resume_id=""
 for a in "$@"; do [ "$prev" = "--resume" ] && resume_id="$a"; prev="$a"; done
 [ -n "$resume_id" ] && printf '%s\n' "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"RESUMED:$resume_id\"}]}}"
+# 'EDITFILE' im Prompt: der Agent erzeugt im cwd eine echte Datei-Änderung
+# (Substrat für den Post-Run-Hook 'git commit', F116).
+case "$*" in
+  *EDITFILE*) printf 'agent change %s\n' "$$" > agent_edit.txt ;;
+esac
 case "$*" in
   *LONGRUN*)
     # exec ersetzt die Shell durch sleep (gleiche PID) — kein Kind-Prozess hält

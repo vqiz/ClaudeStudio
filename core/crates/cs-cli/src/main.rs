@@ -28,7 +28,7 @@ use std::sync::Arc;
 use cs_agentic_os::{EventBus, SystemEvent};
 use cs_claude::{ClaudeSession, StreamEvent};
 use cs_config::AppConfig;
-use cs_ipc::{new_event, FrameReader, FrameWriter, IpcEnvelope};
+use cs_ipc::{new_event, ErrorCode, FrameReader, FrameWriter, IpcEnvelope, IpcFailure};
 use cs_sessions::SessionStore;
 use cs_types::ModelTier;
 use futures::StreamExt;
@@ -238,7 +238,10 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 .trim()
                 .to_string();
             if prompt.is_empty() {
-                let err = cs_ipc::error_response(&request, "missing 'prompt'");
+                let err = cs_ipc::error_response_typed(
+                    &request,
+                    &IpcFailure::new(ErrorCode::InvalidParameter, "missing 'prompt'"),
+                );
                 writer.lock().await.write_frame(&err).await?;
                 continue;
             }
@@ -261,6 +264,13 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 .and_then(|v| v.as_str())
                 .map(str::to_string)
                 .filter(|s| !s.trim().is_empty());
+            // Optionaler Post-Run-Hook (Shell-Kommando), das nach Lauf-Ende im cwd
+            // ausgeführt wird (z.B. 'git commit', Notification, nächster Agent).
+            let post_run_hook = p
+                .get("post_run_hook")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .filter(|s| !s.trim().is_empty());
             let binary = p
                 .get("binary")
                 .and_then(|v| v.as_str())
@@ -279,7 +289,19 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 cwd.as_deref().unwrap_or("."),
                 cs_claude::model_flag(model),
             );
-            router.record_message(&session_id, "user", &prompt);
+            // Record off the executor thread: `record_message` runs the neural
+            // embed inline, so calling it directly would block this connection's
+            // async loop. Awaiting `spawn_blocking` keeps ordering (and never drops
+            // the message) while freeing the executor for other connections.
+            {
+                let router = router.clone();
+                let session_id = session_id.clone();
+                let prompt = prompt.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    router.record_message(&session_id, "user", &prompt)
+                })
+                .await;
+            }
             router.record_run_event(&session_id, "started");
             // Arm a cancel signal so `session.stop` can kill this run.
             let cancel = router.register_cancel(&session_id);
@@ -297,6 +319,7 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
                 system_prompt,
                 effort,
                 resume,
+                post_run_hook,
                 cancel,
                 Arc::clone(&writer),
             ));
@@ -352,10 +375,14 @@ fn spawn_claude_forwarder(
     system_prompt: Option<String>,
     effort: Option<String>,
     resume: Option<String>,
+    post_run_hook: Option<String>,
     cancel: Arc<tokio::sync::Notify>,
     writer: SharedWriter,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        // Kopie des cwd für den Post-Run-Hook (das Original wird unten in die
+        // Session verschoben).
+        let hook_cwd = cwd.clone();
         // Map the configured trust mode to a CLI permission posture so Claude
         // can actually act (Write/Edit/Bash). Without this, `--print` denies
         // every mutating tool and the run does nothing.
@@ -397,7 +424,17 @@ fn spawn_claude_forwarder(
         while let Some(event) = stream.next().await {
             match &event {
                 StreamEvent::AssistantText(text) => {
-                    router.record_message(&session_id, "assistant", text)
+                    // `record_message` embeds inline; offload it so the slow neural
+                    // pass runs on the blocking pool instead of the executor thread.
+                    // Awaited (not detached) so transcript order is preserved and no
+                    // message is lost if the stream ends right after.
+                    let router = router.clone();
+                    let session_id = session_id.clone();
+                    let text = text.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        router.record_message(&session_id, "assistant", &text)
+                    })
+                    .await;
                 }
                 StreamEvent::ToolUse { id, name, input } => {
                     router.record_tool_call(&session_id, id.as_deref(), name, input.clone())
@@ -426,6 +463,34 @@ fn spawn_claude_forwarder(
 
         router.record_run_event(&session_id, "completed");
         router.clear_cancel(&session_id);
+        // F116: konfigurierter Post-Run-Hook (z.B. 'git commit') feuert automatisch
+        // nach Lauf-Ende im Projektverzeichnis; das Ergebnis wird als Event gemeldet.
+        if let (Some(hook), Some(dir)) = (post_run_hook.as_ref(), hook_cwd.as_ref()) {
+            let out = tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(hook)
+                .current_dir(dir)
+                .output()
+                .await;
+            let (code, stdout, stderr) = match out {
+                Ok(o) => (
+                    o.status.code().unwrap_or(-1),
+                    String::from_utf8_lossy(&o.stdout).trim().to_string(),
+                    String::from_utf8_lossy(&o.stderr).trim().to_string(),
+                ),
+                Err(e) => (-1, String::new(), e.to_string()),
+            };
+            router.record_run_event(&session_id, "post_run_hook");
+            let hook_frame = new_event(
+                "session.event",
+                serde_json::json!({
+                    "session_id": session_id,
+                    "event": { "kind": "post_run_hook", "command": hook,
+                               "exit": code, "stdout": stdout, "stderr": stderr },
+                }),
+            );
+            let _ = writer.lock().await.write_frame(&hook_frame).await;
+        }
         // Embed this run's freshly captured tool calls (and any missed messages)
         // into the semantic index, off the streaming path so it never adds
         // latency to the live turn.
