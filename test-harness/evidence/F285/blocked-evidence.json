@@ -1,0 +1,211 @@
+{
+  "feature": "F285",
+  "reason_blocked": "Admin-API Usage-Report (GET /v1/organizations/usage_report/claude_code): keine usage.admin_report-Methode im Core und kein HTTP-Client-Pfad dafür. Erfordert externen Anthropic-Admin-API-Key und einen echten 200-Response — headless ohne Credentials/Netz nicht verifizierbar.",
+  "shared_evidence": {
+    "probed_methods_real_core_responses": {
+      "cost.dashboard": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: cost.dashboard"
+        }
+      },
+      "cost.summary": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: cost.summary"
+        }
+      },
+      "cost.breakdown": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: cost.breakdown"
+        }
+      },
+      "cost.by_model": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: cost.by_model"
+        }
+      },
+      "cost.live": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: cost.live"
+        }
+      },
+      "usage.report": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: usage.report"
+        }
+      },
+      "usage.admin_report": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: usage.admin_report"
+        }
+      },
+      "telemetry.export": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: telemetry.export"
+        }
+      },
+      "otel.export": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: otel.export"
+        }
+      },
+      "metrics.productivity": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: metrics.productivity"
+        }
+      },
+      "budget.alert": {
+        "error": {
+          "code": 404,
+          "message": "unknown method: budget.alert"
+        }
+      }
+    },
+    "config_get": {
+      "context_token_budget": 180000,
+      "daily_budget_usd": 10.0,
+      "default_model": "sonnet",
+      "trust_mode": "standard",
+      "vector": {
+        "collection": "claudestudio",
+        "dimensions": 1536,
+        "qdrant_url": null,
+        "top_k": 8
+      },
+      "voice": {
+        "enabled": false,
+        "language": "en-US",
+        "tts_voice": "system",
+        "wake_word": "hey claude"
+      }
+    },
+    "session_stats_has_no_cost": {
+      "events": 0,
+      "file_diffs": 0,
+      "messages": 0,
+      "sessions": 1,
+      "tool_calls": 0
+    },
+    "context_budget_is_token_not_usd": {
+      "granted_total": 17400,
+      "layers": [
+        {
+          "granted_tokens": 1200,
+          "layer": "global_claude_md",
+          "requested_tokens": 1200,
+          "truncated": false
+        },
+        {
+          "granted_tokens": 3000,
+          "layer": "cross_project_memory",
+          "requested_tokens": 3000,
+          "truncated": false
+        },
+        {
+          "granted_tokens": 2400,
+          "layer": "project_claude_md",
+          "requested_tokens": 2400,
+          "truncated": false
+        },
+        {
+          "granted_tokens": 6000,
+          "layer": "vector_retrieval",
+          "requested_tokens": 6000,
+          "truncated": false
+        },
+        {
+          "granted_tokens": 4000,
+          "layer": "active_definitions",
+          "requested_tokens": 4000,
+          "truncated": false
+        },
+        {
+          "granted_tokens": 800,
+          "layer": "worktree_override",
+          "requested_tokens": 800,
+          "truncated": false
+        }
+      ],
+      "remaining": 162600,
+      "total_budget": 180000
+    },
+    "sessions_db_schema": {
+      "tables": [
+        "embeddings",
+        "events",
+        "file_diffs",
+        "messages",
+        "sessions",
+        "tool_calls",
+        "transcript_fts",
+        "transcript_fts_config",
+        "transcript_fts_content",
+        "transcript_fts_data",
+        "transcript_fts_docsize",
+        "transcript_fts_idx"
+      ],
+      "sessions": [
+        "id",
+        "title",
+        "cwd",
+        "branch",
+        "model",
+        "created_at",
+        "updated_at",
+        "claude_session_id"
+      ],
+      "tool_calls": [
+        "id",
+        "session_id",
+        "message_id",
+        "tool_use_id",
+        "tool_name",
+        "input",
+        "output",
+        "success",
+        "created_at"
+      ],
+      "file_diffs": [
+        "id",
+        "session_id",
+        "path",
+        "diff",
+        "additions",
+        "deletions",
+        "created_at"
+      ],
+      "events": [
+        "id",
+        "session_id",
+        "kind",
+        "payload",
+        "created_at"
+      ]
+    },
+    "cost_columns_present_in_db": [],
+    "cs_otel_crate_exists": true,
+    "cs_otel_wired_into_cli": false,
+    "otlp_feature_gated_non_default": true,
+    "otlp_is_logging_stub_only": true,
+    "router_source_contains": {
+      "cost": false,
+      "usage_report": false,
+      "telemetry": false,
+      "otel": false,
+      "productivity": false,
+      "cache_read": false,
+      "estimated_usd": false,
+      "budget_alert": false
+    },
+    "session_created_for_db_state": "e433e135-3356-48a4-9213-86e8ae471101"
+  }
+}

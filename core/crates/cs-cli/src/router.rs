@@ -85,7 +85,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
-        | "models.compare" | "integrations.github_sync"
+        | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
@@ -546,6 +546,7 @@ impl Router {
             "model_router.route" => self.model_router_route(p),
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
+            "integrations.usage_report" => self.integrations_usage_report(p),
             "model_router.set" => self.model_router_set(p),
             "model_router.resolve" => self.model_router_resolve(p),
             "model_router.fallback" => Ok(model_fallback_payload(p)),
@@ -1792,6 +1793,32 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// Admin-API Usage-Report (F285): ruft GET /v1/organizations/usage_report/claude_code mit
+    /// dem hinterlegten Admin-Key auf und parst die Antwort (HTTP-Status + Report-Felder).
+    /// `api_base` konfigurierbar (echtes api.anthropic.com im Betrieb, Mock im Test).
+    fn integrations_usage_report(&self, p: &Value) -> HandlerResult {
+        let api_base = p.get("api_base").and_then(Value::as_str).unwrap_or("https://api.anthropic.com");
+        let key = p.get("admin_key").and_then(Value::as_str).unwrap_or("");
+        let url = format!("{api_base}/v1/organizations/usage_report/claude_code");
+        let out = std::process::Command::new("curl")
+            .args([
+                "-s", "-w", "\n%{http_code}",
+                "-H", &format!("x-api-key: {key}"),
+                "-H", "anthropic-version: 2023-06-01",
+                "-H", "Accept: application/json",
+                &url,
+            ])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let (body, code) = match text.rsplit_once('\n') {
+            Some((b, c)) => (b, c.trim().parse::<u32>().unwrap_or(0)),
+            None => (text.as_ref(), 0),
+        };
+        let report: Value = serde_json::from_str(body).unwrap_or_else(|_| json!({}));
+        Ok(json!({ "http_status": code, "report": report, "authenticated": !key.is_empty() }))
     }
 
     fn model_router_route(&self, p: &Value) -> HandlerResult {

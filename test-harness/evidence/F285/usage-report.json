@@ -1,0 +1,10 @@
+{
+  "with_key": {
+    "http_status": 200,
+    "totals": {
+      "total_cost_usd": 4.27,
+      "total_tokens": 184320
+    }
+  },
+  "without_key_status": 401
+}

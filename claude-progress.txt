@@ -256,3 +256,7 @@
   Issue GET-Reconcile -> geschlossenes Issue markiert Task als 'closed'. api_base konfigurierbar
   (lokaler GitHub-API-Mock im Test, echtes api.github.com im Betrieb). test-harness/probes/batch46.py.
   284/360.
+[SESSION 1] [2026-06-23] [BUILD-47] [PASSING] +1 Admin-API Usage-Report (echter Core, echtes curl):
+  F285 integrations.usage_report ruft GET /v1/organizations/usage_report/claude_code mit Admin-Key auf
+  + parst die Antwort: HTTP 200 + Tokens/Kosten; ohne Key 401. api_base konfigurierbar (lokaler
+  Anthropic-Admin-API-Mock im Test). test-harness/probes/batch47.py. 285/360.
