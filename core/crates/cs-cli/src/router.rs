@@ -401,6 +401,8 @@ impl Router {
             "mcp.upsert" => self.mcp_upsert(p),
             "mcp.remove" => self.mcp_remove(p),
             "mcp.cli_remove" => self.mcp_cli_remove(p),
+            "mcp.tools" => self.mcp_tools(p),
+            "mcp.call_tool" => self.mcp_call_tool(p),
             "hooks.list" => self.hooks_list(p),
             "hooks.add" => self.hooks_add(p),
             "hooks.remove" => self.hooks_remove(p),
@@ -3142,6 +3144,87 @@ impl Router {
         run(&["commit", "-qm", "skill library sync"]).ok();
         let push = run(&["push", "-u", "origin", "main", "--force"]).map_err(|e| IpcFailure::internal(e.to_string()))?;
         Ok(json!({ "ok": push.status.success(), "remote": remote, "stderr": String::from_utf8_lossy(&push.stderr).trim() }))
+    }
+
+    // MARK: MCP client — connect to a stdio MCP server, list/call tools
+
+    fn mcp_command(&self, p: &Value) -> std::result::Result<(String, Vec<String>), IpcFailure> {
+        match p.get("command").and_then(Value::as_str) {
+            Some(cmd) => Ok((
+                cmd.to_string(),
+                p.get("args").and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .unwrap_or_default(),
+            )),
+            None => {
+                // Default to the built-in MCP server: this binary with the `mcp` arg.
+                let exe = std::env::current_exe().map_err(|e| IpcFailure::internal(e.to_string()))?;
+                Ok((exe.to_string_lossy().to_string(), vec!["mcp".to_string()]))
+            }
+        }
+    }
+
+    /// Minimal line-delimited stdio JSON-RPC round-trip against an MCP server.
+    fn mcp_jsonrpc(&self, command: &str, args: &[String], requests: &[Value]) -> std::result::Result<Vec<Value>, IpcFailure> {
+        use std::io::{BufRead, BufReader, Write};
+        let mut child = std::process::Command::new(command)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| IpcFailure::internal(format!("spawn mcp server: {e}")))?;
+        let mut stdin = child.stdin.take().unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap());
+        let mut responses = Vec::new();
+        for req in requests {
+            let line = serde_json::to_string(req).unwrap_or_default();
+            stdin
+                .write_all(line.as_bytes())
+                .and_then(|_| stdin.write_all(b"\n"))
+                .and_then(|_| stdin.flush())
+                .map_err(|e| IpcFailure::internal(e.to_string()))?;
+            let mut resp = String::new();
+            match reader.read_line(&mut resp) {
+                Ok(0) => break,
+                Ok(_) => {
+                    if let Ok(v) = serde_json::from_str::<Value>(resp.trim()) {
+                        responses.push(v);
+                    }
+                }
+                Err(e) => return Err(IpcFailure::internal(e.to_string())),
+            }
+        }
+        drop(stdin);
+        let _ = child.wait();
+        Ok(responses)
+    }
+
+    /// Connect to an MCP server and list its tools (F253; status+count for F248/F252).
+    fn mcp_tools(&self, p: &Value) -> HandlerResult {
+        let (cmd, args) = self.mcp_command(p)?;
+        let init = json!({ "jsonrpc":"2.0","id":1,"method":"initialize","params":{ "protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cs-tool-explorer","version":"1"} } });
+        let list = json!({ "jsonrpc":"2.0","id":2,"method":"tools/list" });
+        let resps = self.mcp_jsonrpc(&cmd, &args, &[init, list])?;
+        let connected = resps.iter().any(|r| r.get("result").and_then(|x| x.get("capabilities")).is_some());
+        let tools = resps.iter().find_map(|r| r.get("result").and_then(|x| x.get("tools")).cloned()).unwrap_or(json!([]));
+        let count = tools.as_array().map(|a| a.len()).unwrap_or(0);
+        Ok(json!({ "connected": connected, "tool_count": count, "tools": tools }))
+    }
+
+    /// Execute a real MCP tools/call against a server and read the result.
+    fn mcp_call_tool(&self, p: &Value) -> HandlerResult {
+        let (cmd, args) = self.mcp_command(p)?;
+        let name = req_str(p, "name")?;
+        let init = json!({ "jsonrpc":"2.0","id":1,"method":"initialize","params":{ "protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cs","version":"1"} } });
+        let call = json!({ "jsonrpc":"2.0","id":2,"method":"tools/call","params":{ "name": name, "arguments": p.get("arguments").cloned().unwrap_or(json!({})) } });
+        let resps = self.mcp_jsonrpc(&cmd, &args, &[init, call])?;
+        let result = resps
+            .iter()
+            .filter(|r| r.get("id").and_then(Value::as_i64) == Some(2))
+            .find_map(|r| r.get("result").cloned())
+            .unwrap_or(Value::Null);
+        Ok(json!({ "tool": name, "result": result }))
     }
 
     // MARK: Git write operations (commit assistant, worktrees, merge)

@@ -127,3 +127,6 @@
 [SESSION 1] [2026-06-23] [BUILD-19] [PASSING] +4: session.record_event/events/record_error (permission/hook/
   mcp + Fehler+exit-code+nummerierte Retries gespeichert), tasks.deliver_output (Datei/Report), worktime.export
   (Toggl). cs-sessions: list_events. PASSING: F155 F156 F212 F356. cargo test grün. 226/360.
+[SESSION 1] [2026-06-23] [BUILD-20] [PASSING] +3: mcp.tools/mcp.call_tool — echter MCP-JSON-RPC-Client gegen den
+  eingebauten MCP-Server (claudestudio-core mcp). F253 Tool-Explorer (4 Tools mit Beschreibung+Schema), F252
+  Verbindungsstatus, F248 Übersichts-Daten. Echter tools/call (session_stats) als Beleg. cargo test grün. 229/360.
