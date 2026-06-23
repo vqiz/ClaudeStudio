@@ -465,6 +465,17 @@ impl Router {
             "file.diff" => self.file_diff(p),
             "file.find" => self.file_find(p),
             "file.to_asset" => self.file_to_asset(p),
+            "context.sections" => Ok(context_sections_payload()),
+            "context.token_check" => Ok(context_token_check_payload(p)),
+            "context.diff" => self.context_diff(p),
+            "memory.categorize" => self.memory_categorize(p),
+            "memory.token_usage" => self.memory_token_usage(p),
+            "definitions.grouped" => self.definitions_grouped(),
+            "cost.estimate" => Ok(cost_estimate_payload(p)),
+            "metrics.productivity" => self.metrics_productivity(p),
+            "pipeline.generate" => Ok(pipeline_generate_payload(p)),
+            "settings.set" => self.settings_set(p),
+            "settings.get" => self.settings_get(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2702,6 +2713,137 @@ impl Router {
         Ok(json!({ "ok": true, "node_id": id, "label": label }))
     }
 
+    // MARK: Context-editor helpers, memory manager, settings, metrics
+
+    /// Diff a CLAUDE.md buffer against the saved version before saving (F082).
+    fn context_diff(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let buffer = req_str(p, "buffer")?;
+        let current = std::fs::read_to_string(path).unwrap_or_default();
+        let cur_lines: Vec<&str> = current.lines().collect();
+        let buf_lines: Vec<&str> = buffer.lines().collect();
+        let added: Vec<&str> = buf_lines.iter().filter(|l| !cur_lines.contains(l)).copied().collect();
+        let removed: Vec<&str> = cur_lines.iter().filter(|l| !buf_lines.contains(l)).copied().collect();
+        Ok(json!({ "added": added, "removed": removed, "changed": !added.is_empty() || !removed.is_empty() }))
+    }
+
+    /// Categorize memory markdown entries by their headings (F088).
+    fn memory_categorize(&self, p: &Value) -> HandlerResult {
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("global");
+        let project = p.get("project").and_then(Value::as_str);
+        let content = match p.get("content").and_then(Value::as_str) {
+            Some(c) => c.to_string(),
+            None => std::fs::read_to_string(self.memory_path(scope, project)).unwrap_or_default(),
+        };
+        let mut categories: serde_json::Map<String, Value> = Default::default();
+        let mut current = "Allgemein".to_string();
+        for line in content.lines() {
+            let t = line.trim();
+            if let Some(h) = t.strip_prefix("## ").or_else(|| t.strip_prefix("# ")) {
+                current = h.trim().to_string();
+                categories.entry(current.clone()).or_insert(json!([]));
+            } else if !t.is_empty() {
+                categories
+                    .entry(current.clone())
+                    .or_insert(json!([]))
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!(t.trim_start_matches("- ")));
+            }
+        }
+        let n = categories.len();
+        Ok(json!({ "categories": categories, "category_count": n }))
+    }
+
+    /// Token usage of the memory layer against the budget (F093).
+    fn memory_token_usage(&self, p: &Value) -> HandlerResult {
+        let scope = p.get("scope").and_then(Value::as_str).unwrap_or("global");
+        let project = p.get("project").and_then(Value::as_str);
+        let content = std::fs::read_to_string(self.memory_path(scope, project)).unwrap_or_default();
+        let tokens = estimate_tokens(&content);
+        let budget = self.inner.config.lock().unwrap().context_token_budget;
+        Ok(json!({ "tokens": tokens, "budget": budget, "fraction": tokens as f64 / budget.max(1) as f64 }))
+    }
+
+    /// Definitions grouped by category for the sidebar hierarchy (F098).
+    fn definitions_grouped(&self) -> HandlerResult {
+        let mut groups: serde_json::Map<String, Value> = Default::default();
+        for (path, content, _w) in self.library_files("definitions", ".def.md") {
+            let fm = parse_frontmatter(&content);
+            let cat = fm.get("category").cloned().unwrap_or_else(|| "Uncategorized".into());
+            let name = fm.get("name").cloned().unwrap_or_default();
+            groups
+                .entry(cat)
+                .or_insert(json!([]))
+                .as_array_mut()
+                .unwrap()
+                .push(json!({ "name": name, "path": path }));
+        }
+        let n = groups.len();
+        Ok(json!({ "groups": groups, "group_count": n }))
+    }
+
+    /// Productivity metrics from git history + the session archive (F284).
+    fn metrics_productivity(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default()
+        };
+        let commits = run(&["rev-list", "--count", "HEAD"]).trim().parse::<i64>().unwrap_or(0);
+        let shortstat = run(&["log", "--shortstat", "--pretty=format:"]);
+        let (mut insertions, mut deletions) = (0i64, 0i64);
+        for line in shortstat.lines() {
+            for tok in line.split(',') {
+                let t = tok.trim();
+                if t.contains("insertion") {
+                    insertions += t.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                }
+                if t.contains("deletion") {
+                    deletions += t.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                }
+            }
+        }
+        let stats = self.inner.sessions.lock().unwrap().stats().ok();
+        let sessions = stats.as_ref().map(|s| s.sessions).unwrap_or(0);
+        let tool_calls = stats.as_ref().map(|s| s.tool_calls).unwrap_or(0);
+        Ok(json!({
+            "commits": commits, "lines_added": insertions, "lines_deleted": deletions,
+            "sessions": sessions, "tool_calls": tool_calls,
+            "commits_per_session": if sessions > 0 { commits as f64 / sessions as f64 } else { 0.0 },
+        }))
+    }
+
+    fn settings_path(&self) -> PathBuf {
+        self.inner.state_dir.join("app_settings.json")
+    }
+    fn settings_set(&self, p: &Value) -> HandlerResult {
+        let key = req_str(p, "key")?;
+        let value = p.get("value").cloned().unwrap_or(Value::Null);
+        let mut s: Value = std::fs::read_to_string(self.settings_path())
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_else(|| json!({}));
+        s[key] = value;
+        std::fs::write(self.settings_path(), serde_json::to_string_pretty(&s).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "key": key, "settings": s }))
+    }
+    fn settings_get(&self, p: &Value) -> HandlerResult {
+        let s: Value = std::fs::read_to_string(self.settings_path())
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_else(|| json!({}));
+        match p.get("key").and_then(Value::as_str) {
+            Some(k) => Ok(json!({ "key": k, "value": s.get(k).cloned().unwrap_or(Value::Null) })),
+            None => Ok(json!({ "settings": s })),
+        }
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -2738,6 +2880,17 @@ impl Router {
         let git = Self::git_for(p)?;
         let path = req_str(p, "path")?;
         let branch = req_str(p, "branch")?;
+        // Max-parallel limit (default 4): block once the cap is reached (F070).
+        // The main worktree counts, so the limit is on *additional* worktrees.
+        if let Some(max) = p.get("max_parallel").and_then(Value::as_u64) {
+            let existing = git.list_worktrees().await.map_err(|e| e.to_string())?.len() as u64;
+            if existing >= max {
+                return Err(IpcFailure::new(
+                    ErrorCode::InvalidParameter,
+                    format!("Max-Parallel-Limit erreicht ({existing}/{max}) — Worktree abgewiesen"),
+                ));
+            }
+        }
         git.create_worktree(Path::new(path), branch)
             .await
             .map_err(|e| e.to_string())?;
@@ -3916,6 +4069,42 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// The seven Global-CLAUDE.md editor sections (F081).
+fn context_sections_payload() -> Value {
+    json!({ "sections": [
+        "Über mich & Unternehmen", "Projekte", "GitHub & Repositories",
+        "Assets & Branding", "Coding Preferences", "Tool-Referenzen", "Regeln",
+    ]})
+}
+
+/// Token count + >4000 warning for the global-CLAUDE.md editor (F080).
+fn context_token_check_payload(p: &Value) -> Value {
+    let tokens = estimate_tokens(p.get("content").and_then(Value::as_str).unwrap_or(""));
+    json!({ "tokens": tokens, "warning": tokens > 4000, "limit": 4000 })
+}
+
+/// Live USD estimate for a running agent (F279).
+fn cost_estimate_payload(p: &Value) -> Value {
+    let model = p.get("model").and_then(Value::as_str).unwrap_or("sonnet");
+    let input = p.get("input_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    let output = p.get("output_tokens").and_then(Value::as_f64).unwrap_or(0.0);
+    json!({ "model": model, "estimated_usd": cost_of(model, input, output) })
+}
+
+/// Generate a valid GitHub-Actions workflow for a stack (F270).
+fn pipeline_generate_payload(p: &Value) -> Value {
+    let stack = p.get("stack").and_then(Value::as_str).unwrap_or("node");
+    let (setup, test) = match stack.to_lowercase().as_str() {
+        "rust" => ("uses: dtolnay/rust-toolchain@stable", "cargo test --workspace"),
+        "python" => ("uses: actions/setup-python@v5", "pytest"),
+        _ => ("uses: actions/setup-node@v4", "npm test"),
+    };
+    let yaml = format!(
+        "name: CI\non:\n  push:\n    branches: [main]\n  pull_request:\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - {setup}\n      - run: {test}\n"
+    );
+    json!({ "workflow": yaml, "stack": stack, "path": ".github/workflows/ci.yml" })
 }
 
 /// Detect a project's stack from marker files (F036/F038).

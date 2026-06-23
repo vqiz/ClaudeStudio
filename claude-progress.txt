@@ -110,3 +110,9 @@
   detect_stack/import/scaffold/rename/remove/online_status (Registry+Stack-Erkennung+Tageskosten+Branch);
   file.git_colors/diff/find(fuzzy)/to_asset. cs-sessions: usage_for_project. PASSING: F034 F035 F036 F037
   F038 F039 F040 F041 F042 F044 F045 F056 F058 F059 F060. cargo test grün. 188/360.
+[SESSION 1] [2026-06-23] [BUILD-16] [PASSING] +18 Kontext-Editor/Memory/Settings/Metrics + Reuse: worktree
+  max-parallel (F070? -> verifiziert via F-Reuse), context.sections/token_check/diff, memory.categorize/
+  token_usage, definitions.grouped, cost.estimate, metrics.productivity, pipeline.generate, settings.set/get.
+  Reuse-verifiziert: context.assemble worktree (F067), agents trigger/definition/fork (F100/F111/F112),
+  supervisor token-budget (F113), health-check (F272), cost-guard (F280), stats==usage (F282).
+  PASSING: F067 F080 F081 F082 F088 F093 F098 F100 F111 F112 F113 F270 F272 F279 F280 F282 F284 F345. 206/360.
