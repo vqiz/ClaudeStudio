@@ -212,3 +212,8 @@
   (Graph-Knoten) als Flags+Symbole (lock/brain/pencil), keine Kreuz-Kontamination; F063
   files.cross_project_tree vereint mehrere Projekt-Wurzeln (todo-api + landing-page) parallel mit
   Einträgen. test-harness/probes/batch37.py. 270/360.
+[SESSION 1] [2026-06-23] [BUILD-38] [PASSING] +2 Archiv-Diff + Brain-Graph-Detail (echter Core, git):
+  F161 diff.render parst Unified-Diff farbcodiert (+ grün, - rot, Hunk/Meta/Kontext), Zähler stimmen;
+  F191 graph.node_detail liefert Knoten (per label 'Logo') mit Typ=asset, Metadaten (props) und allen
+  ein-/ausgehenden Kanten samt Nachbar-Labels (BELONGS_TO->todo-api, USES_ASSET<-Header-Component).
+  test-harness/probes/batch38.py. 272/360.

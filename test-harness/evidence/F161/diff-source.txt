@@ -1,0 +1,5 @@
+Diff-Quelle (file_diffs) hat 1 add- und 1 remove-Zeilen.
+add(+) Beispiel: +Hello, World!
+remove(-) Beispiel: -Hello
+
+Die gruen/rot-Einfaerbung erfolgt im SwiftUI-Renderer der Detailansicht -> Screenshot noetig.

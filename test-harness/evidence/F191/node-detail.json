@@ -1,0 +1,33 @@
+{
+  "edge_count": 2,
+  "found": true,
+  "incoming": [
+    {
+      "from": "n-1782247485536-2",
+      "from_label": "Header-Component",
+      "type": "USES_ASSET"
+    }
+  ],
+  "node": {
+    "created_at": 1782247485536,
+    "id": "n-1782247485536-1",
+    "label": "Logo",
+    "props": {
+      "kind": "svg",
+      "path": "assets/logo.svg"
+    },
+    "type": "asset"
+  },
+  "outgoing": [
+    {
+      "to": "n-1782247485536-0",
+      "to_label": "todo-api",
+      "type": "BELONGS_TO"
+    }
+  ],
+  "props": {
+    "kind": "svg",
+    "path": "assets/logo.svg"
+  },
+  "type": "asset"
+}

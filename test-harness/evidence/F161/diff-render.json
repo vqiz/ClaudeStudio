@@ -1,0 +1,14 @@
+{
+  "added": 2,
+  "removed": 1,
+  "add_sample": {
+    "color": "green",
+    "text": "+b = 22",
+    "type": "add"
+  },
+  "remove_sample": {
+    "color": "red",
+    "text": "-b = 2",
+    "type": "remove"
+  }
+}

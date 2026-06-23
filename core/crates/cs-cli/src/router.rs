@@ -482,6 +482,7 @@ impl Router {
             "graph.edge_types" => Ok(graph_edge_types_payload()),
             "graph.add_node" => self.graph_add_node(p),
             "graph.add_edge" => self.graph_add_edge(p),
+            "graph.node_detail" => self.graph_node_detail(p),
             "graph.layout" => self.graph_layout(p),
             "graph.export" => self.graph_export(),
             "graph.search" => self.graph_search(p),
@@ -502,6 +503,7 @@ impl Router {
             "projects.remove" => self.projects_remove(p),
             "projects.online_status" => Ok(project_online_status_payload(p)),
             "file.git_colors" => self.file_git_colors(p),
+            "diff.render" => self.diff_render(p),
             "files.status_indicators" => self.files_status_indicators(p),
             "files.cross_project_tree" => self.files_cross_project_tree(p),
             "file.diff" => self.file_diff(p),
@@ -3106,6 +3108,79 @@ impl Router {
     }
 
     /// Git-status colors per file: new=green, deleted=red, modified=orange (F058).
+    /// Parst einen Unified-Diff in farbcodierte Zeilen für die Archiv-Diff-Ansicht
+    /// (F161): '+'-Zeilen grün (Add), '-'-Zeilen rot (Remove), Hunk-/Meta-/Kontext
+    /// jeweils eigene Klasse. Liefert die Zeilen + Add/Remove-Zähler.
+    fn diff_render(&self, p: &Value) -> HandlerResult {
+        let diff = req_str(p, "diff")?;
+        let mut lines = Vec::new();
+        let (mut adds, mut dels) = (0u32, 0u32);
+        for l in diff.lines() {
+            let (kind, color) = if l.starts_with("+++") || l.starts_with("---") {
+                ("meta", "grey")
+            } else if l.starts_with("@@") {
+                ("hunk", "blue")
+            } else if l.starts_with('+') {
+                adds += 1;
+                ("add", "green")
+            } else if l.starts_with('-') {
+                dels += 1;
+                ("remove", "red")
+            } else {
+                ("context", "none")
+            };
+            lines.push(json!({ "text": l, "type": kind, "color": color }));
+        }
+        Ok(json!({ "lines": lines, "added": adds, "removed": dels }))
+    }
+
+    /// Detail-Panel eines Graph-Knotens (F191): Knoten (per id oder label) mit Typ,
+    /// Metadaten (props) und allen ein-/ausgehenden Kanten samt Nachbar-Labels.
+    fn graph_node_detail(&self, p: &Value) -> HandlerResult {
+        let g = self.read_graph();
+        let nodes = g["nodes"].as_array().cloned().unwrap_or_default();
+        let edges = g["edges"].as_array().cloned().unwrap_or_default();
+        let id_q = p.get("id").and_then(Value::as_str);
+        let label_q = p.get("label").and_then(Value::as_str).map(|s| s.to_lowercase());
+        let node = nodes.iter().find(|n| {
+            id_q == n.get("id").and_then(Value::as_str)
+                || label_q.as_deref().is_some_and(|q| {
+                    n.get("label").and_then(Value::as_str).map(|l| l.to_lowercase()) == Some(q.to_string())
+                })
+        });
+        let Some(node) = node else { return Ok(json!({ "found": false })) };
+        let nid = node.get("id").and_then(Value::as_str).unwrap_or("");
+        let label_of = |id: &str| {
+            nodes
+                .iter()
+                .find(|n| n.get("id").and_then(Value::as_str) == Some(id))
+                .and_then(|n| n.get("label").and_then(Value::as_str))
+                .unwrap_or(id)
+                .to_string()
+        };
+        let outgoing: Vec<Value> = edges
+            .iter()
+            .filter(|e| e.get("from").and_then(Value::as_str) == Some(nid))
+            .map(|e| {
+                let to = e.get("to").and_then(Value::as_str).unwrap_or("");
+                json!({ "to": to, "to_label": label_of(to), "type": e.get("type") })
+            })
+            .collect();
+        let incoming: Vec<Value> = edges
+            .iter()
+            .filter(|e| e.get("to").and_then(Value::as_str) == Some(nid))
+            .map(|e| {
+                let from = e.get("from").and_then(Value::as_str).unwrap_or("");
+                json!({ "from": from, "from_label": label_of(from), "type": e.get("type") })
+            })
+            .collect();
+        Ok(json!({
+            "found": true, "node": node, "type": node.get("type"), "props": node.get("props"),
+            "outgoing": outgoing, "incoming": incoming,
+            "edge_count": outgoing.len() + incoming.len(),
+        }))
+    }
+
     /// Status-Indikatoren je Datei für den Dateibaum (F052): bearbeitet (git status),
     /// geschützt (is_protected_path) und Brain-Graph-Asset (Asset-Knoten im Graph).
     /// Liefert pro Datei die Flags + zugehörige Symbole für die Indikatorspalte.
