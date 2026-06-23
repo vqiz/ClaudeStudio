@@ -379,6 +379,10 @@ impl Router {
             "mcp.remove" => self.mcp_remove(p),
             "mcp.cli_remove" => self.mcp_cli_remove(p),
             "hooks.list" => self.hooks_list(p),
+            "hooks.add" => self.hooks_add(p),
+            "hooks.remove" => self.hooks_remove(p),
+            "git.secret_scan" => self.git_secret_scan(p),
+            "deploy.risk" => self.deploy_risk(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -1170,6 +1174,146 @@ impl Router {
         let content = std::fs::read_to_string(path)
             .map_err(|e| IpcFailure::not_found(format!("cannot read {path}: {e}")))?;
         Ok(json!({ "path": path, "content": content, "protected": false, "attached": true }))
+    }
+
+    // MARK: Hooks (editor) & deployment helpers
+
+    /// Add a hook to `<cwd>/.claude/settings.json` in the standard Claude Code
+    /// format: `hooks[event] = [{ matcher, hooks: [{ type, command }] }]` (F257).
+    fn hooks_add(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let event = req_str(p, "event")?;
+        let matcher = p.get("matcher").and_then(Value::as_str).unwrap_or("*").to_string();
+        let command = req_str(p, "command")?;
+        let valid = [
+            "PreToolUse", "PostToolUse", "Notification", "Stop", "SubagentStop",
+            "WorktreeCreate", "WorktreeRemove",
+        ];
+        if !valid.contains(&event) {
+            return Err(IpcFailure::invalid(format!("unknown hook event: {event}")));
+        }
+        let path = Path::new(cwd).join(".claude/settings.json");
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let mut root: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        if !root.is_object() {
+            root = json!({});
+        }
+        let hooks = root
+            .as_object_mut()
+            .unwrap()
+            .entry("hooks")
+            .or_insert_with(|| json!({}));
+        let arr = hooks
+            .as_object_mut()
+            .unwrap()
+            .entry(event.to_string())
+            .or_insert_with(|| json!([]));
+        arr.as_array_mut().unwrap().push(json!({
+            "matcher": matcher,
+            "hooks": [{ "type": "command", "command": command }],
+        }));
+        std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "event": event, "matcher": matcher, "path": path.to_string_lossy() }))
+    }
+
+    /// Remove hooks for an event (optionally only those matching `matcher`).
+    fn hooks_remove(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let event = req_str(p, "event")?;
+        let matcher = p.get("matcher").and_then(Value::as_str);
+        let path = Path::new(cwd).join(".claude/settings.json");
+        let mut root: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        let mut removed = 0;
+        if let Some(hooks) = root.get_mut("hooks").and_then(Value::as_object_mut) {
+            if let Some(arr) = hooks.get_mut(event).and_then(Value::as_array_mut) {
+                let before = arr.len();
+                arr.retain(|e| matcher.is_some_and(|m| e.get("matcher").and_then(Value::as_str) != Some(m)));
+                removed = before - arr.len();
+            }
+        }
+        std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "removed": removed }))
+    }
+
+    /// Scan a repo's full git history for committed secrets (F075).
+    fn git_secret_scan(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["log", "-p", "--all", "--no-color"])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut findings = Vec::new();
+        for line in text.lines() {
+            if !line.starts_with('+') {
+                continue;
+            }
+            if let Some(kind) = secret_kind(&line[1..]) {
+                findings.push(json!({ "kind": kind, "snippet": redact(&line[1..]) }));
+            }
+        }
+        Ok(json!({ "cwd": cwd, "findings": findings, "found": !findings.is_empty() }))
+    }
+
+    /// Estimate deployment risk (Low/Medium/High) from the diff vs HEAD (F275).
+    fn deploy_risk(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let run = |args: &[&str]| -> String {
+            std::process::Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default()
+        };
+        let mut numstat = run(&["diff", "--numstat", "HEAD"]);
+        if numstat.trim().is_empty() {
+            numstat = run(&["diff", "--numstat", "--cached"]);
+        }
+        let (mut files, mut add, mut del) = (0u64, 0i64, 0i64);
+        let mut reasons: Vec<String> = Vec::new();
+        for l in numstat.lines() {
+            let mut it = l.split('\t');
+            let a = it.next().unwrap_or("0").parse::<i64>().unwrap_or(0);
+            let d = it.next().unwrap_or("0").parse::<i64>().unwrap_or(0);
+            let f = it.next().unwrap_or("");
+            files += 1;
+            add += a;
+            del += d;
+            let fl = f.to_lowercase();
+            if fl.contains("migration") || fl.contains("schema") {
+                reasons.push(format!("DB-Migration: {f}"));
+            }
+            if fl.ends_with(".lock") || fl.contains("package.json") || fl.contains("cargo.toml") {
+                reasons.push(format!("Dependency-Änderung: {f}"));
+            }
+            if fl.contains(".env") || fl.contains("/config") {
+                reasons.push(format!("Konfig-Änderung: {f}"));
+            }
+        }
+        let big = add + del > 500 || files > 20;
+        let risk = if !reasons.is_empty() || big {
+            "high"
+        } else if add + del > 100 || files > 5 {
+            "medium"
+        } else {
+            "low"
+        };
+        if big {
+            reasons.push(format!("großer Diff: {files} Dateien, +{add}/-{del}"));
+        }
+        Ok(json!({ "risk": risk, "files_changed": files, "additions": add, "deletions": del, "reasons": reasons }))
     }
 
     // MARK: Git write operations (commit assistant, worktrees, merge)
@@ -2376,6 +2520,43 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Classify a single added line as a known secret kind, if any (F075).
+fn secret_kind(s: &str) -> Option<&'static str> {
+    let t = s.trim();
+    if t.contains("BEGIN") && t.contains("PRIVATE KEY") {
+        return Some("private_key");
+    }
+    if let Some(i) = t.find("AKIA") {
+        let alnum = t[i + 4..].chars().take(16).filter(|c| c.is_ascii_alphanumeric()).count();
+        if alnum == 16 {
+            return Some("aws_access_key");
+        }
+    }
+    let low = t.to_lowercase();
+    let labeled = low.contains("secret")
+        || low.contains("api_key")
+        || low.contains("apikey")
+        || low.contains("access_key")
+        || low.contains("password");
+    if labeled {
+        let val_len = t
+            .split(['=', ':'])
+            .nth(1)
+            .map(|v| v.trim().trim_matches('"').trim_matches('\'').chars().count())
+            .unwrap_or(0);
+        if val_len >= 16 {
+            return Some("generic_secret");
+        }
+    }
+    None
+}
+
+/// Redact a secret-bearing line for safe reporting.
+fn redact(s: &str) -> String {
+    let prefix: String = s.trim().chars().take(10).collect();
+    format!("{prefix}…***")
 }
 
 /// Prompt-injection scan over a tool output (F297). Flags well-known patterns.

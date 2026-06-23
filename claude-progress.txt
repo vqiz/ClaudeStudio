@@ -78,3 +78,6 @@
   cs-sessions + record_usage/session_usage/usage_summary/cache_hit_rate/most_expensive_session; IPC
   session.record_usage, cost.summary, cost.cache_hit_rate; session.get/stats um Kosten erweitert.
   PASSING: F153 F154 F164 F277 F278 F281. cargo test grün. 100/360. (MEILENSTEIN 100)
+[SESSION 1] [2026-06-23] [BUILD-7] [PASSING] +4 GEBAUT: git.secret_scan (echte History-Suche), hooks.add/remove
+  (.claude/settings.json Standard-Format), deploy.risk (Diff->Low/Med/High), F267 commit-assistant (git.commit_message).
+  PASSING: F075 F257 F267 F275. cargo test grün. 104/360.

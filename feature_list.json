@@ -1272,7 +1272,7 @@
     "depends_on": [
       "F014"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F076",
@@ -4359,7 +4359,7 @@
       "F006",
       "F256"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F258",
@@ -4531,7 +4531,7 @@
       "F006",
       "F014"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F268",
@@ -4667,7 +4667,7 @@
     "depends_on": [
       "F267"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F276",
