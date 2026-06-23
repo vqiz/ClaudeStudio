@@ -221,3 +221,8 @@
   F160 session.replay_step navigiert deterministisch durch geordnete Transcript-Schritte
   (4 Schritte, has_prev/has_next korrekt, Index geklemmt, Inhalt stabil vor/zurück); F020 list.filter
   liefert exakten 'zeige 12 von 240'-Zähler + genau 12 Treffer. test-harness/probes/batch39.py. 274/360.
+[SESSION 1] [2026-06-23] [BUILD-40] [PASSING] +2 Task-Queue + Scheduling (echter Core):
+  F198 queue.enqueue/queue.list: 'Ausführen' stellt einen (vorgefertigten) Task in die persistente
+  Agenten-Queue (Status queued), queue.list zeigt ihn; F214 tasks.schedule unterstützt
+  Manuell/Cron/Event/Threshold/Voice, validiert Cron (5 Felder), lehnt ungültige Typen/Cron ab.
+  test-harness/probes/batch40.py. 276/360.

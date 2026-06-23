@@ -1,0 +1,16 @@
+{
+  "accepted_types": [
+    "manual",
+    "cron",
+    "event",
+    "threshold",
+    "voice"
+  ],
+  "cron_detail": {
+    "cron": "0 9 * * 1",
+    "fields": 5,
+    "valid": true
+  },
+  "rejected_bad_cron": true,
+  "rejected_bad_type": true
+}

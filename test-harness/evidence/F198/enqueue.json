@@ -1,0 +1,28 @@
+{
+  "enqueued": {
+    "id": "q-1782247955361-0",
+    "priority": "high",
+    "status": "queued",
+    "task": "AGB- & Impressum-Checker",
+    "ts": 1782247955361
+  },
+  "queue": {
+    "count": 2,
+    "queue": [
+      {
+        "id": "q-1782247955361-0",
+        "priority": "high",
+        "status": "queued",
+        "task": "AGB- & Impressum-Checker",
+        "ts": 1782247955361
+      },
+      {
+        "id": "q-1782247955362-1",
+        "priority": "normal",
+        "status": "queued",
+        "task": "Zweiter Task",
+        "ts": 1782247955362
+      }
+    ]
+  }
+}

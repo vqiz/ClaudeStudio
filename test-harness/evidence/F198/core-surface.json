@@ -1,0 +1,24 @@
+{
+  "router_task_methods": [
+    "tasks.list",
+    "tasks.create",
+    "tasks.delete",
+    "library.load_defaults"
+  ],
+  "no_execution_method": true,
+  "no_agent_queue_method": true,
+  "no_scheduler_or_cron_ipc": true,
+  "no_param_substitution_executor": true,
+  "no_output_router": true,
+  "no_task_export_import_method": true,
+  "tasks_create_writes_fixed_stub_only": true,
+  "test_projects_present": [
+    "data-pipeline",
+    "invoice-app"
+  ],
+  "source_refs": [
+    "core/crates/cs-cli/src/router.rs dispatch 327-334 (nur list/create/delete/load_defaults)",
+    "core/crates/cs-cli/src/router.rs library_create 1070-1115 (fester Stub, ignoriert payload)",
+    "cs-agentic-os PriorityQueue/Rule(ScheduleCron)/Supervisor nicht im Router verdrahtet"
+  ]
+}

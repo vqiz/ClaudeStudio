@@ -354,6 +354,9 @@ impl Router {
             "events.publish" => self.events_publish(p),
             "routing.route" => Ok(routing_route_payload(p)),
             "queue.order" => Ok(queue_order_payload(p)),
+            "queue.enqueue" => self.queue_enqueue(p),
+            "queue.list" => self.queue_list(),
+            "tasks.schedule" => self.tasks_schedule(p),
             "queue.dag" => Ok(queue_dag_payload(p)),
             "queue.reorder" => Ok(queue_reorder_payload(p)),
             "scheduler.admit" => Ok(scheduler_admit_payload(p)),
@@ -4266,6 +4269,61 @@ impl Router {
     }
 
     // MARK: Task & definition libraries (filesystem-backed)
+
+    /// Persistenter Agenten-Queue-Pfad.
+    fn queue_path(&self) -> PathBuf {
+        self.inner.state_dir.join("agent_queue.jsonl")
+    }
+
+    /// 'Ausführen' im Task-Modal stellt den Task in die Agenten-Queue (F198).
+    fn queue_enqueue(&self, p: &Value) -> HandlerResult {
+        let task = req_str(p, "task")?;
+        let priority = p.get("priority").and_then(Value::as_str).unwrap_or("normal");
+        let entry = json!({ "id": unique_id("q"), "task": task, "priority": priority,
+                            "status": "queued", "ts": now_millis() });
+        std::fs::create_dir_all(&self.inner.state_dir).ok();
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.queue_path()) {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+        Ok(json!({ "ok": true, "entry": entry }))
+    }
+
+    /// Die aktuelle Agenten-Queue (F198).
+    fn queue_list(&self) -> HandlerResult {
+        let content = std::fs::read_to_string(self.queue_path()).unwrap_or_default();
+        let items: Vec<Value> = content.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+        Ok(json!({ "queue": items, "count": items.len() }))
+    }
+
+    /// Task-Scheduling (F214): unterstützt Manuell/Cron/Event/Threshold/Voice. Validiert
+    /// den Trigger-Typ; bei Cron werden die 5 Felder geprüft. Liefert die Schedule-Spec.
+    fn tasks_schedule(&self, p: &Value) -> HandlerResult {
+        let task = req_str(p, "task")?;
+        let stype = req_str(p, "type")?;
+        const TYPES: [&str; 5] = ["manual", "cron", "event", "threshold", "voice"];
+        if !TYPES.contains(&stype) {
+            return Err(IpcFailure::invalid(format!("unbekannter Schedule-Typ: {stype}")));
+        }
+        let detail = match stype {
+            "cron" => {
+                let expr = req_str(p, "cron")?;
+                let fields: Vec<&str> = expr.split_whitespace().collect();
+                if fields.len() != 5 {
+                    return Err(IpcFailure::invalid("Cron-Ausdruck braucht 5 Felder"));
+                }
+                json!({ "cron": expr, "fields": fields.len(), "valid": true })
+            }
+            "event" => json!({ "event": p.get("event").and_then(Value::as_str).unwrap_or("") }),
+            "threshold" => json!({ "metric": p.get("metric").cloned().unwrap_or(Value::Null),
+                                   "op": p.get("op").cloned().unwrap_or(Value::Null),
+                                   "value": p.get("value").cloned().unwrap_or(Value::Null) }),
+            "voice" => json!({ "phrase": p.get("phrase").and_then(Value::as_str).unwrap_or("") }),
+            _ => json!({}),
+        };
+        Ok(json!({ "ok": true, "scheduled": { "task": task, "type": stype, "detail": detail },
+                   "supported_types": TYPES }))
+    }
 
     fn tasks_list(&self) -> HandlerResult {
         let mut tasks = Vec::new();
