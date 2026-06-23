@@ -12,3 +12,9 @@
 # ────────────────────────────────────────────────────────────────────────────
 
 [SESSION 0] [2026-06-23] [INIT] [DONE] Initializer: feature_list.json (Foundation + 11 Kategorie-Blöcke), init.sh, test-harness/ und claude-progress.txt erzeugt. Alle Features auf passes=false.
+[SESSION 1] [2026-06-23] [HARNESS] [DONE] Echte IPC-Verifikations-Bibliothek test-harness/lib/cs_probe.py gebaut (length-prefixed MessagePack gegen echten Core-Socket). Selbsttest: ping->pong gegen laufenden Core bestätigt.
+[SESSION 1] [2026-06-23] [F001-F002-F005-F007-F008-F009-F010-F013] [PASSING] Foundation-Core via cs_probe verifiziert: Core-Binary, Socket, IPC-Roundtrip, sessions.db+Schema, FTS5-MATCH (payment->1 hit, miss->0), config get/set-Roundtrip, ~/.claudestudio-Layout, Library-Discovery (14 tasks/6 defs). Evidence: evidence/F0xx/.
+[SESSION 1] [2026-06-23] [F006] [PASSING] claude-CLI-Subprozess: responsive Binary erkannt (~/.local/bin/claude 2.1.186), --version gelesen. Lektion: zweite hängende Cask-Version auf PATH -> Kandidaten-Probing nötig. Evidence: evidence/F006/.
+[SESSION 1] [2026-06-23] [F003] [PASSING] swift build --product ClaudeStudio grün (Exit 0). Evidence: evidence/F003/build.txt.
+[SESSION 1] [2026-06-23] [F012] [PASSING] Qdrant-Container via docker hochgefahren, /healthz passed, /collections ok. Evidence: evidence/F012/qdrant.txt.
+[SESSION 1] [2026-06-23] [F011] [PASSING] init.sh zweimal grün (idempotent): rust-core/claude-cli/swift/qdrant/cs-home alle OK. Evidence: evidence/F011/init-run{1,2}.log.

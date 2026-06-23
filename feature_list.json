@@ -12,7 +12,7 @@
     "evidence_required": "cargo-build-Log mit Exit 0 + ls -l auf das Binary nach test-harness/evidence/",
     "priority": "critical",
     "depends_on": [],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F002",
@@ -29,7 +29,7 @@
     "depends_on": [
       "F001"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F003",
@@ -44,7 +44,7 @@
     "evidence_required": "swift-build-Log mit Exit 0 nach test-harness/evidence/",
     "priority": "critical",
     "depends_on": [],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F004",
@@ -79,7 +79,7 @@
     "depends_on": [
       "F002"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F006",
@@ -96,7 +96,7 @@
     "depends_on": [
       "F001"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F007",
@@ -113,7 +113,7 @@
     "depends_on": [
       "F001"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F008",
@@ -130,7 +130,7 @@
     "depends_on": [
       "F007"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F009",
@@ -147,7 +147,7 @@
     "depends_on": [
       "F001"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F010",
@@ -164,7 +164,7 @@
     "depends_on": [
       "F001"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F011",
@@ -182,7 +182,7 @@
       "F001",
       "F003"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F012",
@@ -199,7 +199,7 @@
     "depends_on": [
       "F011"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F013",
@@ -216,7 +216,7 @@
     "depends_on": [
       "F005"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F014",
