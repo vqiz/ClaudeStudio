@@ -179,3 +179,8 @@
   F118 session.stop killt den Subprozess (PID via Pidfile verifiziert beendet), Stream endet mit
   'stopped' in 0.0s statt 10s. Stub: test-harness/lib/stub_claude.sh; test-harness/probes/batch30.py.
   Hinweis: testet die App-Orchestrierung (Spawn/Stream/Kill), nicht das LLM. 259/360.
+[SESSION 1] [2026-06-23] [BUILD-31] [PASSING] +2 Agent-Orchestrierung (Stub-claude + Event-Bus):
+  F162 'Prompt wiederholen' startet via session.start eine neue Session mit identischem Initial-Prompt
+  (neue session_id, erste User-Nachricht == Original); F307 events.publish 'test.failed' -> Regel startet
+  Fix-Agent, der das Test-Kommando real ausführt und den roten Test (exit 1) aufnimmt, eine Korrelations-ID;
+  'test.passed' feuert nicht. test-harness/probes/batch31.py. 261/360.

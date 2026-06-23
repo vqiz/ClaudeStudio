@@ -921,6 +921,29 @@ impl Router {
                             log.push(json!({ "correlation_id": cid, "kind": "agent_result", "agent": "security-scan-agent", "findings": result.get("count") }));
                             scan = result;
                         }
+                    } else if act.contains("fix") {
+                        // F307: test.failed -> Fix-Agent startet und *nimmt den
+                        // fehlgeschlagenen Test auf*, indem er das Test-Kommando aus
+                        // dem Event real ausführt und die rote Ausgabe erfasst.
+                        let test = p.get("test").and_then(Value::as_str).unwrap_or("");
+                        log.push(json!({ "correlation_id": cid, "kind": "agent_started",
+                                         "agent": "fix-agent", "picked_up_test": test, "ts": now_millis() }));
+                        let mut test_exit = Value::Null;
+                        let mut test_red = false;
+                        if let (Some(c), Some(cmd)) =
+                            (cwd, p.get("test_command").and_then(Value::as_str))
+                        {
+                            if let Ok(out) = std::process::Command::new("sh")
+                                .arg("-c").arg(cmd).current_dir(c).output()
+                            {
+                                let code = out.status.code().unwrap_or(-1);
+                                test_red = code != 0;
+                                test_exit = json!(code);
+                            }
+                        }
+                        log.push(json!({ "correlation_id": cid, "kind": "agent_result",
+                                         "agent": "fix-agent", "picked_up_test": test,
+                                         "test_exit": test_exit, "test_red": test_red }));
                     }
                 }
             }

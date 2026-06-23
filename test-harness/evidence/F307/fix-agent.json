@@ -1,0 +1,32 @@
+{
+  "on_test_failed": {
+    "correlation_id": "evt-1782246073933-1",
+    "fired": 1,
+    "log": [
+      {
+        "branch": null,
+        "correlation_id": "evt-1782246073933-1",
+        "kind": "event",
+        "ts": 1782246073933,
+        "type": "test.failed"
+      },
+      {
+        "agent": "fix-agent",
+        "correlation_id": "evt-1782246073933-1",
+        "kind": "agent_started",
+        "picked_up_test": "test_health_returns_200",
+        "ts": 1782246073933
+      },
+      {
+        "agent": "fix-agent",
+        "correlation_id": "evt-1782246073933-1",
+        "kind": "agent_result",
+        "picked_up_test": "test_health_returns_200",
+        "test_exit": 1,
+        "test_red": true
+      }
+    ],
+    "scan": null
+  },
+  "on_test_passed_fired": 0
+}
