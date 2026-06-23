@@ -124,3 +124,6 @@
   Retrieval-Pipeline (F174), knowledge-Collection aus CLAUDE.md-Regel (F177, Score 0.92), errors-Collection
   (F179, 0.90), Teach-Panel (F180, 0.82); css.extract (F339); library.git_sync (F351, push+clone verifiziert).
   cargo test grün. 222/360.
+[SESSION 1] [2026-06-23] [BUILD-19] [PASSING] +4: session.record_event/events/record_error (permission/hook/
+  mcp + Fehler+exit-code+nummerierte Retries gespeichert), tasks.deliver_output (Datei/Report), worktime.export
+  (Toggl). cs-sessions: list_events. PASSING: F155 F156 F212 F356. cargo test grün. 226/360.

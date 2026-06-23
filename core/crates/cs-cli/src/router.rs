@@ -351,8 +351,13 @@ impl Router {
             "session.create" => self.session_create(p),
             "session.stats" => self.session_stats(),
             "session.record_usage" => self.session_record_usage(p),
+            "session.record_event" => self.session_record_event(p),
+            "session.events" => self.session_events(p),
+            "session.record_error" => self.session_record_error(p),
+            "worktime.export" => self.worktime_export(p),
             "cost.summary" => self.cost_summary(p),
             "cost.cache_hit_rate" => self.cost_cache_hit_rate(),
+            "tasks.deliver_output" => self.tasks_deliver_output(p),
 
             // --- Libraries & integrations ---
             "tasks.list" => self.tasks_list(),
@@ -1024,6 +1029,89 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let id = store.record_usage(&u).map_err(session_failure)?;
         Ok(json!({ "ok": true, "id": id }))
+    }
+
+    /// Record a session permission/hook/mcp/lifecycle event (F155).
+    fn session_record_event(&self, p: &Value) -> HandlerResult {
+        let e = NewEvent {
+            session_id: req_str(p, "session_id")?.to_string(),
+            kind: req_str(p, "kind")?.to_string(),
+            payload: p.get("payload").cloned(),
+            created_at: now_millis(),
+        };
+        let id = self.inner.sessions.lock().unwrap().append_event(&e).map_err(session_failure)?;
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    fn session_events(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?;
+        let kind = p.get("kind").and_then(Value::as_str);
+        let events = self.inner.sessions.lock().unwrap().list_events(id, kind).map_err(session_failure)?;
+        Ok(json!({ "events": events }))
+    }
+
+    /// Record an error with exit-code + a numbered retry as an event (F156).
+    fn session_record_error(&self, p: &Value) -> HandlerResult {
+        let session_id = req_str(p, "session_id")?.to_string();
+        let payload = json!({
+            "error": p.get("error").and_then(Value::as_str).unwrap_or(""),
+            "exit_code": p.get("exit_code").and_then(Value::as_i64),
+            "retry": p.get("retry").and_then(Value::as_i64).unwrap_or(0),
+            "stack": p.get("stack").and_then(Value::as_str),
+        });
+        let e = NewEvent { session_id, kind: "error".into(), payload: Some(payload), created_at: now_millis() };
+        let id = self.inner.sessions.lock().unwrap().append_event(&e).map_err(session_failure)?;
+        Ok(json!({ "ok": true, "id": id }))
+    }
+
+    /// Export per-session active time in a Toggl-compatible shape (F356).
+    fn worktime_export(&self, _p: &Value) -> HandlerResult {
+        let store = self.inner.sessions.lock().unwrap();
+        let sessions = store.list_sessions(1000, 0).map_err(session_failure)?;
+        let arr = serde_json::to_value(sessions).unwrap_or(json!([]));
+        let mut entries = Vec::new();
+        let mut total_ms = 0i64;
+        if let Some(list) = arr.as_array() {
+            for s in list {
+                let id = s.get("id").and_then(Value::as_str).unwrap_or("");
+                let start = s.get("created_at").and_then(Value::as_i64).unwrap_or(0);
+                let end = store
+                    .list_events(id, None)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|e| e.get("created_at").and_then(Value::as_i64))
+                    .max()
+                    .unwrap_or(start);
+                let dur = (end - start).max(0);
+                total_ms += dur;
+                entries.push(json!({
+                    "description": s.get("title"), "start_ms": start, "stop_ms": end,
+                    "duration_seconds": dur / 1000, "project": s.get("cwd"),
+                }));
+            }
+        }
+        Ok(json!({ "format": "toggl", "entries": entries, "total_seconds": total_ms / 1000 }))
+    }
+
+    /// Deliver a task's output according to its configured output type (F212).
+    fn tasks_deliver_output(&self, p: &Value) -> HandlerResult {
+        let otype = req_str(p, "type")?;
+        let content = p.get("content").and_then(Value::as_str).unwrap_or("");
+        match otype {
+            "Datei" | "file" => {
+                let path = req_str(p, "path")?;
+                if let Some(parent) = Path::new(path).parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                std::fs::write(path, content).map_err(|e| e.to_string())?;
+                Ok(json!({ "type": "file", "path": path, "bytes": content.len(), "result": "file" }))
+            }
+            "Report" | "report" => {
+                Ok(json!({ "type": "report", "report": format!("# Task-Report\n\n{content}\n"), "result": "report" }))
+            }
+            "PR" | "Slack" | "Email" => Ok(json!({ "type": otype, "result": "queued", "channel": otype })),
+            other => Err(IpcFailure::invalid(format!("unknown output type: {other}"))),
+        }
     }
 
     /// Cost dashboard: aggregate USD + token breakdown grouped by model/agent/project.

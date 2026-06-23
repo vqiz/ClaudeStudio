@@ -831,6 +831,31 @@ impl SessionStore {
         Ok(id)
     }
 
+    /// List a session's events (id, kind, payload, created_at), oldest first.
+    /// Optionally filter to a single `kind`.
+    pub fn list_events(&self, session_id: &str, kind: Option<&str>) -> Result<Vec<serde_json::Value>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, kind, payload, created_at FROM events
+             WHERE session_id = ?1 AND (?2 IS NULL OR kind = ?2)
+             ORDER BY created_at ASC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id, kind], |r| {
+            let payload: Option<String> = r.get(2)?;
+            let payload = payload.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            Ok(serde_json::json!({
+                "id": r.get::<_, String>(0)?,
+                "kind": r.get::<_, String>(1)?,
+                "payload": payload,
+                "created_at": r.get::<_, i64>(3)?,
+            }))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     /// Run a full-text search over all indexed transcript text.
     ///
     /// `query` uses SQLite's FTS5 MATCH syntax. Results are ordered by relevance
