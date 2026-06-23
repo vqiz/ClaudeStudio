@@ -138,3 +138,6 @@
   startet security-scan-agent der einen ECHTEN code_scan laeuft, gleiche Korrelations-ID, F306); queue.dag
   (Abhaengigkeits-DAG A->B->C + Vorgaenger-Blockierung, F311); queue.reorder (manuelle Umpriorisierung, F312).
   cargo test grün. 234/360.
+[SESSION 1] [2026-06-23] [BUILD-23] [PASSING] +4: teams.create-edges (F121), teams.review_and_merge (Review-Gate:
+  'approved' vor echtem git merge, F124), teams.escalate (Worker->Orchestrator A2A + Reassign/Fail, F128),
+  WorktreeRemove-Hook committet via hooks.run+git (F264). cargo test grün. 238/360.

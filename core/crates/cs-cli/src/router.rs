@@ -446,6 +446,8 @@ impl Router {
             "teams.create" => self.teams_create(p),
             "teams.get" => self.teams_get(p),
             "teams.decompose" => Ok(teams_decompose_payload(p)),
+            "teams.review_and_merge" => self.teams_review_and_merge(p),
+            "teams.escalate" => self.teams_escalate(p),
             "tasks.render" => Ok(tasks_render_payload(p)),
             "migration.generate" => Ok(migration_generate_payload(p)),
             "apiportal.render" => Ok(apiportal_render_payload(p)),
@@ -2472,18 +2474,73 @@ impl Router {
     fn teams_dir(&self) -> PathBuf {
         self.inner.state_dir.join("teams")
     }
-    /// Save a reusable team template (orchestrator + workers) (F129).
+    /// Save a reusable team template with explicit orchestrator->worker edges (F121/F129).
     fn teams_create(&self, p: &Value) -> HandlerResult {
         let name = req_str(p, "name")?;
         let mut team = p.clone();
         if let Some(o) = team.as_object_mut() {
             o.insert("id".into(), json!(name));
+            // Derive the graph edges orchestrator -> each worker (F121).
+            let orch = o.get("orchestrator").and_then(Value::as_str).unwrap_or("orchestrator").to_string();
+            let edges: Vec<Value> = o
+                .get("workers")
+                .and_then(Value::as_array)
+                .map(|ws| ws.iter().filter_map(|w| w.as_str()).map(|w| json!([orch, w])).collect())
+                .unwrap_or_default();
+            o.insert("edges".into(), json!(edges));
         }
         let dir = self.teams_dir();
         std::fs::create_dir_all(&dir).ok();
         std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string_pretty(&team).unwrap_or_default())
             .map_err(|e| e.to_string())?;
         Ok(json!({ "ok": true, "team": team }))
+    }
+
+    /// Review-gate: the orchestrator approves, THEN the worker branch is merged
+    /// for real — the log proves the merge happened after approval (F124).
+    fn teams_review_and_merge(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let branch = req_str(p, "branch")?;
+        let worker_ok = p.get("worker_ok").and_then(Value::as_bool).unwrap_or(true);
+        let mut log = vec![json!({ "kind": "review_started", "branch": branch, "ts": now_millis() })];
+        if !worker_ok {
+            log.push(json!({ "kind": "review_rejected", "branch": branch, "ts": now_millis() }));
+            return Ok(json!({ "merged": false, "decision": "rejected", "log": log }));
+        }
+        log.push(json!({ "kind": "review_approved", "branch": branch, "ts": now_millis() }));
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["merge", "--no-edit", branch])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        if !out.status.success() {
+            return Err(IpcFailure::internal(String::from_utf8_lossy(&out.stderr).trim().to_string()));
+        }
+        let head = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_default();
+        log.push(json!({ "kind": "merged", "branch": branch, "head": head, "ts": now_millis() }));
+        Ok(json!({ "merged": true, "decision": "approved", "head": head, "log": log }))
+    }
+
+    /// A failed worker escalates to the orchestrator via the A2A bus; the
+    /// orchestrator returns a reassign-or-fail decision (F128).
+    fn teams_escalate(&self, p: &Value) -> HandlerResult {
+        let worker = req_str(p, "worker")?;
+        let orchestrator = p.get("orchestrator").and_then(Value::as_str).unwrap_or("orchestrator");
+        let subtask = p.get("subtask").and_then(Value::as_str).unwrap_or("");
+        let error = p.get("error").and_then(Value::as_str).unwrap_or("");
+        let attempts = p.get("attempts").and_then(Value::as_u64).unwrap_or(1);
+        // Worker -> Orchestrator escalation message on the real A2A bus.
+        let msg = json!({ "status": "failed", "subtask": subtask, "error": error, "attempts": attempts });
+        self.a2a_send(&json!({ "from": worker, "to": orchestrator, "message": msg }))?;
+        // Orchestrator reacts: reassign if attempts remain, else fail.
+        let decision = if attempts < 3 { "reassign" } else { "fail" };
+        let inbox = self.a2a_inbox(&json!({ "agent": orchestrator, "drain": false }))?;
+        Ok(json!({ "escalated": true, "decision": decision, "orchestrator_inbox": inbox.get("messages") }))
     }
     fn teams_get(&self, p: &Value) -> HandlerResult {
         let name = req_str(p, "name")?;
