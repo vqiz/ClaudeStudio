@@ -469,6 +469,7 @@ impl Router {
             "teams.decompose" => Ok(teams_decompose_payload(p)),
             "teams.review_and_merge" => self.teams_review_and_merge(p),
             "teams.escalate" => self.teams_escalate(p),
+            "teams.stop" => self.teams_stop(p),
             "tasks.render" => Ok(tasks_render_payload(p)),
             "migration.generate" => Ok(migration_generate_payload(p)),
             "apiportal.render" => Ok(apiportal_render_payload(p)),
@@ -2578,6 +2579,24 @@ impl Router {
 
     /// A failed worker escalates to the orchestrator via the A2A bus; the
     /// orchestrator returns a reassign-or-fail decision (F128).
+    /// Zentraler Team-Stop (F130): beendet alle laufenden Worker-Sessions des
+    /// Teams in einem Aufruf, indem für jede ihr Cancel-Signal gefeuert wird
+    /// (killt den jeweiligen claude-Subprozess).
+    fn teams_stop(&self, p: &Value) -> HandlerResult {
+        let sessions: Vec<String> = p
+            .get("sessions")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let mut stopped = Vec::new();
+        for sid in &sessions {
+            if self.trigger_cancel(sid) {
+                stopped.push(sid.clone());
+            }
+        }
+        Ok(json!({ "ok": true, "stopped": stopped, "count": stopped.len() }))
+    }
+
     fn teams_escalate(&self, p: &Value) -> HandlerResult {
         let worker = req_str(p, "worker")?;
         let orchestrator = p.get("orchestrator").and_then(Value::as_str).unwrap_or("orchestrator");

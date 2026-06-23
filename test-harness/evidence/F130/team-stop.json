@@ -1,0 +1,19 @@
+{
+  "stop_result": {
+    "count": 2,
+    "ok": true,
+    "stopped": [
+      "769d3986-16e9-483e-b79a-bd4e2c37dbbd",
+      "432ddd45-8486-4760-bee7-c59090188013"
+    ]
+  },
+  "after": {
+    "count": 0,
+    "running": [],
+    "supervisor": {
+      "alive": true,
+      "model": "haiku",
+      "observed": 0
+    }
+  }
+}

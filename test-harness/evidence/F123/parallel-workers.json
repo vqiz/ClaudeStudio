@@ -1,0 +1,34 @@
+{
+  "running": {
+    "count": 2,
+    "running": [
+      "432ddd45-8486-4760-bee7-c59090188013",
+      "769d3986-16e9-483e-b79a-bd4e2c37dbbd"
+    ],
+    "supervisor": {
+      "alive": true,
+      "model": "haiku",
+      "observed": 2
+    }
+  },
+  "worktrees": [
+    {
+      "branch": "main",
+      "head": "68ece79ffc776440f168c11e855184273eacfe47",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b34-team-hw64rfl8",
+      "status": "normal"
+    },
+    {
+      "branch": "feat-a",
+      "head": "68ece79ffc776440f168c11e855184273eacfe47",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b34-team-hw64rfl8-a",
+      "status": "normal"
+    },
+    {
+      "branch": "feat-b",
+      "head": "68ece79ffc776440f168c11e855184273eacfe47",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b34-team-hw64rfl8-b",
+      "status": "normal"
+    }
+  ]
+}

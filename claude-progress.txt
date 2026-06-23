@@ -194,3 +194,7 @@
   Agent (Stub) ändert per EDITFILE eine Datei, Hook 'git commit' committet sie automatisch -> git log -1
   zeigt den neuen Commit, Core meldet post_run_hook-Event Exit 0. main.rs-Forwarder erweitert.
   test-harness/probes/batch33.py. 264/360.
+[SESSION 1] [2026-06-23] [BUILD-34] [PASSING] +2 Team-Orchestrierung (Stub-claude + git-worktree):
+  F123 zwei Team-Worker laufen parallel, jeder in eigenem git-Worktree (os.running_agents=2,
+  git.worktrees zeigt feat-a/feat-b); F130 neue teams.stop-Methode beendet alle Worker eines Teams
+  zentral in einem Aufruf (Cancel je Session) -> running 2->0. test-harness/probes/batch34.py. 266/360.
