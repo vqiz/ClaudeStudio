@@ -1,0 +1,10 @@
+{
+  "session_id": "7e5af4d7-3c8e-4d46-bdc6-020655392d7a",
+  "stop_result": {
+    "ok": true,
+    "stopped": true
+  },
+  "stopped_event": true,
+  "elapsed_to_stop_s": 0.0,
+  "subprocess_gone": true
+}

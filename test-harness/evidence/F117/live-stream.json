@@ -1,0 +1,12 @@
+{
+  "session_id": "7b21d2de-f586-4319-95a0-470899d90978",
+  "event_kinds": [
+    "claude_session",
+    "assistant_text",
+    "assistant_text",
+    "assistant_text",
+    "result"
+  ],
+  "text_events": 3,
+  "stream_span_s": 3.56
+}

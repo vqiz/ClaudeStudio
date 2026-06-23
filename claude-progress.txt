@@ -173,3 +173,9 @@
   (min-Abstand 272 > Radien-Summen); F190 Node-Radius proportional zum Grad (Hub Grad6 r=32 > Blatt
   Grad1 r=12); F216 copilot.suggestions liefert Vorschlagskarte mit Titel + Begründungstext (reason) +
   Aktions-Button (action_label 'Jetzt beheben'). test-harness/probes/batch29.py. 257/360.
+[SESSION 1] [2026-06-23] [BUILD-30] [PASSING] +2 Agent-Orchestrierung via Stub-claude (echtes
+  stream-json-Protokoll, echte Subprozess-Steuerung): F117 session.start spawnt echten Subprozess,
+  parst stream-json zeilenweise, streamt 3 Live-Text-Events inkrementell über ~3.4s + result-Frame;
+  F118 session.stop killt den Subprozess (PID via Pidfile verifiziert beendet), Stream endet mit
+  'stopped' in 0.0s statt 10s. Stub: test-harness/lib/stub_claude.sh; test-harness/probes/batch30.py.
+  Hinweis: testet die App-Orchestrierung (Spawn/Stream/Kill), nicht das LLM. 259/360.
