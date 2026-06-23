@@ -399,6 +399,12 @@ impl Router {
             "hooks.list" => self.hooks_list(p),
             "hooks.add" => self.hooks_add(p),
             "hooks.remove" => self.hooks_remove(p),
+            "hooks.types" => Ok(hook_types_payload()),
+            "hooks.run" => self.hooks_run(p),
+            "security.code_scan" => self.security_code_scan(p),
+            "changelog.generate" => self.changelog_generate(p),
+            "release_notes.generate" => self.release_notes_generate(p),
+            "readme.generate" => self.readme_generate(p),
             "git.secret_scan" => self.git_secret_scan(p),
             "deploy.risk" => self.deploy_risk(p),
             "deploy.rollback" => self.deploy_rollback(p),
@@ -1579,6 +1585,187 @@ impl Router {
         std::fs::write(&path, serde_json::to_string_pretty(&root).unwrap_or_default())
             .map_err(|e| e.to_string())?;
         Ok(json!({ "ok": true, "removed": removed }))
+    }
+
+    /// Fire the hooks registered for an event; execute or dry-run them (F258/F260/F265).
+    fn hooks_run(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let event = req_str(p, "event")?;
+        let tool = p.get("tool").and_then(Value::as_str).unwrap_or("");
+        let file = p.get("file").and_then(Value::as_str).unwrap_or("");
+        let input = p.get("input").and_then(Value::as_str).unwrap_or("");
+        let dry_run = p.get("dry_run").and_then(Value::as_bool).unwrap_or(false);
+        let path = Path::new(cwd).join(".claude/settings.json");
+        let root: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        let mut fired = Vec::new();
+        let mut blocked = false;
+        if let Some(arr) = root.get("hooks").and_then(|h| h.get(event)).and_then(Value::as_array) {
+            for entry in arr {
+                let matcher = entry.get("matcher").and_then(Value::as_str).unwrap_or("*");
+                let matches = matcher == "*" || tool.is_empty() || matcher.split('|').any(|m| m == tool);
+                if !matches {
+                    continue;
+                }
+                if let Some(cmds) = entry.get("hooks").and_then(Value::as_array) {
+                    for cmd in cmds {
+                        let command = cmd.get("command").and_then(Value::as_str).unwrap_or("");
+                        if dry_run {
+                            fired.push(json!({ "matcher": matcher, "command": command, "would_fire": true }));
+                            continue;
+                        }
+                        let out = std::process::Command::new("sh")
+                            .arg("-c")
+                            .arg(command)
+                            .current_dir(cwd)
+                            .env("CS_FILE", file)
+                            .env("CS_TOOL_INPUT", input)
+                            .output();
+                        let (code, stdout, stderr) = match out {
+                            Ok(o) => (
+                                o.status.code().unwrap_or(-1),
+                                String::from_utf8_lossy(&o.stdout).trim().to_string(),
+                                String::from_utf8_lossy(&o.stderr).trim().to_string(),
+                            ),
+                            Err(e) => (-1, String::new(), e.to_string()),
+                        };
+                        let this_blocked = event == "PreToolUse" && code != 0;
+                        if this_blocked {
+                            blocked = true;
+                        }
+                        fired.push(json!({
+                            "matcher": matcher, "command": command, "exit": code,
+                            "blocked": this_blocked, "stdout": stdout, "stderr": stderr,
+                        }));
+                    }
+                }
+            }
+        }
+        Ok(json!({ "event": event, "dry_run": dry_run, "blocked": blocked, "fired": fired }))
+    }
+
+    /// OWASP-ish static code scan with file + line numbers (F203).
+    fn security_code_scan(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx", "py", "rs"]);
+        let mut findings = Vec::new();
+        for (path, content) in &files {
+            for (i, line) in content.lines().enumerate() {
+                let l = line.to_lowercase();
+                let kind = if (l.contains("select ") || l.contains("insert ") || l.contains("where")) && line.contains("${") {
+                    Some(("SQL-Injection", "high"))
+                } else if l.contains("eval(") {
+                    Some(("Code-Injection (eval)", "high"))
+                } else if l.contains(".innerhtml") && line.contains('=') {
+                    Some(("XSS (innerHTML)", "medium"))
+                } else if l.contains("exec(") && line.contains("req.") {
+                    Some(("Command-Injection", "high"))
+                } else if secret_kind(line).is_some() {
+                    Some(("Hardcoded Secret", "high"))
+                } else {
+                    None
+                };
+                if let Some((k, sev)) = kind {
+                    findings.push(json!({
+                        "file": path, "line": i + 1, "kind": k, "severity": sev,
+                        "snippet": line.trim().chars().take(100).collect::<String>(),
+                    }));
+                }
+            }
+        }
+        Ok(json!({ "findings": findings, "count": findings.len() }))
+    }
+
+    /// Conventional-Commit changelog grouped by type (F207).
+    fn changelog_generate(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let subjects = git_subjects(cwd, p.get("since").and_then(Value::as_str));
+        let mut sections: std::collections::BTreeMap<&str, Vec<String>> = Default::default();
+        for s in &subjects {
+            let ty = s.split([':', '(']).next().unwrap_or("other").trim();
+            let label = match ty {
+                "feat" => "Features",
+                "fix" => "Fixes",
+                "docs" => "Docs",
+                "refactor" => "Refactor",
+                "perf" => "Performance",
+                "test" => "Tests",
+                "chore" => "Chore",
+                _ => "Other",
+            };
+            sections.entry(label).or_default().push(s.clone());
+        }
+        let mut md = String::from("# Changelog\n\n");
+        for (label, items) in &sections {
+            md.push_str(&format!("## {label}\n"));
+            for it in items {
+                md.push_str(&format!("- {it}\n"));
+            }
+            md.push('\n');
+        }
+        Ok(json!({ "changelog": md, "commits": subjects.len() }))
+    }
+
+    /// User-friendly release notes from git history (F209).
+    fn release_notes_generate(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let subjects = git_subjects(cwd, p.get("since").and_then(Value::as_str));
+        let feats: Vec<String> = subjects.iter().filter(|s| s.starts_with("feat")).map(|s| friendly(s)).collect();
+        let fixes: Vec<String> = subjects.iter().filter(|s| s.starts_with("fix")).map(|s| friendly(s)).collect();
+        let mut md = String::from("# Release Notes\n\n");
+        if !feats.is_empty() {
+            md.push_str("## ✨ Neue Funktionen\n");
+            for f in &feats {
+                md.push_str(&format!("- {f}\n"));
+            }
+            md.push('\n');
+        }
+        if !fixes.is_empty() {
+            md.push_str("## 🐛 Behobene Fehler\n");
+            for f in &fixes {
+                md.push_str(&format!("- {f}\n"));
+            }
+            md.push('\n');
+        }
+        Ok(json!({ "release_notes": md, "features": feats.len(), "fixes": fixes.len() }))
+    }
+
+    /// Project README derived from structure + stack detection (F206).
+    fn readme_generate(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let root = Path::new(cwd);
+        let name = root.file_name().and_then(|n| n.to_str()).unwrap_or("project");
+        let mut stack = Vec::new();
+        if root.join("package.json").exists() {
+            stack.push("Node.js");
+        }
+        if root.join("Cargo.toml").exists() {
+            stack.push("Rust");
+        }
+        if root.join("requirements.txt").exists() || root.join("pyproject.toml").exists() {
+            stack.push("Python");
+        }
+        if root.join("go.mod").exists() {
+            stack.push("Go");
+        }
+        let mut files = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(root) {
+            for e in rd.flatten() {
+                let n = e.file_name().to_string_lossy().to_string();
+                if !n.starts_with('.') {
+                    files.push(n);
+                }
+            }
+        }
+        files.sort();
+        let md = format!(
+            "# {name}\n\n**Stack:** {}\n\n## Struktur\n\n{}\n",
+            if stack.is_empty() { "unbekannt".into() } else { stack.join(", ") },
+            files.iter().map(|f| format!("- `{f}`")).collect::<Vec<_>>().join("\n")
+        );
+        Ok(json!({ "readme": md, "stack": stack, "name": name }))
     }
 
     /// Scan a repo's full git history for committed secrets (F075).
@@ -3170,6 +3357,50 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// The seven configurable Claude Code hook types (F256).
+fn hook_types_payload() -> Value {
+    json!({ "types": [
+        {"name":"PreToolUse","when":"vor jeder Tool-Ausführung","can_block":true},
+        {"name":"PostToolUse","when":"nach jeder Tool-Ausführung","can_block":false},
+        {"name":"Notification","when":"bei Benachrichtigungen","can_block":false},
+        {"name":"Stop","when":"wenn die Session endet","can_block":false},
+        {"name":"SubagentStop","when":"wenn ein Subagent endet","can_block":false},
+        {"name":"WorktreeCreate","when":"beim Anlegen eines Worktrees","can_block":false},
+        {"name":"WorktreeRemove","when":"beim Entfernen eines Worktrees","can_block":false},
+    ]})
+}
+
+/// Commit subjects newest-first, optionally since a git date expression.
+fn git_subjects(cwd: &str, since: Option<&str>) -> Vec<String> {
+    let mut args = vec!["log".to_string(), "--pretty=format:%s".to_string()];
+    if let Some(s) = since {
+        args.push("--since".into());
+        args.push(s.into());
+    }
+    std::process::Command::new("git")
+        .current_dir(cwd)
+        .args(&args)
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Strip a conventional-commit `type: ` prefix and capitalize the first letter.
+fn friendly(subject: &str) -> String {
+    let body = subject.splitn(2, ": ").nth(1).unwrap_or(subject).trim();
+    let mut chars = body.chars();
+    match chars.next() {
+        Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+        None => body.to_string(),
+    }
 }
 
 /// Recursively collect source files of the given extensions, skipping build

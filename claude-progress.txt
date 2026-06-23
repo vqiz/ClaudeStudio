@@ -95,3 +95,6 @@
 [SESSION 1] [2026-06-23] [BUILD-11] [PASSING] +7 statische Code-Analyse+Doku GEBAUT: codeq.dead_code/
   duplicates/complexity, perf.compare, docs.generate (Markdown), docs.arch_diagram (Mermaid), i18n.extract.
   PASSING: F318 F319 F320 F325 F332 F334 F344. cargo test grün. 138/360.
+[SESSION 1] [2026-06-23] [BUILD-12] [PASSING] +10 Task-Analyzer + Hook-Firing GEBAUT: security.code_scan (OWASP),
+  changelog/release_notes/readme.generate, hooks.types, hooks.run (firing/dry-run/PreToolUse-block).
+  PASSING: F203 F205 F206 F207 F208 F209 F256 F258 F260 F265. cargo test grün. 148/360.
