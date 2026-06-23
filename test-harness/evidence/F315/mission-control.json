@@ -1,0 +1,11 @@
+{
+  "gauges": {
+    "queued_tasks": 1,
+    "recent_events": 3,
+    "running_agents": 2
+  },
+  "agents": 2,
+  "events": 3,
+  "queue": 1,
+  "a2a": 2
+}

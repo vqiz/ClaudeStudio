@@ -1,0 +1,36 @@
+{
+  "worktrees": [
+    {
+      "color": "green",
+      "conflict": false,
+      "detached": false,
+      "dirty": false,
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b41-wt-es4fn3vd-act",
+      "state": "active"
+    },
+    {
+      "color": "white",
+      "conflict": false,
+      "detached": false,
+      "dirty": false,
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b41-wt-es4fn3vd-idle",
+      "state": "idle"
+    },
+    {
+      "color": "yellow",
+      "conflict": false,
+      "detached": false,
+      "dirty": true,
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b41-wt-es4fn3vd-dirty",
+      "state": "working"
+    },
+    {
+      "color": "red",
+      "conflict": false,
+      "detached": true,
+      "dirty": false,
+      "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-b41-wt-es4fn3vd-det",
+      "state": "error"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+{
+  "reason": "Statusfarben (grün/gelb/weiß/rot) sind reine SwiftUI-Darstellung im Worktree-Panel. Headless nicht prüfbar — erfordert GUI-Screenshot mit drei laufenden Zuständen (arbeitend/idle/Fehler)."
+}

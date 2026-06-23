@@ -204,6 +204,87 @@ impl Router {
         }))
     }
 
+    /// OS-View Mission-Control (F315): bündelt die Live-Daten der Agentic-OS in einer
+    /// Antwort — laufende Agenten-Kacheln, der Event-Stream, das Queue-Board, der A2A-Feed
+    /// und Resource-Gauges (Zähler). Liest die persistierten Logs (event_log/agent_queue).
+    fn os_mission_control(&self) -> HandlerResult {
+        let mut agents: Vec<String> = self.inner.cancels.lock().unwrap().keys().cloned().collect();
+        agents.sort();
+        let read_jsonl = |name: &str, take_last: usize| -> Vec<Value> {
+            let content = std::fs::read_to_string(self.inner.state_dir.join(name)).unwrap_or_default();
+            let mut v: Vec<Value> = content.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+            if v.len() > take_last {
+                v = v.split_off(v.len() - take_last);
+            }
+            v
+        };
+        let events = read_jsonl("event_log.jsonl", 50);
+        let queue = read_jsonl("agent_queue.jsonl", 50);
+        let a2a: Vec<Value> = events
+            .iter()
+            .filter(|e| {
+                e.get("kind").and_then(Value::as_str).map(|k| k.contains("agent")).unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+        Ok(json!({
+            "agents": { "running": agents, "count": agents.len() },
+            "event_stream": events,
+            "queue_board": queue,
+            "a2a_feed": a2a,
+            "gauges": { "running_agents": agents.len(),
+                        "queued_tasks": queue.len(),
+                        "recent_events": events.len() },
+        }))
+    }
+
+    /// Status-Farben der Worktrees (F068): rot = git-Fehler (detached HEAD / Merge-Konflikt),
+    /// grün = aktiv (laufender Agent in `active_paths`), gelb = arbeitend (uncommittete
+    /// Änderungen), weiß = idle (sauber). Status wird real aus dem git-Zustand abgeleitet.
+    fn worktree_status(&self, p: &Value) -> HandlerResult {
+        let worktrees: Vec<String> = p
+            .get("worktrees")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|w| w.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let active: std::collections::HashSet<String> = p
+            .get("active_paths")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|w| w.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let git = |wt: &str, args: &[&str]| -> String {
+            let mut a = vec!["-C", wt];
+            a.extend_from_slice(args);
+            std::process::Command::new("git")
+                .args(&a)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                .unwrap_or_default()
+        };
+        let mut out = Vec::new();
+        for wt in &worktrees {
+            let status_text = git(wt, &["status", "--porcelain"]);
+            let head = git(wt, &["rev-parse", "--abbrev-ref", "HEAD"]).trim().to_string();
+            let conflict = status_text
+                .lines()
+                .any(|l| l.starts_with("UU") || l.starts_with("AA") || l.starts_with("DD"));
+            let detached = head == "HEAD";
+            let dirty = !status_text.trim().is_empty();
+            let (state, color) = if detached || conflict {
+                ("error", "red")
+            } else if active.contains(wt) {
+                ("active", "green")
+            } else if dirty {
+                ("working", "yellow")
+            } else {
+                ("idle", "white")
+            };
+            out.push(json!({ "path": wt, "state": state, "color": color,
+                             "detached": detached, "conflict": conflict, "dirty": dirty }));
+        }
+        Ok(json!({ "worktrees": out }))
+    }
+
     /// Stop a running live session by id (kills the `claude` process).
     fn session_stop(&self, p: &Value) -> HandlerResult {
         let id = p
@@ -364,6 +445,8 @@ impl Router {
             "monitor.cost_guard" => Ok(cost_guard_payload(p)),
             "supervisor.evaluate" => Ok(supervisor_evaluate_payload(p)),
             "os.running_agents" => self.os_running_agents(),
+            "os.mission_control" => self.os_mission_control(),
+            "worktree.status" => self.worktree_status(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),

@@ -226,3 +226,8 @@
   Agenten-Queue (Status queued), queue.list zeigt ihn; F214 tasks.schedule unterstützt
   Manuell/Cron/Event/Threshold/Voice, validiert Cron (5 Felder), lehnt ungültige Typen/Cron ab.
   test-harness/probes/batch40.py. 276/360.
+[SESSION 1] [2026-06-23] [BUILD-41] [PASSING] +2 Worktree-Status + Mission-Control (echter Core, git):
+  F068 worktree.status leitet Status-Farben real aus git ab: grün=aktiv (laufender Agent), weiß=idle
+  (sauber), gelb=arbeitend (uncommitted), rot=Fehler (detached HEAD/Konflikt); F315 os.mission_control
+  bündelt laufende Agenten + Event-Stream + Queue-Board + A2A-Feed + Resource-Gauges gleichzeitig.
+  test-harness/probes/batch41.py. 278/360.
