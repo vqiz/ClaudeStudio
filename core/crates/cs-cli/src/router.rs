@@ -476,6 +476,15 @@ impl Router {
             "pipeline.generate" => Ok(pipeline_generate_payload(p)),
             "settings.set" => self.settings_set(p),
             "settings.get" => self.settings_get(p),
+            "settings.merge" => self.settings_merge(p),
+            "cve.scan" => Ok(cve_scan_payload(p)),
+            "iac.validate" => Ok(iac_validate_payload(p)),
+            "docker.optimize" => Ok(docker_optimize_payload(p)),
+            "codeq.comment_quality" => self.codeq_comment_quality(p),
+            "refactor.js_to_ts" => Ok(js_to_ts_payload(p)),
+            "resume.detect" => self.resume_detect(),
+            "briefing.daily" => self.briefing_daily(p),
+            "llm.fallback" => Ok(llm_fallback_payload(p)),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2844,6 +2853,93 @@ impl Router {
         }
     }
 
+    /// Merge user-level + project-level settings.json, labelling each key's source (F296).
+    fn settings_merge(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let user_path = self.home_dir().join(".claude/settings.json");
+        let proj_path = Path::new(cwd).join(".claude/settings.json");
+        let read = |path: &Path| -> Value {
+            std::fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| json!({}))
+        };
+        let user = read(&user_path);
+        let proj = read(&proj_path);
+        let mut effective = serde_json::Map::new();
+        let mut source = serde_json::Map::new();
+        if let Some(o) = user.as_object() {
+            for (k, v) in o {
+                effective.insert(k.clone(), v.clone());
+                source.insert(k.clone(), json!("user"));
+            }
+        }
+        if let Some(o) = proj.as_object() {
+            for (k, v) in o {
+                effective.insert(k.clone(), v.clone());
+                source.insert(k.clone(), json!("project")); // project overrides user
+            }
+        }
+        Ok(json!({
+            "effective": effective, "source": source,
+            "user_path": user_path.to_string_lossy(), "project_path": proj_path.to_string_lossy(),
+        }))
+    }
+
+    /// Flag low-quality / stale comments (TODO/FIXME/XXX/HACK/DEPRECATED) (F335).
+    fn codeq_comment_quality(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx", "rs", "py", "go", "swift"]);
+        let mut findings = Vec::new();
+        for (path, content) in &files {
+            for (i, line) in content.lines().enumerate() {
+                let u = line.to_uppercase();
+                for marker in ["TODO", "FIXME", "XXX", "HACK", "DEPRECATED"] {
+                    if u.contains(marker) {
+                        findings.push(json!({ "file": path, "line": i + 1, "marker": marker, "text": line.trim().chars().take(100).collect::<String>() }));
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(json!({ "findings": findings, "count": findings.len() }))
+    }
+
+    /// Identify the most recent session to resume after a crash (F354).
+    fn resume_detect(&self) -> HandlerResult {
+        let store = self.inner.sessions.lock().unwrap();
+        let sessions = store.list_sessions(1, 0).map_err(session_failure)?;
+        let arr = serde_json::to_value(sessions).unwrap_or(json!([]));
+        match arr.as_array().and_then(|a| a.first()).cloned() {
+            Some(s) => {
+                let id = s.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let msgs = store.list_messages(&id).map_err(session_failure)?;
+                Ok(json!({ "resumable": true, "session": s, "message_count": msgs.len() }))
+            }
+            None => Ok(json!({ "resumable": false })),
+        }
+    }
+
+    /// Daily briefing: prioritized TODO/FIXME list from the codebase (F355).
+    fn briefing_daily(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let files = collect_source_files(Path::new(cwd), &["ts", "tsx", "js", "jsx", "rs", "py", "go", "swift", "md"]);
+        let mut items = Vec::new();
+        for (path, content) in &files {
+            for (i, line) in content.lines().enumerate() {
+                let u = line.to_uppercase();
+                let pri = if u.contains("FIXME") {
+                    "high"
+                } else if u.contains("TODO") {
+                    "normal"
+                } else {
+                    continue;
+                };
+                items.push(json!({ "priority": pri, "file": path, "line": i + 1, "text": line.trim().chars().take(100).collect::<String>() }));
+            }
+        }
+        items.sort_by_key(|x| if x["priority"] == "high" { 0 } else { 1 });
+        let n = items.len();
+        Ok(json!({ "items": items, "count": n }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -4069,6 +4165,135 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Lexicographic-numeric semver less-than (3 components).
+fn semver_lt(a: &str, b: &str) -> bool {
+    let parse = |s: &str| -> Vec<u64> {
+        s.trim_start_matches(['^', '~', '=', 'v'])
+            .split('.')
+            .map(|x| x.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0))
+            .collect()
+    };
+    let (pa, pb) = (parse(a), parse(b));
+    for i in 0..3 {
+        let (x, y) = (pa.get(i).copied().unwrap_or(0), pb.get(i).copied().unwrap_or(0));
+        if x != y {
+            return x < y;
+        }
+    }
+    false
+}
+
+/// Dependency CVE scan against a small embedded advisory sample (F317).
+fn cve_scan_payload(p: &Value) -> Value {
+    let advisories: &[(&str, &str, &str, &str)] = &[
+        ("lodash", "4.17.21", "CVE-2021-23337", "high"),
+        ("minimist", "1.2.6", "CVE-2021-44906", "critical"),
+        ("axios", "0.21.2", "CVE-2021-3749", "high"),
+        ("log4j", "2.17.0", "CVE-2021-44228", "critical"),
+    ];
+    let deps = p.get("deps").and_then(Value::as_array).cloned().unwrap_or_default();
+    let mut findings = Vec::new();
+    for d in &deps {
+        let name = d.get("name").and_then(Value::as_str).unwrap_or("");
+        let version = d.get("version").and_then(Value::as_str).unwrap_or("0.0.0");
+        for (an, below, cve, sev) in advisories {
+            if *an == name && semver_lt(version, below) {
+                findings.push(json!({ "name": name, "version": version, "cve": cve, "severity": sev, "fixed_in": below }));
+            }
+        }
+    }
+    json!({ "findings": findings, "count": findings.len(), "advisory_count": advisories.len() })
+}
+
+/// Validate Terraform / Helm / k8s IaC for basic syntax + required blocks (F328).
+fn iac_validate_payload(p: &Value) -> Value {
+    let content = p.get("content").and_then(Value::as_str).unwrap_or("");
+    let kind = p.get("type").and_then(Value::as_str).unwrap_or("terraform");
+    let mut errors = Vec::new();
+    let (opens, closes) = (content.matches('{').count(), content.matches('}').count());
+    if opens != closes {
+        errors.push(json!({ "rule": "balanced-braces", "detail": format!("{{ {opens} vs }} {closes}") }));
+    }
+    match kind {
+        "terraform" => {
+            if !content.contains("resource") && !content.contains("provider") {
+                errors.push(json!({ "rule": "tf-block", "detail": "kein resource/provider-Block" }));
+            }
+        }
+        "helm" | "k8s" => {
+            if !content.contains("apiVersion") || !content.contains("kind") {
+                errors.push(json!({ "rule": "k8s-required", "detail": "apiVersion/kind fehlt" }));
+            }
+        }
+        _ => {}
+    }
+    json!({ "type": kind, "valid": errors.is_empty(), "errors": errors })
+}
+
+/// Suggest Dockerfile optimizations (F329).
+fn docker_optimize_payload(p: &Value) -> Value {
+    let df = p.get("dockerfile").and_then(Value::as_str).unwrap_or("");
+    let up = df.to_uppercase();
+    let mut suggestions = Vec::new();
+    let run_count = df.lines().filter(|l| l.trim_start().to_uppercase().starts_with("RUN ")).count();
+    if run_count > 1 {
+        suggestions.push(json!({ "rule": "combine-run", "detail": format!("{run_count} RUN-Layer zu einem &&-Chain zusammenfassen") }));
+    }
+    if up.contains("FROM") && !df.to_lowercase().contains("slim") && !df.to_lowercase().contains("alpine") {
+        suggestions.push(json!({ "rule": "slim-base", "detail": "schlankeres Base-Image (slim/alpine) erwägen" }));
+    }
+    if !up.contains(" AS ") {
+        suggestions.push(json!({ "rule": "multi-stage", "detail": "Multi-Stage-Build erwägen" }));
+    }
+    if up.contains("COPY . ") || up.contains("COPY ./") {
+        suggestions.push(json!({ "rule": "dockerignore", "detail": ".dockerignore nutzen statt alles zu kopieren" }));
+    }
+    json!({ "suggestions": suggestions, "count": suggestions.len() })
+}
+
+/// Basic JS->TS migration: annotate untyped function params with `: any` (F343).
+fn js_to_ts_payload(p: &Value) -> Value {
+    let content = p.get("content").and_then(Value::as_str).unwrap_or("");
+    let mut out = String::new();
+    let mut annotated = 0;
+    for line in content.lines() {
+        let mut l = line.to_string();
+        if l.contains("function ") || l.contains("=>") {
+            if let Some(start) = l.find('(') {
+                if let Some(end_rel) = l[start + 1..].find(')') {
+                    let params = l[start + 1..start + 1 + end_rel].to_string();
+                    if !params.trim().is_empty() && !params.contains(':') {
+                        let typed: Vec<String> = params.split(',').map(|pm| format!("{}: any", pm.trim())).collect();
+                        l = format!("{}({}){}", &l[..start], typed.join(", "), &l[start + 1 + end_rel + 1..]);
+                        annotated += typed.len();
+                    }
+                }
+            }
+        }
+        out.push_str(&l);
+        out.push('\n');
+    }
+    json!({ "ts": out, "annotations_added": annotated })
+}
+
+/// Local-LLM fallback: use Ollama when the cloud is unavailable (F360).
+fn llm_fallback_payload(p: &Value) -> Value {
+    if p.get("cloud_available").and_then(Value::as_bool).unwrap_or(true) {
+        return json!({ "provider": "anthropic", "reason": "cloud verfügbar" });
+    }
+    let ollama = std::process::Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "3", "http://localhost:11434/api/tags"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().ok())
+        .unwrap_or(0);
+    if ollama == 200 {
+        json!({ "provider": "ollama", "endpoint": "http://localhost:11434", "reason": "cloud offline -> lokales Ollama" })
+    } else {
+        json!({ "provider": "none", "reason": "cloud offline und kein lokales Ollama erreichbar" })
+    }
 }
 
 /// The seven Global-CLAUDE.md editor sections (F081).

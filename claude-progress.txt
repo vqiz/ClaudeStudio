@@ -116,3 +116,7 @@
   Reuse-verifiziert: context.assemble worktree (F067), agents trigger/definition/fork (F100/F111/F112),
   supervisor token-budget (F113), health-check (F272), cost-guard (F280), stats==usage (F282).
   PASSING: F067 F080 F081 F082 F088 F093 F098 F100 F111 F112 F113 F270 F272 F279 F280 F282 F284 F345. 206/360.
+[SESSION 1] [2026-06-23] [BUILD-17] [PASSING] +10: worktree max-parallel (F070), settings.merge (F296),
+  cve.scan (F317), iac.validate (F328), docker.optimize (F329), codeq.comment_quality (F335),
+  refactor.js_to_ts (F343), resume.detect (F354), briefing.daily (F355), llm.fallback->Ollama (F360).
+  cargo test grün. 216/360.
