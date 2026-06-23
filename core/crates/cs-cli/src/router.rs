@@ -83,7 +83,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "git.status" | "git.diff" | "git.log" | "git.branch" | "git.worktrees"
         | "session.search" => LONG_HANDLER_TIMEOUT,
         // Embedding-backed handlers spawn the neural model (one load per call).
-        "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text" => LONG_HANDLER_TIMEOUT,
+        "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -373,6 +374,7 @@ impl Router {
             "library.load_defaults" => self.library_load_defaults(),
             "definitions.list" => self.definitions_list(),
             "definitions.suggest" => self.definitions_suggest(p),
+            "definitions.vector_inject" => self.definitions_vector_inject(p),
             "definitions.create" => self.library_create(p, "definitions"),
             "definitions.delete" => self.library_delete(p, "definitions", ".def.md"),
             "prompts.templates" => Ok(prompt_templates_payload()),
@@ -495,6 +497,7 @@ impl Router {
             "cost.estimate" => Ok(cost_estimate_payload(p)),
             "metrics.productivity" => self.metrics_productivity(p),
             "pipeline.generate" => Ok(pipeline_generate_payload(p)),
+            "pipeline.visualize" => self.pipeline_visualize(p),
             "settings.set" => self.settings_set(p),
             "settings.get" => self.settings_get(p),
             "settings.merge" => self.settings_merge(p),
@@ -3350,6 +3353,64 @@ impl Router {
         Ok(json!({ "chunk_count": chunks.len(), "chunks": chunks, "collection": collection }))
     }
 
+    /// Vector-find the best matching definition for a query and return it formatted
+    /// as the active-definitions (Ebene 5) context block (F105).
+    fn definitions_vector_inject(&self, p: &Value) -> HandlerResult {
+        let query = req_str(p, "query")?;
+        let qvec = self.embed_texts(&[query.to_string()])?.into_iter().next().unwrap_or_default();
+        let content = std::fs::read_to_string(self.knowledge_path()).unwrap_or_default();
+        let mut best: Option<(f64, Value)> = None;
+        for line in content.lines() {
+            let Ok(e) = serde_json::from_str::<Value>(line) else { continue };
+            if e.get("collection").and_then(Value::as_str) != Some("definitions") {
+                continue;
+            }
+            let vec: Vec<f64> = e.get("vec").and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
+            let score = cosine_sim(&qvec, &vec);
+            if best.as_ref().map(|(s, _)| score > *s).unwrap_or(true) {
+                best = Some((score, e));
+            }
+        }
+        match best {
+            Some((score, e)) => {
+                let text = e.get("text").and_then(Value::as_str).unwrap_or("");
+                let name = e.get("source").and_then(Value::as_str).unwrap_or("definition");
+                Ok(json!({
+                    "found": score > 0.7, "score": score, "definition": name, "text": text,
+                    "ebene5_block": format!("# [active_definitions]\n## {name}\n{text}"),
+                }))
+            }
+            None => Ok(json!({ "found": false, "score": 0.0 })),
+        }
+    }
+
+    /// Parse a GitHub-Actions workflow into a job graph (jobs as nodes, `needs`
+    /// as edges) for the pipeline visualizer (F269).
+    fn pipeline_visualize(&self, p: &Value) -> HandlerResult {
+        let content = match p.get("content").and_then(Value::as_str) {
+            Some(c) => c.to_string(),
+            None => {
+                let cwd = req_str(p, "cwd")?;
+                let dir = Path::new(cwd).join(".github/workflows");
+                let mut found = String::new();
+                if let Ok(rd) = std::fs::read_dir(&dir) {
+                    for e in rd.flatten() {
+                        let ext = e.path().extension().and_then(|x| x.to_str()).unwrap_or("").to_string();
+                        if ext == "yml" || ext == "yaml" {
+                            found = std::fs::read_to_string(e.path()).unwrap_or_default();
+                            break;
+                        }
+                    }
+                }
+                if found.is_empty() {
+                    return Err(IpcFailure::not_found("kein Workflow-File"));
+                }
+                found
+            }
+        };
+        Ok(parse_workflow_graph(&content))
+    }
+
     /// Sync a library directory to a git remote (push), e.g. the skill library (F351).
     fn library_git_sync(&self, p: &Value) -> HandlerResult {
         let dir = req_str(p, "dir")?;
@@ -4834,6 +4895,63 @@ fn hex_decode(s: &str) -> Option<Vec<u8>> {
         return None;
     }
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
+}
+
+/// Parse a GitHub-Actions workflow YAML into a job graph (F269): job names and
+/// `needs` dependency edges `[dep, job]`. Indent-based, dependency-free.
+fn parse_workflow_graph(content: &str) -> Value {
+    let mut jobs = Vec::new();
+    let mut edges = Vec::new();
+    let mut in_jobs = false;
+    let mut jobs_indent: i32 = -1;
+    let mut job_indent: i32 = -1;
+    let mut current: Option<String> = None;
+    for raw in content.lines() {
+        if raw.trim().is_empty() || raw.trim_start().starts_with('#') {
+            continue;
+        }
+        let indent = (raw.len() - raw.trim_start().len()) as i32;
+        let t = raw.trim();
+        if t == "jobs:" {
+            in_jobs = true;
+            jobs_indent = indent;
+            continue;
+        }
+        if !in_jobs {
+            continue;
+        }
+        if indent <= jobs_indent {
+            in_jobs = false; // left the jobs block (back to a top-level key)
+            continue;
+        }
+        if job_indent < 0 && t.ends_with(':') {
+            job_indent = indent;
+        }
+        if indent == job_indent && t.ends_with(':') {
+            let name = t.trim_end_matches(':').trim().to_string();
+            jobs.push(name.clone());
+            current = Some(name);
+        } else if let Some(job) = &current {
+            if let Some(rest) = t.strip_prefix("needs:") {
+                let rest = rest.trim();
+                let deps: Vec<String> = if rest.starts_with('[') {
+                    rest.trim_matches(|c| c == '[' || c == ']')
+                        .split(',')
+                        .map(|s| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                } else if !rest.is_empty() {
+                    vec![rest.trim_matches(|c| c == '"' || c == '\'').to_string()]
+                } else {
+                    vec![]
+                };
+                for d in deps {
+                    edges.push(json!([d, job]));
+                }
+            }
+        }
+    }
+    json!({ "jobs": jobs, "edges": edges, "job_count": jobs.len() })
 }
 
 /// Cosine similarity between two equal-length vectors.

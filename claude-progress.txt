@@ -144,3 +144,6 @@
 [SESSION 1] [2026-06-23] [BUILD-24] [PASSING] +3: memory.mark_stale (>90 Tage veraltet, F092), knowledge.chunk_text
   (token-genaues ~300-Token-Chunking + Batch-Embedding in 'sessions', F175), npm-test-PostToolUse-Hook (echtes
   npm test, F259). Fix: knowledge.* in LONG_HANDLER_TIMEOUT (embed_cli-Modell-Load). cargo test grün. 241/360.
+[SESSION 1] [2026-06-23] [BUILD-25] [PASSING] +2: pipeline.visualize (GitHub-Actions-YAML -> Job-Graph mit
+  needs-Kanten, F269); definitions.vector_inject (Vector-Suche findet Definition Score>0.7 + Ebene5-Injektion,
+  F105). cargo test grün. 243/360.

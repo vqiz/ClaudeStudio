@@ -1770,7 +1770,7 @@
       "F097",
       "F076"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F106",
@@ -4565,7 +4565,7 @@
     "depends_on": [
       "F009"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F270",
