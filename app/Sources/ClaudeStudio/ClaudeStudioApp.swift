@@ -18,12 +18,22 @@ struct ClaudeStudioApp: App {
     private var uiTestMode: String? {
         ProcessInfo.processInfo.environment["CLAUDESTUDIO_UITEST"]
     }
+    /// Breite für das Grid-UITest (F021), Default 1200.
+    private var uiTestWidth: CGFloat {
+        if let s = ProcessInfo.processInfo.environment["CLAUDESTUDIO_UITEST_WIDTH"],
+           let w = Double(s) { return CGFloat(w) }
+        return 1200
+    }
 
     var body: some Scene {
         WindowGroup {
             if uiTestMode == "gallery" {
                 DesignGalleryView()
                     .environment(appState)
+            } else if uiTestMode == "chart" {
+                ChartTestView()
+            } else if uiTestMode == "grid" {
+                GridTestView(width: uiTestWidth)
             } else {
                 RootView()
                     .environment(appState)

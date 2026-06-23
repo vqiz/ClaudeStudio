@@ -269,3 +269,8 @@
   POSTet ihn an den Collector-Endpunkt. F263 Tool-Call-Span (Attribut tool=Edit) beim Collector
   eingegangen; F283 Session-Span via OTLP (service.name=claudestudio) eingegangen. Lokaler OTLP/HTTP-
   Collector-Mock (/v1/traces). test-harness/probes/batch49.py. 288/360.
+[SESSION 1] [2026-06-24] [BUILD-50 / UI-2] [PASSING] +2 GUI-Features via Gallery-Seam + PIL:
+  F017 Swift-Charts Token-Chart (Area+Line+Point, 7 Tage) gerendert -> 7 rote Punkt-Marker erkannt,
+  Hochpunkt Tag6 (y=298) sichtbar über Tiefpunkt (y=549); F021 responsives LazyVGrid (adaptive 260)
+  mit 9 Karten -> 4 Spalten bei 1200px > 2 bei 600px. Neue Test-Views ChartTestView/GridTestView +
+  CLAUDESTUDIO_UITEST=chart|grid-Seam (+UITEST_WIDTH). test-harness/probes/ui_batch2.py. 290/360.
