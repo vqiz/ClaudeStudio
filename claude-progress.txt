@@ -203,3 +203,7 @@
   (eigener Branch agent/wt-<ts>) an und lässt den Agenten dort laufen. Stub-Edit (EDITFILE) landet
   IM Worktree, nicht im Hauptcheckout; git worktree list/branch zeigen ihn. Ack enthält worktree-Info.
   test-harness/probes/batch35.py. Regression F116/F117/F118 grün. 267/360.
+[SESSION 1] [2026-06-23] [BUILD-36] [PASSING] +1 Webhook-Stop-Hook (echtes curl/HTTP):
+  F261 Post-Run/Stop-Hook POSTet bei Lauf-Ende eine Slack-Nachricht per curl an die Webhook-URL;
+  lokaler HTTP-Server (Slack-Substitut) antwortet 200, der Code steht im Hook-Log; Server empfing
+  die {"text":...}-Nachricht. test-harness/probes/batch36.py. 268/360.

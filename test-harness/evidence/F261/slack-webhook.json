@@ -1,0 +1,13 @@
+{
+  "hook_event": {
+    "command": "curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-type: application/json' -d '{\"text\":\"✅ Agent für todo-api fertig\"}' http://127.0.0.1:61043/services/SLACK/HOOK",
+    "exit": 0,
+    "kind": "post_run_hook",
+    "stderr": "",
+    "stdout": "200"
+  },
+  "webhook_received": {
+    "text": "✅ Agent für todo-api fertig"
+  },
+  "http_status_in_log": "200"
+}
