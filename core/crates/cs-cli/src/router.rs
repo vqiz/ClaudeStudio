@@ -85,7 +85,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Embedding-backed handlers spawn the neural model (one load per call).
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
-        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "models.compare" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -541,6 +541,7 @@ impl Router {
             "agents.render_prompt" => self.agents_render_prompt(p),
             "agents.context" => self.agents_context(p),
             "model_router.route" => self.model_router_route(p),
+            "models.compare" => self.models_compare(p),
             "model_router.set" => self.model_router_set(p),
             "model_router.resolve" => self.model_router_resolve(p),
             "model_router.fallback" => Ok(model_fallback_payload(p)),
@@ -1704,6 +1705,48 @@ impl Router {
     }
 
     /// Route a task type to a model tier (F131), honoring configured overrides (F132).
+    /// Multi-Model-Vergleich (F346): schickt denselben Prompt parallel an mehrere Modelle
+    /// (je ein `claude`-Prozess pro Modell), erfasst Antwort + Latenz + Kosten je Modell und
+    /// liefert die Spalten für die Nebeneinander-Ansicht. Testet die Dispatch-/Sammel-Mechanik.
+    fn models_compare(&self, p: &Value) -> HandlerResult {
+        let prompt = req_str(p, "prompt")?.to_string();
+        let models: Vec<String> = p
+            .get("models")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|m| m.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        if models.len() < 2 {
+            return Err(IpcFailure::invalid("mindestens 2 Modelle zum Vergleich"));
+        }
+        let binary = p
+            .get("binary")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .or_else(|| std::env::var("CLAUDESTUDIO_CLAUDE_BIN").ok())
+            .unwrap_or_else(|| "claude".to_string());
+        let handles: Vec<_> = models
+            .iter()
+            .cloned()
+            .map(|m| {
+                let (bin, pr) = (binary.clone(), prompt.clone());
+                std::thread::spawn(move || {
+                    let t0 = std::time::Instant::now();
+                    let out = std::process::Command::new(&bin)
+                        .args(["--model", &m, "--print", &pr])
+                        .output();
+                    let ms = t0.elapsed().as_millis() as u64;
+                    let (text, cost) = match out {
+                        Ok(o) => extract_assistant_text(&String::from_utf8_lossy(&o.stdout)),
+                        Err(_) => (String::new(), 0.0),
+                    };
+                    json!({ "model": m, "response": text, "latency_ms": ms, "cost_usd": cost })
+                })
+            })
+            .collect();
+        let responses: Vec<Value> = handles.into_iter().filter_map(|h| h.join().ok()).collect();
+        Ok(json!({ "models": models, "responses": responses, "count": responses.len() }))
+    }
+
     fn model_router_route(&self, p: &Value) -> HandlerResult {
         let task_type = req_str(p, "task_type")?;
         let routes = self.read_model_routes();
@@ -6378,6 +6421,39 @@ fn ocr_image(path: &Path) -> String {
         }
         _ => String::new(),
     }
+}
+
+/// Extrahiert den Assistenten-Text und die Kosten aus `claude` stream-json-stdout
+/// (für models.compare). Sammelt alle text-Blöcke der assistant-Zeilen.
+fn extract_assistant_text(stdout: &str) -> (String, f64) {
+    let mut text = String::new();
+    let mut cost = 0.0;
+    for line in stdout.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line.trim()) else { continue };
+        match v.get("type").and_then(|t| t.as_str()) {
+            Some("assistant") => {
+                if let Some(blocks) =
+                    v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array())
+                {
+                    for b in blocks {
+                        if b.get("type").and_then(|t| t.as_str()) == Some("text") {
+                            if let Some(t) = b.get("text").and_then(|t| t.as_str()) {
+                                if !text.is_empty() {
+                                    text.push(' ');
+                                }
+                                text.push_str(t);
+                            }
+                        }
+                    }
+                }
+            }
+            Some("result") => {
+                cost = v.get("cost_usd").and_then(|c| c.as_f64()).unwrap_or(0.0);
+            }
+            _ => {}
+        }
+    }
+    (text, cost)
 }
 
 /// Filter-Chips-Substrat (F020): filtert `items` nach (key == value) und liefert

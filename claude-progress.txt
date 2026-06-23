@@ -241,3 +241,8 @@
   agent, inputs, workflow, output, schedule) nach tasks/custom/<slug>.task.json; erscheint danach in
   tasks.list; unvollständige Tasks (fehlende Sektion) werden abgelehnt. test-harness/probes/batch43.py.
   281/360.
+[SESSION 1] [2026-06-23] [BUILD-44] [PASSING] +1 Multi-Model-Vergleich (echter Core, Stub-claude):
+  F346 models.compare schickt denselben Prompt parallel an mehrere Modelle (je ein claude-Prozess pro
+  Modell, Threads), erfasst Antwort (geparst aus stream-json) + Latenz + Kosten je Modell -> Spalten
+  für die Nebeneinander-Ansicht. Testet die Dispatch-/Sammel-/Label-Mechanik. test-harness/probes/batch44.py.
+  282/360.
