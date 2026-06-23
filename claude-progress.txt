@@ -246,3 +246,8 @@
   Modell, Threads), erfasst Antwort (geparst aus stream-json) + Latenz + Kosten je Modell -> Spalten
   für die Nebeneinander-Ansicht. Testet die Dispatch-/Sammel-/Label-Mechanik. test-harness/probes/batch44.py.
   282/360.
+[SESSION 1] [2026-06-23] [BUILD-45] [PASSING] +1 Live-Session-Sharing (echter Core, Stub-claude):
+  F349 session.share erzeugt Token/Link für eine laufende Session (persistiert in shares.json);
+  session.join löst es zur session_id auf; ein zweiter Client liest live via session.messages mit,
+  WÄHREND A's LONGRUN-Lauf noch läuft (Schritt 1 in DB). Ungültiges Token abgelehnt.
+  test-harness/probes/batch45.py. 283/360.

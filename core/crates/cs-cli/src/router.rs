@@ -499,6 +499,8 @@ impl Router {
             "session.list" => self.session_list(p),
             "session.get" => self.session_get(p),
             "session.messages" => self.session_messages(p),
+            "session.share" => self.session_share(p),
+            "session.join" => self.session_join(p),
             "session.replay_step" => self.session_replay_step(p),
             "list.filter" => Ok(list_filter_payload(p)),
             "session.search" => self.session_search(p),
@@ -1785,6 +1787,42 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let messages = store.list_messages(id).map_err(session_failure)?;
         Ok(json!({ "messages": messages }))
+    }
+
+    /// Live-Session-Sharing (F349): erzeugt ein Share-Token (Link) für eine laufende
+    /// Session. Ein zweiter Client löst es per session.join auf und liest die Session
+    /// live über session.messages mit (der Forwarder schreibt jede Nachricht sofort in
+    /// die DB). Token→session_id wird in shares.json persistiert.
+    fn session_share(&self, p: &Value) -> HandlerResult {
+        let sid = req_str(p, "session_id")?.to_string();
+        let token = unique_id("share");
+        let path = self.inner.state_dir.join("shares.json");
+        let mut map: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        if let Some(o) = map.as_object_mut() {
+            o.insert(token.clone(), json!(sid));
+        }
+        std::fs::create_dir_all(&self.inner.state_dir).ok();
+        std::fs::write(&path, serde_json::to_string_pretty(&map).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "token": token, "session_id": sid,
+                   "link": format!("claudestudio://session/share/{token}") }))
+    }
+
+    /// Löst ein Share-Token zur session_id auf (F349), damit der zweite Client mitliest.
+    fn session_join(&self, p: &Value) -> HandlerResult {
+        let token = req_str(p, "token")?;
+        let path = self.inner.state_dir.join("shares.json");
+        let map: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        match map.get(token).and_then(Value::as_str) {
+            Some(sid) => Ok(json!({ "ok": true, "session_id": sid })),
+            None => Err(IpcFailure::not_found(format!("unbekanntes Share-Token: {token}"))),
+        }
     }
 
     /// Session-Replay-Step-Through (F160): liefert den Transcript-Schritt am Index

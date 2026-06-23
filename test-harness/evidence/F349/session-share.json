@@ -1,0 +1,10 @@
+{
+  "shared_session": "970d64c4-32f0-47b6-b26f-979575bb8748",
+  "token": "share-1782249131190-0",
+  "link": "claudestudio://session/share/share-1782249131190-0",
+  "client_b_saw_messages": 2,
+  "client_b_roles": [
+    "user",
+    "assistant"
+  ]
+}
