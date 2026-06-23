@@ -89,3 +89,6 @@
   update/delete (Config-CRUD, persistiert+reload), agents.check_tool (Tool-Enforcement), agents.render_prompt
   ({{var}}), agents.context (Definition-Injektion); model_router.route/set/resolve/fallback/cost_compare.
   PASSING: F106 F107 F108 F109 F114 F115 F119 F131 F132 F133 F134 F135. cargo test grün. 122/360.
+[SESSION 1] [2026-06-23] [BUILD-10] [PASSING] +9 Deployment/DevOps/Produktivität GEBAUT: env.add/list,
+  deploy.rollback (echtes git reset), deploy.checklist, flags.set/eval/list, metrics.dora (aus git),
+  report.standup, checkpoint.save/restore/list. PASSING: F271 F273 F274 F276 F327 F330 F331 F352 F353. 131/360.

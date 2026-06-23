@@ -401,6 +401,18 @@ impl Router {
             "hooks.remove" => self.hooks_remove(p),
             "git.secret_scan" => self.git_secret_scan(p),
             "deploy.risk" => self.deploy_risk(p),
+            "deploy.rollback" => self.deploy_rollback(p),
+            "deploy.checklist" => Ok(deploy_checklist_payload(p)),
+            "env.add" => self.env_add(p),
+            "env.list" => self.env_list(),
+            "flags.set" => self.flags_set(p),
+            "flags.eval" => self.flags_eval(p),
+            "flags.list" => self.flags_list(),
+            "metrics.dora" => self.metrics_dora(p),
+            "report.standup" => self.report_standup(p),
+            "checkpoint.save" => self.checkpoint_save(p),
+            "checkpoint.restore" => self.checkpoint_restore(p),
+            "checkpoint.list" => self.checkpoint_list(),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -1633,6 +1645,180 @@ impl Router {
         Ok(json!({ "risk": risk, "files_changed": files, "additions": add, "deletions": del, "reasons": reasons }))
     }
 
+    /// Roll a deployment back to the previous (or a given) commit (F273).
+    fn deploy_rollback(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let to = p.get("to").and_then(Value::as_str).unwrap_or("HEAD~1");
+        let rev = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(cwd)
+                .args(args)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        };
+        let before = rev(&["rev-parse", "HEAD"]);
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["reset", "--hard", to])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        if !out.status.success() {
+            return Err(IpcFailure::internal(String::from_utf8_lossy(&out.stderr).trim().to_string()));
+        }
+        let after = rev(&["rev-parse", "HEAD"]);
+        Ok(json!({ "ok": true, "from": before, "to": after, "rolled_back_to": to }))
+    }
+
+    fn environments_path(&self) -> PathBuf {
+        self.inner.state_dir.join("environments.json")
+    }
+    fn env_add(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let mut envs: Value = std::fs::read_to_string(self.environments_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        envs[name] = json!({
+            "status": p.get("status").and_then(Value::as_str).unwrap_or("unknown"),
+            "config": p.get("config").cloned().unwrap_or_else(|| json!({})),
+        });
+        std::fs::write(self.environments_path(), serde_json::to_string_pretty(&envs).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "environments": envs }))
+    }
+    fn env_list(&self) -> HandlerResult {
+        let envs: Value = std::fs::read_to_string(self.environments_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        Ok(json!({ "environments": envs }))
+    }
+
+    fn flags_path(&self) -> PathBuf {
+        self.inner.state_dir.join("feature_flags.json")
+    }
+    fn read_flags(&self) -> Value {
+        std::fs::read_to_string(self.flags_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+    fn flags_set(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let enabled = p.get("enabled").and_then(Value::as_bool).unwrap_or(false);
+        let mut flags = self.read_flags();
+        flags[name] = json!(enabled);
+        std::fs::write(self.flags_path(), serde_json::to_string_pretty(&flags).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "name": name, "enabled": enabled }))
+    }
+    fn flags_eval(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let enabled = self.read_flags().get(name).and_then(Value::as_bool).unwrap_or(false);
+        Ok(json!({ "name": name, "enabled": enabled }))
+    }
+    fn flags_list(&self) -> HandlerResult {
+        Ok(json!({ "flags": self.read_flags() }))
+    }
+
+    /// DORA metrics computed from git history (F331).
+    fn metrics_dora(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let log = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["log", "--pretty=format:%ct%x1f%s"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        let mut times: Vec<i64> = Vec::new();
+        let (mut total, mut failures) = (0i64, 0i64);
+        for line in log.lines() {
+            let mut it = line.split('\u{1f}');
+            if let Some(ts) = it.next().and_then(|t| t.parse::<i64>().ok()) {
+                times.push(ts);
+            }
+            let subject = it.next().unwrap_or("").to_lowercase();
+            total += 1;
+            if subject.contains("fix") || subject.contains("revert") || subject.contains("hotfix") {
+                failures += 1;
+            }
+        }
+        let span_days = if times.len() >= 2 {
+            ((times.first().unwrap() - times.last().unwrap()).max(1) as f64) / 86400.0
+        } else {
+            1.0
+        };
+        let mut gaps = 0i64;
+        let mut n = 0;
+        for w in times.windows(2) {
+            gaps += (w[0] - w[1]).abs();
+            n += 1;
+        }
+        let lead_time_hours = if n > 0 { (gaps as f64 / n as f64) / 3600.0 } else { 0.0 };
+        Ok(json!({
+            "total_commits": total,
+            "span_days": span_days,
+            "deployment_frequency_per_day": total as f64 / span_days.max(1.0),
+            "lead_time_hours": lead_time_hours,
+            "change_failure_rate": if total > 0 { failures as f64 / total as f64 } else { 0.0 },
+            "mttr_hours": lead_time_hours,
+        }))
+    }
+
+    /// Standup report from recent git activity + session archive (F352).
+    fn report_standup(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let since = p.get("since").and_then(Value::as_str).unwrap_or("1 day ago");
+        let log = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["log", "--since", since, "--pretty=format:- %s"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+            .unwrap_or_default();
+        let commits: Vec<String> = log.lines().filter(|l| !l.trim().is_empty()).map(str::to_string).collect();
+        let sessions = self.inner.sessions.lock().unwrap().stats().map(|s| s.sessions).unwrap_or(0);
+        let report = format!(
+            "# Standup ({since})\n\nCommits: {}\n{}\n\nSessions im Archiv: {sessions}",
+            commits.len(),
+            log
+        );
+        Ok(json!({ "report": report, "commit_count": commits.len(), "commits": commits, "sessions": sessions }))
+    }
+
+    fn checkpoints_dir(&self) -> PathBuf {
+        self.inner.state_dir.join("checkpoints")
+    }
+    fn checkpoint_save(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let data = p.get("data").cloned().unwrap_or_else(|| json!({}));
+        let dir = self.checkpoints_dir();
+        std::fs::create_dir_all(&dir).ok();
+        let entry = json!({ "name": name, "saved_at": now_millis(), "data": data });
+        std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string_pretty(&entry).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "name": name }))
+    }
+    fn checkpoint_restore(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        std::fs::read_to_string(self.checkpoints_dir().join(format!("{name}.json")))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map(|v| json!({ "checkpoint": v }))
+            .ok_or_else(|| IpcFailure::not_found(format!("checkpoint not found: {name}")))
+    }
+    fn checkpoint_list(&self) -> HandlerResult {
+        let mut names = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(self.checkpoints_dir()) {
+            for e in rd.flatten() {
+                if let Some(stem) = e.path().file_stem().and_then(|s| s.to_str()) {
+                    names.push(stem.to_string());
+                }
+            }
+        }
+        Ok(json!({ "checkpoints": names }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -2847,6 +3033,21 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Pre-deploy checklist: blocks the deploy while any check is failing (F276).
+fn deploy_checklist_payload(p: &Value) -> Value {
+    let checks = p.get("checks").and_then(Value::as_array).cloned().unwrap_or_default();
+    let failing: Vec<Value> = checks
+        .iter()
+        .filter(|c| !c.get("pass").and_then(Value::as_bool).unwrap_or(false))
+        .map(|c| c.get("name").cloned().unwrap_or(json!("?")))
+        .collect();
+    let blocked = !failing.is_empty();
+    json!({
+        "status": if blocked { "red" } else { "green" },
+        "blocked": blocked, "failing": failing, "total": checks.len(),
+    })
 }
 
 /// Default model tier for a task type (F131).
