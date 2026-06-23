@@ -426,6 +426,19 @@ impl Router {
             "docs.arch_diagram" => self.docs_arch_diagram(p),
             "docs.generate" => self.docs_generate(p),
             "i18n.extract" => Ok(i18n_extract_payload(p)),
+            "a2a.send" => self.a2a_send(p),
+            "a2a.inbox" => self.a2a_inbox(p),
+            "teams.create" => self.teams_create(p),
+            "teams.get" => self.teams_get(p),
+            "teams.decompose" => Ok(teams_decompose_payload(p)),
+            "tasks.render" => Ok(tasks_render_payload(p)),
+            "migration.generate" => Ok(migration_generate_payload(p)),
+            "apiportal.render" => Ok(apiportal_render_payload(p)),
+            "snapshot.save" => self.snapshot_save(p),
+            "snapshot.compare" => self.snapshot_compare(p),
+            "a11y.check" => Ok(a11y_check_payload(p)),
+            "comments.add" => self.comments_add(p),
+            "comments.list" => self.comments_list(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2143,6 +2156,114 @@ impl Router {
         Ok(json!({ "markdown": md, "documented": count }))
     }
 
+    // MARK: Agent teams (A2A), tasks render, snapshots, comments
+
+    fn a2a_path(&self, agent: &str) -> PathBuf {
+        self.inner.state_dir.join("a2a").join(format!("{agent}.jsonl"))
+    }
+    /// Agent-to-agent message: append to the recipient's inbox (F125).
+    fn a2a_send(&self, p: &Value) -> HandlerResult {
+        let from = req_str(p, "from")?;
+        let to = req_str(p, "to")?;
+        let message = p.get("message").cloned().unwrap_or(Value::Null);
+        let path = self.a2a_path(to);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let id = unique_id("a2a");
+        let entry = json!({ "id": id, "from": from, "to": to, "ts": now_millis(), "message": message });
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+        Ok(json!({ "ok": true, "id": id, "to": to }))
+    }
+    /// Drain (or peek) an agent's A2A inbox (F127).
+    fn a2a_inbox(&self, p: &Value) -> HandlerResult {
+        let agent = req_str(p, "agent")?;
+        let drain = p.get("drain").and_then(Value::as_bool).unwrap_or(true);
+        let path = self.a2a_path(agent);
+        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let messages: Vec<Value> = content.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+        if drain {
+            std::fs::remove_file(&path).ok();
+        }
+        Ok(json!({ "agent": agent, "messages": messages }))
+    }
+
+    fn teams_dir(&self) -> PathBuf {
+        self.inner.state_dir.join("teams")
+    }
+    /// Save a reusable team template (orchestrator + workers) (F129).
+    fn teams_create(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let mut team = p.clone();
+        if let Some(o) = team.as_object_mut() {
+            o.insert("id".into(), json!(name));
+        }
+        let dir = self.teams_dir();
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string_pretty(&team).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "team": team }))
+    }
+    fn teams_get(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        std::fs::read_to_string(self.teams_dir().join(format!("{name}.json")))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .map(|t| json!({ "team": t }))
+            .ok_or_else(|| IpcFailure::not_found(format!("team not found: {name}")))
+    }
+
+    fn snapshots_dir(&self) -> PathBuf {
+        self.inner.state_dir.join("snapshots")
+    }
+    fn snapshot_save(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let data = p.get("data").cloned().unwrap_or(Value::Null);
+        let dir = self.snapshots_dir();
+        std::fs::create_dir_all(&dir).ok();
+        std::fs::write(dir.join(format!("{name}.json")), serde_json::to_string_pretty(&data).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "name": name }))
+    }
+    fn snapshot_compare(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let data = p.get("data").cloned().unwrap_or(Value::Null);
+        let saved: Value = std::fs::read_to_string(self.snapshots_dir().join(format!("{name}.json")))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(Value::Null);
+        Ok(json!({ "name": name, "changed": saved != data, "saved": saved, "current": data }))
+    }
+
+    fn comments_path(&self, session: &str) -> PathBuf {
+        self.inner.state_dir.join("comments").join(format!("{session}.jsonl"))
+    }
+    fn comments_add(&self, p: &Value) -> HandlerResult {
+        let session = req_str(p, "session_id")?;
+        let message_id = req_str(p, "message_id")?;
+        let text = req_str(p, "text")?;
+        let path = self.comments_path(session);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let id = unique_id("c");
+        let entry = json!({ "id": id, "message_id": message_id, "text": text, "ts": now_millis() });
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(f, "{entry}");
+        }
+        Ok(json!({ "ok": true, "id": id }))
+    }
+    fn comments_list(&self, p: &Value) -> HandlerResult {
+        let session = req_str(p, "session_id")?;
+        let content = std::fs::read_to_string(self.comments_path(session)).unwrap_or_default();
+        let comments: Vec<Value> = content.lines().filter_map(|l| serde_json::from_str(l).ok()).collect();
+        Ok(json!({ "comments": comments }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -3357,6 +3478,99 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Assign decomposed subtasks to workers round-robin (F120/F122).
+fn teams_decompose_payload(p: &Value) -> Value {
+    let subtasks: Vec<Value> = p.get("subtasks").and_then(Value::as_array).cloned().unwrap_or_default();
+    let workers: Vec<String> = p
+        .get("workers")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let mut assignments = Vec::new();
+    for (i, st) in subtasks.iter().enumerate() {
+        let worker = if workers.is_empty() {
+            "unassigned".to_string()
+        } else {
+            workers[i % workers.len()].clone()
+        };
+        assignments.push(json!({ "subtask": st, "worker": worker }));
+    }
+    json!({ "assignments": assignments, "worker_count": workers.len(), "subtask_count": subtasks.len() })
+}
+
+/// Substitute {{param}} placeholders in a task workflow (F211).
+fn tasks_render_payload(p: &Value) -> Value {
+    let mut workflow = p.get("workflow").and_then(Value::as_str).unwrap_or("").to_string();
+    if let Some(params) = p.get("params").and_then(Value::as_object) {
+        for (k, v) in params {
+            let val = v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string());
+            workflow = workflow.replace(&format!("{{{{{k}}}}}"), &val);
+        }
+    }
+    json!({ "rendered": workflow })
+}
+
+/// Generate ALTER statements from an old->new column schema diff (F342).
+fn migration_generate_payload(p: &Value) -> Value {
+    let from = p.get("from").and_then(Value::as_object).cloned().unwrap_or_default();
+    let to = p.get("to").and_then(Value::as_object).cloned().unwrap_or_default();
+    let table = p.get("table").and_then(Value::as_str).unwrap_or("t");
+    let (mut up, mut down) = (Vec::new(), Vec::new());
+    for (col, ty) in &to {
+        if !from.contains_key(col) {
+            up.push(format!("ALTER TABLE {table} ADD COLUMN {col} {};", ty.as_str().unwrap_or("TEXT")));
+            down.push(format!("ALTER TABLE {table} DROP COLUMN {col};"));
+        }
+    }
+    for col in from.keys() {
+        if !to.contains_key(col) {
+            up.push(format!("ALTER TABLE {table} DROP COLUMN {col};"));
+        }
+    }
+    json!({ "up": up.join("\n"), "down": down.join("\n"), "changes": up.len() })
+}
+
+/// Render an endpoint list from an OpenAPI spec (F333).
+fn apiportal_render_payload(p: &Value) -> Value {
+    let spec = p.get("openapi").cloned().unwrap_or(Value::Null);
+    let mut endpoints = Vec::new();
+    if let Some(paths) = spec.get("paths").and_then(Value::as_object) {
+        for (path, methods) in paths {
+            if let Some(m) = methods.as_object() {
+                for (method, op) in m {
+                    endpoints.push(json!({
+                        "method": method.to_uppercase(), "path": path,
+                        "summary": op.get("summary").and_then(Value::as_str).unwrap_or(""),
+                    }));
+                }
+            }
+        }
+    }
+    json!({ "endpoints": endpoints, "count": endpoints.len() })
+}
+
+/// Check HTML for common WCAG violations (F326).
+fn a11y_check_payload(p: &Value) -> Value {
+    let lower = p.get("html").and_then(Value::as_str).unwrap_or("").to_lowercase();
+    let mut violations = Vec::new();
+    let mut idx = 0;
+    while let Some(pos) = lower[idx..].find("<img") {
+        let start = idx + pos;
+        let end = lower[start..].find('>').map(|e| start + e).unwrap_or(lower.len());
+        if !lower[start..end].contains("alt=") {
+            violations.push(json!({ "rule": "img-alt", "wcag": "1.1.1", "detail": "<img> ohne alt-Attribut" }));
+        }
+        idx = end + 1;
+    }
+    if lower.contains("<input") && !lower.contains("aria-label") && !lower.contains("<label") {
+        violations.push(json!({ "rule": "input-label", "wcag": "1.3.1", "detail": "<input> ohne Label" }));
+    }
+    if lower.contains("<html") && !lower.contains("lang=") {
+        violations.push(json!({ "rule": "html-lang", "wcag": "3.1.1", "detail": "<html> ohne lang-Attribut" }));
+    }
+    json!({ "violations": violations, "count": violations.len(), "passed": violations.is_empty() })
 }
 
 /// The seven configurable Claude Code hook types (F256).
