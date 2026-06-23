@@ -567,7 +567,7 @@
       "F015",
       "F035"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F035",
@@ -584,7 +584,7 @@
       "F004",
       "F006"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F036",
@@ -601,7 +601,7 @@
       "F035",
       "F038"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F037",
@@ -618,7 +618,7 @@
       "F035",
       "F036"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F038",
@@ -635,7 +635,7 @@
       "F004",
       "F005"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F039",
@@ -653,7 +653,7 @@
       "F010",
       "F013"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F040",
@@ -670,7 +670,7 @@
       "F004",
       "F034"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F041",
@@ -687,7 +687,7 @@
       "F009",
       "F034"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F042",
@@ -704,7 +704,7 @@
       "F009",
       "F034"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F043",
@@ -738,7 +738,7 @@
       "F007",
       "F034"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F045",
@@ -754,7 +754,7 @@
     "depends_on": [
       "F034"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F046",
@@ -944,7 +944,7 @@
       "F012",
       "F013"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F057",
@@ -979,7 +979,7 @@
       "F046",
       "F014"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F059",
@@ -996,7 +996,7 @@
     "depends_on": [
       "F058"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F060",
@@ -1013,7 +1013,7 @@
     "depends_on": [
       "F046"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F061",

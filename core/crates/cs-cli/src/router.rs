@@ -452,6 +452,19 @@ impl Router {
             "copilot.focus" => Ok(copilot_focus_payload(p)),
             "copilot.config_get" => self.copilot_config_get(),
             "copilot.config_set" => self.copilot_config_set(p),
+            "projects.create" => self.projects_create(p),
+            "projects.list" => self.projects_list(),
+            "projects.get" => self.projects_get(p),
+            "projects.detect_stack" => Ok(json!({ "stack": detect_stack(Path::new(req_str(p, "path")?)) })),
+            "projects.import" => self.projects_import(p),
+            "projects.scaffold" => self.projects_scaffold(p),
+            "projects.rename" => self.projects_rename(p),
+            "projects.remove" => self.projects_remove(p),
+            "projects.online_status" => Ok(project_online_status_payload(p)),
+            "file.git_colors" => self.file_git_colors(p),
+            "file.diff" => self.file_diff(p),
+            "file.find" => self.file_find(p),
+            "file.to_asset" => self.file_to_asset(p),
 
             // --- Editable files (CLAUDE.md, AGENTS.md, …) ---
             "file.read" => self.file_read(p),
@@ -2468,6 +2481,227 @@ impl Router {
         Ok(json!({ "ok": true, "config": cfg }))
     }
 
+    // MARK: Project hub (registry, stack detection, cards) + file-explorer extras
+
+    fn projects_path(&self) -> PathBuf {
+        self.inner.state_dir.join("projects.json")
+    }
+    fn read_projects(&self) -> Value {
+        std::fs::read_to_string(self.projects_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+    fn write_projects(&self, v: &Value) -> std::result::Result<(), IpcFailure> {
+        std::fs::write(self.projects_path(), serde_json::to_string_pretty(v).unwrap_or_default())
+            .map_err(|e| IpcFailure::internal(e.to_string()))
+    }
+
+    fn projects_create(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let path = req_str(p, "path")?;
+        let pp = Path::new(path);
+        if p.get("git_init").and_then(Value::as_bool).unwrap_or(false) {
+            std::fs::create_dir_all(pp).ok();
+            if !pp.join(".git").exists() {
+                std::process::Command::new("git").current_dir(pp).args(["init", "-q", "-b", "main"]).output().ok();
+            }
+        }
+        let stack = detect_stack(pp);
+        let mut projs = self.read_projects();
+        projs[name] = json!({ "name": name, "path": path, "stack": stack, "server_url": p.get("server_url"), "created_at": now_millis() });
+        self.write_projects(&projs)?;
+        Ok(json!({ "ok": true, "name": name, "stack": stack, "git": pp.join(".git").exists() }))
+    }
+
+    fn project_card(&self, name: &str, meta: &Value) -> Value {
+        let path = meta.get("path").and_then(Value::as_str).unwrap_or("");
+        let branch = std::process::Command::new("git")
+            .current_dir(path)
+            .args(["rev-parse", "--abbrev-ref", "HEAD"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        let start_of_day = now_millis() - (now_millis() % 86_400_000);
+        let cost_today = self
+            .inner
+            .sessions
+            .lock()
+            .unwrap()
+            .usage_for_project(name, start_of_day)
+            .map(|u| u.cost_usd)
+            .unwrap_or(0.0);
+        json!({
+            "name": name, "path": path,
+            "stack": meta.get("stack").cloned().unwrap_or(json!([])),
+            "branch": branch, "cost_today_usd": cost_today,
+            "server_url": meta.get("server_url").cloned().unwrap_or(Value::Null),
+        })
+    }
+
+    fn projects_list(&self) -> HandlerResult {
+        let projs = self.read_projects();
+        let mut cards = Vec::new();
+        if let Some(obj) = projs.as_object() {
+            for (name, meta) in obj {
+                cards.push(self.project_card(name, meta));
+            }
+        }
+        Ok(json!({ "projects": cards }))
+    }
+
+    fn projects_get(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let projs = self.read_projects();
+        projs
+            .get(name)
+            .map(|m| json!({ "project": self.project_card(name, m) }))
+            .ok_or_else(|| IpcFailure::not_found(format!("project not found: {name}")))
+    }
+
+    fn projects_import(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let pp = Path::new(path);
+        let claude_dir = pp.join(".claude");
+        if !claude_dir.exists() {
+            return Err(IpcFailure::invalid("kein .claude/ im Verzeichnis"));
+        }
+        let skills = std::fs::read_dir(claude_dir.join("commands"))
+            .map(|rd| rd.flatten().filter(|e| e.path().extension().and_then(|x| x.to_str()) == Some("md")).count())
+            .unwrap_or(0);
+        let settings = claude_dir.join("settings.json").exists();
+        let name = p
+            .get("name")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| pp.file_name().and_then(|n| n.to_str()).unwrap_or("imported").to_string());
+        let stack = detect_stack(pp);
+        let mut projs = self.read_projects();
+        projs[&name] = json!({ "name": name, "path": path, "stack": stack, "created_at": now_millis() });
+        self.write_projects(&projs)?;
+        Ok(json!({ "ok": true, "name": name, "skills_found": skills, "settings_found": settings, "stack": stack }))
+    }
+
+    fn projects_scaffold(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let pp = Path::new(path);
+        let template = p.get("template").and_then(Value::as_str).unwrap_or("default");
+        let claude = pp.join(".claude");
+        std::fs::create_dir_all(claude.join("agents")).ok();
+        let md = format!(
+            "# {}\n\nProjekt-Kontext für Claude.\n\n## Stack\n{}\n\n## Regeln\n- (Template: {template})\n",
+            pp.file_name().and_then(|n| n.to_str()).unwrap_or("project"),
+            detect_stack(pp).join(", ")
+        );
+        std::fs::write(claude.join("CLAUDE.md"), &md).map_err(|e| e.to_string())?;
+        std::fs::write(
+            claude.join("agents").join("default.json"),
+            serde_json::to_string_pretty(&json!({ "name": "Default Agent", "model": "sonnet", "allowed_tools": ["Read", "Edit", "Bash"] })).unwrap_or_default(),
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "claude_md": claude.join("CLAUDE.md").to_string_lossy(), "agent_created": true }))
+    }
+
+    fn projects_rename(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let new_name = req_str(p, "new_name")?;
+        let mut projs = self.read_projects();
+        let Some(mut meta) = projs.get(name).cloned() else {
+            return Err(IpcFailure::not_found(format!("project not found: {name}")));
+        };
+        if let Some(o) = projs.as_object_mut() {
+            o.remove(name);
+        }
+        if let Some(o) = meta.as_object_mut() {
+            o.insert("name".into(), json!(new_name));
+        }
+        projs[new_name] = meta;
+        self.write_projects(&projs)?;
+        Ok(json!({ "ok": true, "old": name, "new": new_name }))
+    }
+
+    fn projects_remove(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let mut projs = self.read_projects();
+        let existed = projs.get(name).is_some();
+        if let Some(o) = projs.as_object_mut() {
+            o.remove(name);
+        }
+        self.write_projects(&projs)?;
+        Ok(json!({ "ok": true, "removed": existed }))
+    }
+
+    /// Git-status colors per file: new=green, deleted=red, modified=orange (F058).
+    fn file_git_colors(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["status", "--porcelain"])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut files = Vec::new();
+        for line in text.lines() {
+            if line.len() < 3 {
+                continue;
+            }
+            let code = &line[..2];
+            let path = line[3..].trim();
+            let color = if code.contains('?') { "green" } else if code.contains('D') { "red" } else { "orange" };
+            files.push(json!({ "path": path, "code": code, "color": color }));
+        }
+        Ok(json!({ "files": files }))
+    }
+
+    /// Real diff for a single file vs the committed version (F059).
+    fn file_diff(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let path = req_str(p, "path")?;
+        let out = std::process::Command::new("git")
+            .current_dir(cwd)
+            .args(["diff", "--", path])
+            .output()
+            .map_err(|e| IpcFailure::internal(e.to_string()))?;
+        let diff = String::from_utf8_lossy(&out.stdout).to_string();
+        let added = diff.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).count();
+        let removed = diff.lines().filter(|l| l.starts_with('-') && !l.starts_with("---")).count();
+        Ok(json!({ "path": path, "diff": diff, "added": added, "removed": removed }))
+    }
+
+    /// Fuzzy filename search (subsequence match) across the project (F060).
+    fn file_find(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let query = req_str(p, "query")?.to_lowercase();
+        let files = collect_source_files(
+            Path::new(cwd),
+            &["ts", "tsx", "js", "jsx", "rs", "py", "md", "json", "txt", "go", "swift", "toml"],
+        );
+        let mut hits: Vec<(usize, String)> = Vec::new();
+        for (path, _) in &files {
+            let name = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+            if let Some(score) = fuzzy_score(&name, &query) {
+                hits.push((score, path.clone()));
+            }
+        }
+        hits.sort_by(|a, b| b.0.cmp(&a.0));
+        let out: Vec<Value> = hits.into_iter().take(20).map(|(s, p)| json!({ "path": p, "score": s })).collect();
+        Ok(json!({ "matches": out }))
+    }
+
+    /// Promote a file to a Brain-Graph asset node (F056 — D&D effect).
+    fn file_to_asset(&self, p: &Value) -> HandlerResult {
+        let path = req_str(p, "path")?;
+        let label = Path::new(path).file_name().and_then(|n| n.to_str()).unwrap_or("asset").to_string();
+        let id = unique_id("n");
+        let mut g = self.read_graph();
+        g["nodes"].as_array_mut().unwrap().push(json!({
+            "id": id, "type": "asset", "label": label, "props": { "path": path }, "created_at": now_millis(),
+        }));
+        self.write_graph(&g)?;
+        Ok(json!({ "ok": true, "node_id": id, "label": label }))
+    }
+
     // MARK: Git write operations (commit assistant, worktrees, merge)
 
     /// Commit staged+unstaged changes. With `message` uses it verbatim; without,
@@ -3682,6 +3916,63 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// Detect a project's stack from marker files (F036/F038).
+fn detect_stack(root: &Path) -> Vec<String> {
+    let mut s = Vec::new();
+    if root.join("package.json").exists() {
+        s.push("Node.js".to_string());
+    }
+    if root.join("Cargo.toml").exists() {
+        s.push("Rust".to_string());
+    }
+    if root.join("requirements.txt").exists() || root.join("pyproject.toml").exists() {
+        s.push("Python".to_string());
+    }
+    if root.join("go.mod").exists() {
+        s.push("Go".to_string());
+    }
+    s
+}
+
+/// Fuzzy subsequence score: matched chars if `needle` is a subsequence (F060).
+fn fuzzy_score(haystack: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let mut ni = needle.chars();
+    let mut cur = ni.next();
+    let mut matched = 0;
+    for hc in haystack.chars() {
+        if let Some(nc) = cur {
+            if hc == nc {
+                matched += 1;
+                cur = ni.next();
+            }
+        }
+    }
+    if cur.is_none() {
+        Some(matched)
+    } else {
+        None
+    }
+}
+
+/// Ping a project's server URL via curl; online if HTTP < 500 (F040).
+fn project_online_status_payload(p: &Value) -> Value {
+    let url = p.get("url").and_then(Value::as_str).unwrap_or("");
+    if url.is_empty() {
+        return json!({ "online": false, "reason": "keine server_url" });
+    }
+    let out = std::process::Command::new("curl")
+        .args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "--max-time", "5", url])
+        .output();
+    let code: u32 = out
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
+        .unwrap_or(0);
+    json!({ "url": url, "status_code": code, "online": code != 0 && code < 500 })
 }
 
 /// The seven Brain-Graph node types (F186) and nine edge types (F187).

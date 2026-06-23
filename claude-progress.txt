@@ -106,3 +106,7 @@
   add_node/add_edge/export/search/at/query_asset/remember (Knowledge-Graph); copilot.suggestions/focus/
   config_get/config_set (State-basierte Vorschläge). PASSING: F186 F187 F188 F192 F193 F194 F195 F217 F218
   F220 F221 F222 F223 F224 F225. cargo test grün. 173/360. (UI-Rendering F189-F191/F216/F219 separat blocked.)
+[SESSION 1] [2026-06-23] [BUILD-15] [PASSING] +15 Project-Hub + File-Explorer GEBAUT: projects.create/list/get/
+  detect_stack/import/scaffold/rename/remove/online_status (Registry+Stack-Erkennung+Tageskosten+Branch);
+  file.git_colors/diff/find(fuzzy)/to_asset. cs-sessions: usage_for_project. PASSING: F034 F035 F036 F037
+  F038 F039 F040 F041 F042 F044 F045 F056 F058 F059 F060. cargo test grün. 188/360.

@@ -1132,6 +1132,26 @@ impl SessionStore {
         )?)
     }
 
+    /// Aggregate token + cost totals for one project (optionally since a time).
+    pub fn usage_for_project(&self, project: &str, since_ms: i64) -> Result<UsageTotals> {
+        Ok(self.conn.query_row(
+            "SELECT COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0),
+                    COALESCE(SUM(cache_read_tokens),0), COALESCE(SUM(cache_creation_tokens),0),
+                    COALESCE(SUM(cost_usd),0)
+             FROM usage WHERE project = ?1 AND created_at >= ?2",
+            params![project, since_ms],
+            |r| {
+                Ok(UsageTotals {
+                    input_tokens: r.get(0)?,
+                    output_tokens: r.get(1)?,
+                    cache_read_tokens: r.get(2)?,
+                    cache_creation_tokens: r.get(3)?,
+                    cost_usd: r.get(4)?,
+                })
+            },
+        )?)
+    }
+
     /// Aggregate cost + tokens grouped by a column (model / agent / project).
     pub fn usage_summary(&self, group_by: &str) -> Result<Vec<UsageGroup>> {
         let col = match group_by {
