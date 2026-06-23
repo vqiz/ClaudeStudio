@@ -217,3 +217,7 @@
   F191 graph.node_detail liefert Knoten (per label 'Logo') mit Typ=asset, Metadaten (props) und allen
   ein-/ausgehenden Kanten samt Nachbar-Labels (BELONGS_TO->todo-api, USES_ASSET<-Header-Component).
   test-harness/probes/batch38.py. 272/360.
+[SESSION 1] [2026-06-23] [BUILD-39] [PASSING] +2 Replay + Filter (echter Core, Stub-claude):
+  F160 session.replay_step navigiert deterministisch durch geordnete Transcript-Schritte
+  (4 Schritte, has_prev/has_next korrekt, Index geklemmt, Inhalt stabil vor/zurück); F020 list.filter
+  liefert exakten 'zeige 12 von 240'-Zähler + genau 12 Treffer. test-harness/probes/batch39.py. 274/360.

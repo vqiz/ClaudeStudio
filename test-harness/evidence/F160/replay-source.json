@@ -1,0 +1,10 @@
+{
+  "session_id": "ef1c2d15-afb1-432a-be49-87c6a2352e4b",
+  "ordered_steps_via_ipc": [
+    "Schritt 1: Plan",
+    "Schritt 2: Implementierung",
+    "Schritt 3: Test",
+    "Schritt 4: Fertig"
+  ],
+  "note": "geordnete Schrittquelle vorhanden; Pfeiltasten-Navigation ist SwiftUI-GUI"
+}

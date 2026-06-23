@@ -1,0 +1,31 @@
+{
+  "total": 4,
+  "step0": {
+    "has_next": true,
+    "has_prev": false,
+    "index": 0,
+    "step": {
+      "content": "Baue das Dashboard",
+      "created_at": 1782247689377,
+      "role": "user"
+    },
+    "total": 4
+  },
+  "last": {
+    "has_next": false,
+    "has_prev": true,
+    "index": 3,
+    "step": {
+      "content": "Schritt 3: Abschluss",
+      "created_at": 1782247694908,
+      "role": "assistant"
+    },
+    "total": 4
+  },
+  "forward_contents": [
+    "Baue das Dashboard",
+    "Schritt 1: Analyse",
+    "Schritt 2: Implementierung",
+    "Schritt 3: Abschluss"
+  ]
+}

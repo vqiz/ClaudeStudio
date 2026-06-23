@@ -336,7 +336,7 @@
       "F015",
       "F018"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F021",
@@ -2724,7 +2724,7 @@
       "F151",
       "F157"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F161",

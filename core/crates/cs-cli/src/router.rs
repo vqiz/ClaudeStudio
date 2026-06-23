@@ -369,6 +369,8 @@ impl Router {
             "session.list" => self.session_list(p),
             "session.get" => self.session_get(p),
             "session.messages" => self.session_messages(p),
+            "session.replay_step" => self.session_replay_step(p),
+            "list.filter" => Ok(list_filter_payload(p)),
             "session.search" => self.session_search(p),
             "session.create" => self.session_create(p),
             "session.stats" => self.session_stats(),
@@ -1609,6 +1611,25 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let messages = store.list_messages(id).map_err(session_failure)?;
         Ok(json!({ "messages": messages }))
+    }
+
+    /// Session-Replay-Step-Through (F160): liefert den Transcript-Schritt am Index
+    /// `step` (geklemmt) plus has_prev/has_next, sodass die Vor-/Zurück-Pfeiltasten
+    /// deterministisch durch die geordneten Schritte navigieren.
+    fn session_replay_step(&self, p: &Value) -> HandlerResult {
+        let id = p.get("id").and_then(Value::as_str).ok_or_else(|| IpcFailure::invalid("missing 'id'"))?;
+        let messages = self.inner.sessions.lock().unwrap().list_messages(id).map_err(session_failure)?;
+        let total = messages.len();
+        if total == 0 {
+            return Ok(json!({ "total": 0, "step": Value::Null, "index": 0,
+                              "has_prev": false, "has_next": false }));
+        }
+        let idx = (p.get("step").and_then(Value::as_u64).unwrap_or(0) as usize).min(total - 1);
+        Ok(json!({
+            "index": idx, "total": total,
+            "step": serde_json::to_value(&messages[idx]).unwrap_or_else(|_| json!({})),
+            "has_prev": idx > 0, "has_next": idx + 1 < total,
+        }))
     }
 
     fn session_search(&self, p: &Value) -> HandlerResult {
@@ -6140,6 +6161,23 @@ fn ocr_image(path: &Path) -> String {
         }
         _ => String::new(),
     }
+}
+
+/// Filter-Chips-Substrat (F020): filtert `items` nach (key == value) und liefert
+/// die Treffer plus den 'zeige N von M'-Zähler, den der Chip anzeigt.
+fn list_filter_payload(p: &Value) -> Value {
+    let items = p.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+    let total = items.len();
+    let key = p.get("key").and_then(Value::as_str).unwrap_or("status");
+    let val = p.get("value").cloned().unwrap_or(Value::Null);
+    let matched: Vec<Value> = if val.is_null() {
+        items
+    } else {
+        items.into_iter().filter(|it| it.get(key) == Some(&val)).collect()
+    };
+    let visible = matched.len();
+    json!({ "total": total, "visible": visible, "matched": matched,
+            "label": format!("zeige {visible} von {total}") })
 }
 
 /// Zerlegt Text in grobe Sätze (Trennung an . ! ? und Zeilenumbruch).
