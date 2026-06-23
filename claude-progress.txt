@@ -134,3 +134,7 @@
   flate2; private Session aus Standardliste ausgeschlossen, Roundtrip exakt, falscher Key abgelehnt, gzip 99%
   auf repetitivem Text). MCP-Allowlist F254 (check_server blockt nicht-gelistete; Agent-Tool verfügbar).
   Deps ring+flate2 (aus Cargo.lock, offline). cargo test grün. 231/360.
+[SESSION 1] [2026-06-23] [BUILD-22] [PASSING] +3: events.publish (Event-Bus dispatcht echte Aktion — git.push@main
+  startet security-scan-agent der einen ECHTEN code_scan laeuft, gleiche Korrelations-ID, F306); queue.dag
+  (Abhaengigkeits-DAG A->B->C + Vorgaenger-Blockierung, F311); queue.reorder (manuelle Umpriorisierung, F312).
+  cargo test grün. 234/360.

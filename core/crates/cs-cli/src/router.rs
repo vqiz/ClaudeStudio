@@ -333,8 +333,11 @@ impl Router {
             "rules.add" => self.rules_add(p),
             "rules.list" => self.rules_list(),
             "rules.eval" => self.rules_eval(p),
+            "events.publish" => self.events_publish(p),
             "routing.route" => Ok(routing_route_payload(p)),
             "queue.order" => Ok(queue_order_payload(p)),
+            "queue.dag" => Ok(queue_dag_payload(p)),
+            "queue.reorder" => Ok(queue_reorder_payload(p)),
             "scheduler.admit" => Ok(scheduler_admit_payload(p)),
             "monitor.health_check" => Ok(health_check_payload(p)),
             "monitor.cost_guard" => Ok(cost_guard_payload(p)),
@@ -869,6 +872,51 @@ impl Router {
             fired.push(json!({ "rule_id": rule["id"], "actions": rule["then"] }));
         }
         Ok(json!({ "event": event, "branch": branch, "fired": fired }))
+    }
+
+    /// Publish an event onto the bus: log it, evaluate rules, and DISPATCH matched
+    /// actions for real. A `security-scan` action runs an actual `code_scan` and
+    /// logs the result — all tied by one correlation id (F306).
+    fn events_publish(&self, p: &Value) -> HandlerResult {
+        let etype = req_str(p, "type")?;
+        let branch = p.get("branch").and_then(Value::as_str);
+        let cwd = p.get("cwd").and_then(Value::as_str);
+        let cid = unique_id("evt");
+        let mut log = vec![json!({ "correlation_id": cid, "kind": "event", "type": etype, "branch": branch, "ts": now_millis() })];
+        let mut fired = 0;
+        let mut scan = Value::Null;
+        for rule in self.read_rules() {
+            let w = &rule["when"];
+            if w.get("event").and_then(Value::as_str) != Some(etype) {
+                continue;
+            }
+            if let Some(rb) = w.get("branch").and_then(Value::as_str) {
+                if Some(rb) != branch {
+                    continue;
+                }
+            }
+            fired += 1;
+            if let Some(actions) = rule["then"].as_array() {
+                for a in actions {
+                    let act = a.as_str().unwrap_or("");
+                    if act.contains("security-scan") {
+                        log.push(json!({ "correlation_id": cid, "kind": "agent_started", "agent": "security-scan-agent", "ts": now_millis() }));
+                        if let Some(c) = cwd {
+                            let result = self.security_code_scan(&json!({ "cwd": c }))?;
+                            log.push(json!({ "correlation_id": cid, "kind": "agent_result", "agent": "security-scan-agent", "findings": result.get("count") }));
+                            scan = result;
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(self.inner.state_dir.join("event_log.jsonl")) {
+            use std::io::Write;
+            for e in &log {
+                let _ = writeln!(f, "{e}");
+            }
+        }
+        Ok(json!({ "correlation_id": cid, "log": log, "fired": fired, "scan": scan }))
     }
 
     // MARK: Security & permissions
@@ -4480,6 +4528,81 @@ fn queue_order_payload(p: &Value) -> Value {
     tasks.sort_by_key(|t| priority_rank(t.get("priority").and_then(Value::as_str).unwrap_or("normal")));
     let order: Vec<&Value> = tasks.iter().map(|t| &t["id"]).collect();
     json!({ "ordered": tasks, "order": order })
+}
+
+/// Build a dependency DAG over queued tasks: edges + which tasks are blocked
+/// until their predecessors complete (F311). `done` lists completed task ids.
+fn queue_dag_payload(p: &Value) -> Value {
+    let tasks = p.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
+    let done: HashSet<String> = p
+        .get("done")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let mut edges = Vec::new();
+    let mut blocked = serde_json::Map::new();
+    let mut ready = Vec::new();
+    for t in &tasks {
+        let id = t.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        let deps: Vec<String> = t
+            .get("deps")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        let unmet: Vec<String> = deps.iter().filter(|d| !done.contains(*d)).cloned().collect();
+        for d in &deps {
+            edges.push(json!([d, id]));
+        }
+        if unmet.is_empty() {
+            ready.push(id.clone());
+        } else {
+            blocked.insert(id.clone(), json!(unmet));
+        }
+    }
+    // Kahn topological order over (deps -> task).
+    let mut order = Vec::new();
+    let mut completed: HashSet<String> = done.clone();
+    let mut remaining: Vec<Value> = tasks.clone();
+    while !remaining.is_empty() {
+        let mut progressed = false;
+        remaining.retain(|t| {
+            let id = t.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+            let deps: Vec<String> = t
+                .get("deps")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                .unwrap_or_default();
+            if deps.iter().all(|d| completed.contains(d)) {
+                order.push(id.clone());
+                completed.insert(id);
+                progressed = true;
+                false
+            } else {
+                true
+            }
+        });
+        if !progressed {
+            break; // cycle — stop
+        }
+    }
+    json!({ "edges": edges, "order": order, "blocked": blocked, "ready": ready })
+}
+
+/// Manually reprioritize a queue by moving a task to a new index (F312).
+fn queue_reorder_payload(p: &Value) -> Value {
+    let mut queue: Vec<String> = p
+        .get("queue")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let mv = p.get("move").and_then(Value::as_str).unwrap_or("");
+    let to = p.get("to").and_then(Value::as_u64).unwrap_or(0) as usize;
+    if let Some(pos) = queue.iter().position(|x| x == mv) {
+        let item = queue.remove(pos);
+        queue.insert(to.min(queue.len()), item);
+    }
+    let next = queue.first().cloned();
+    json!({ "order": queue, "next": next })
 }
 
 /// Hard resource limit: admit a new agent only if running < max_parallel (F310).
