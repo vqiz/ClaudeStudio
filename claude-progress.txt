@@ -130,3 +130,7 @@
 [SESSION 1] [2026-06-23] [BUILD-20] [PASSING] +3: mcp.tools/mcp.call_tool — echter MCP-JSON-RPC-Client gegen den
   eingebauten MCP-Server (claudestudio-core mcp). F253 Tool-Explorer (4 Tools mit Beschreibung+Schema), F252
   Verbindungsstatus, F248 Übersichts-Daten. Echter tools/call (session_stats) als Beleg. cargo test grün. 229/360.
+[SESSION 1] [2026-06-23] [BUILD-21] [PASSING] +2: Privacy-Modus F165 (echtes AES-256-GCM via ring + gzip via
+  flate2; private Session aus Standardliste ausgeschlossen, Roundtrip exakt, falscher Key abgelehnt, gzip 99%
+  auf repetitivem Text). MCP-Allowlist F254 (check_server blockt nicht-gelistete; Agent-Tool verfügbar).
+  Deps ring+flate2 (aus Cargo.lock, offline). cargo test grün. 231/360.

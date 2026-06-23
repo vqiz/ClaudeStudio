@@ -354,6 +354,8 @@ impl Router {
             "session.record_event" => self.session_record_event(p),
             "session.events" => self.session_events(p),
             "session.record_error" => self.session_record_error(p),
+            "session.set_private" => self.session_set_private(p),
+            "session.get_private" => self.session_get_private(p),
             "worktime.export" => self.worktime_export(p),
             "cost.summary" => self.cost_summary(p),
             "cost.cache_hit_rate" => self.cost_cache_hit_rate(),
@@ -403,6 +405,9 @@ impl Router {
             "mcp.cli_remove" => self.mcp_cli_remove(p),
             "mcp.tools" => self.mcp_tools(p),
             "mcp.call_tool" => self.mcp_call_tool(p),
+            "mcp.allowlist_set" => self.mcp_allowlist_set(p),
+            "mcp.allowlist_get" => self.mcp_allowlist_get(),
+            "mcp.check_server" => self.mcp_check_server(p),
             "hooks.list" => self.hooks_list(p),
             "hooks.add" => self.hooks_add(p),
             "hooks.remove" => self.hooks_remove(p),
@@ -972,6 +977,10 @@ impl Router {
         let until = p.get("until").and_then(Value::as_i64);
         let has_filter = project.is_some() || model.is_some() || since.is_some() || until.is_some();
 
+        // Private sessions are hidden from the default list unless requested (F165).
+        let include_private = p.get("include_private").and_then(Value::as_bool).unwrap_or(false);
+        let private = self.private_sessions();
+
         let store = self.inner.sessions.lock().unwrap();
         // When filtering, fetch a wider window then narrow it in-process (F158).
         let fetch = if has_filter { limit.max(1000) } else { limit };
@@ -979,6 +988,13 @@ impl Router {
         let mut arr = serde_json::to_value(sessions).unwrap_or_else(|_| json!([]));
         if let Some(list) = arr.as_array_mut() {
             list.retain(|s| {
+                if !include_private {
+                    if let Some(id) = s.get("id").and_then(Value::as_str) {
+                        if private.contains(id) {
+                            return false;
+                        }
+                    }
+                }
                 if let Some(pj) = project {
                     if !s.get("cwd").and_then(Value::as_str).unwrap_or("").contains(pj) {
                         return false;
@@ -1064,6 +1080,80 @@ impl Router {
         let e = NewEvent { session_id, kind: "error".into(), payload: Some(payload), created_at: now_millis() };
         let id = self.inner.sessions.lock().unwrap().append_event(&e).map_err(session_failure)?;
         Ok(json!({ "ok": true, "id": id }))
+    }
+
+    fn private_path(&self) -> PathBuf {
+        self.inner.state_dir.join("private_sessions.json")
+    }
+    fn private_sessions(&self) -> HashSet<String> {
+        std::fs::read_to_string(self.private_path())
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+            .map(|v| v.into_iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Mark a session private: gzip + AES-256-GCM encrypt its content at rest (F165).
+    fn session_set_private(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?.to_string();
+        let content = req_str(p, "content")?;
+        let key = p.get("key").and_then(Value::as_str).unwrap_or("default-passphrase");
+        let (cipher_hex, original_len, compressed_len) = encrypt_private(content, key)?;
+        let dir = self.inner.state_dir.join("private");
+        std::fs::create_dir_all(&dir).ok();
+        let path = dir.join(format!("{id}.enc"));
+        std::fs::write(&path, &cipher_hex).map_err(|e| e.to_string())?;
+        let mut set = self.private_sessions();
+        set.insert(id.clone());
+        let v: Vec<&String> = set.iter().collect();
+        std::fs::write(self.private_path(), serde_json::to_string(&v).unwrap_or_default()).map_err(|e| e.to_string())?;
+        let ratio = if original_len > 0 { 1.0 - (compressed_len as f64 / original_len as f64) } else { 0.0 };
+        Ok(json!({
+            "ok": true, "id": id, "encrypted_path": path.to_string_lossy(),
+            "original_len": original_len, "compressed_len": compressed_len, "gzip_ratio": ratio,
+        }))
+    }
+
+    /// Decrypt + decompress a private session's content (F165).
+    fn session_get_private(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?;
+        let key = p.get("key").and_then(Value::as_str).unwrap_or("default-passphrase");
+        let hex = std::fs::read_to_string(self.inner.state_dir.join("private").join(format!("{id}.enc")))
+            .map_err(|_| IpcFailure::not_found("keine private Session"))?;
+        Ok(json!({ "id": id, "content": decrypt_private(&hex, key)? }))
+    }
+
+    fn mcp_allowlist_path(&self) -> PathBuf {
+        self.inner.state_dir.join("mcp_allowlist.json")
+    }
+    fn mcp_allowlist_get(&self) -> HandlerResult {
+        let list: Vec<String> = std::fs::read_to_string(self.mcp_allowlist_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Ok(json!({ "allowlist": list }))
+    }
+    fn mcp_allowlist_set(&self, p: &Value) -> HandlerResult {
+        let servers: Vec<String> = p
+            .get("servers")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .unwrap_or_default();
+        std::fs::write(self.mcp_allowlist_path(), serde_json::to_string_pretty(&servers).unwrap_or_default()).map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "allowlist": servers }))
+    }
+    /// Check whether an MCP server is permitted; a non-empty allowlist blocks others (F254).
+    fn mcp_check_server(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let list: Vec<String> = std::fs::read_to_string(self.mcp_allowlist_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let allowed = list.is_empty() || list.iter().any(|s| s == name);
+        Ok(json!({
+            "server": name, "allowed": allowed,
+            "reason": if allowed { "erlaubt" } else { "nicht in MCP-Allowlist — blockiert" },
+        }))
     }
 
     /// Export per-session active time in a Toggl-compatible shape (F356).
@@ -4452,6 +4542,63 @@ fn supervisor_evaluate_payload(p: &Value) -> Value {
         ("ok", "Agent gesund".to_string())
     };
     json!({ "action": action, "reason": reason })
+}
+
+/// gzip + AES-256-GCM encrypt; returns (hex(nonce||ciphertext), orig_len, gzip_len) (F165).
+fn encrypt_private(text: &str, passphrase: &str) -> std::result::Result<(String, usize, usize), IpcFailure> {
+    use flate2::{write::GzEncoder, Compression};
+    use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+    use ring::rand::{SecureRandom, SystemRandom};
+    use std::io::Write as _;
+    let original_len = text.len();
+    let mut enc = GzEncoder::new(Vec::new(), Compression::best());
+    enc.write_all(text.as_bytes()).map_err(|e| IpcFailure::internal(e.to_string()))?;
+    let compressed = enc.finish().map_err(|e| IpcFailure::internal(e.to_string()))?;
+    let compressed_len = compressed.len();
+    let digest = ring::digest::digest(&ring::digest::SHA256, passphrase.as_bytes());
+    let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, digest.as_ref()).map_err(|_| IpcFailure::internal("key"))?);
+    let mut nonce_bytes = [0u8; NONCE_LEN];
+    SystemRandom::new().fill(&mut nonce_bytes).map_err(|_| IpcFailure::internal("rng"))?;
+    let mut in_out = compressed;
+    key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce_bytes), Aad::empty(), &mut in_out)
+        .map_err(|_| IpcFailure::internal("seal"))?;
+    let mut blob = nonce_bytes.to_vec();
+    blob.extend_from_slice(&in_out);
+    Ok((hex_encode(&blob), original_len, compressed_len))
+}
+
+/// AES-256-GCM decrypt + gunzip (inverse of [`encrypt_private`]) (F165).
+fn decrypt_private(hex: &str, passphrase: &str) -> std::result::Result<String, IpcFailure> {
+    use flate2::read::GzDecoder;
+    use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM, NONCE_LEN};
+    use std::io::Read as _;
+    let blob = hex_decode(hex).ok_or_else(|| IpcFailure::internal("bad hex"))?;
+    if blob.len() < NONCE_LEN {
+        return Err(IpcFailure::internal("short"));
+    }
+    let (nonce_bytes, ct) = blob.split_at(NONCE_LEN);
+    let digest = ring::digest::digest(&ring::digest::SHA256, passphrase.as_bytes());
+    let key = LessSafeKey::new(UnboundKey::new(&AES_256_GCM, digest.as_ref()).map_err(|_| IpcFailure::internal("key"))?);
+    let mut nb = [0u8; NONCE_LEN];
+    nb.copy_from_slice(nonce_bytes);
+    let mut in_out = ct.to_vec();
+    let plain = key
+        .open_in_place(Nonce::assume_unique_for_key(nb), Aad::empty(), &mut in_out)
+        .map_err(|_| IpcFailure::internal("decrypt failed"))?;
+    let mut d = GzDecoder::new(&plain[..]);
+    let mut s = String::new();
+    d.read_to_string(&mut s).map_err(|e| IpcFailure::internal(e.to_string()))?;
+    Ok(s)
+}
+
+fn hex_encode(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+fn hex_decode(s: &str) -> Option<Vec<u8>> {
+    if s.len() % 2 != 0 {
+        return None;
+    }
+    (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok()).collect()
 }
 
 /// Cosine similarity between two equal-length vectors.
