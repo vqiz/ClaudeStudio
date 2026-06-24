@@ -343,3 +343,6 @@
 [SESSION 1] [2026-06-24] [BUILD-68] [PASSING] +1 Plan-Mode (echter claude): F138 agents.plan_mode lässt
   den echten claude im (lese-only) Plan-Modus einen strukturierten Umsetzungsplan erzeugen (10 nummerierte
   Schritte für 'DELETE-Endpoint', nichts ausgeführt). test-harness/probes/llm_batch18.py. 311/360.
+[SESSION 1] [2026-06-24] [BUILD-69] [PASSING] +1 Sauberer Stopp (Session-Panel): F141 — session.stop
+  terminiert den (Stub-)Subprozess, das Panel erhält ein 'stopped'-Event, der Status wechselt auf
+  beendet (completed-Run-Event) und es fließen keine weiteren Stream-Events. test-harness/probes/batch69.py. 312/360.

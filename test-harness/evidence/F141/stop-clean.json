@@ -1,0 +1,14 @@
+{
+  "stop_result": {
+    "ok": true,
+    "stopped": true
+  },
+  "tail_events": [
+    "stopped"
+  ],
+  "subprocess_terminated": true,
+  "run_event_kinds": [
+    "started",
+    "completed"
+  ]
+}
