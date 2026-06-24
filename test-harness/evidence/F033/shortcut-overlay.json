@@ -1,0 +1,12 @@
+{
+  "ocr": "tastenkurzel\n\ncmd n neue session\n\ncmd k befehlspalette\n\ncmd / tastenkirzel anzeigen\ncmd b sidebar umschalten\ncmd 1-8 projekt-tab wechseln\nesc schlieben\n",
+  "labels_found": [
+    "session",
+    "befehl",
+    "sidebar",
+    "tab",
+    "schlie"
+  ],
+  "binding_in_rootview": true,
+  "screen": "test-harness/evidence/F033-overlay.png"
+}

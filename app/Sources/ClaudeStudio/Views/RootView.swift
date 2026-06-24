@@ -7,23 +7,47 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppState.self) private var appState
 
+    /// F033: Sichtbarkeit des Tastenkürzel-Overlays (Cmd+/ schaltet um, Esc schließt).
+    @State private var showShortcuts = false
+
     var body: some View {
         @Bindable var appState = appState
 
-        NavigationSplitView {
-            SidebarView(selection: $appState.selectedSidebarItem)
-                // 260px sichtbare Sidebar (Konzept-Spezifikation F026). Feste Spaltenbreite
-                // — überschreibt die intrinsische Mindestbreite der längsten Zeile, damit die
-                // sichtbare Spalte exakt 260pt misst (Zeilen kürzen statt Spalte aufzuweiten).
-                .navigationSplitViewColumnWidth(252)
-                .frame(maxWidth: 252)
-        } detail: {
-            detailColumn
+        ZStack {
+            NavigationSplitView {
+                SidebarView(selection: $appState.selectedSidebarItem)
+                    // 260px sichtbare Sidebar (Konzept-Spezifikation F026). Feste Spaltenbreite
+                    // — überschreibt die intrinsische Mindestbreite der längsten Zeile, damit die
+                    // sichtbare Spalte exakt 260pt misst (Zeilen kürzen statt Spalte aufzuweiten).
+                    .navigationSplitViewColumnWidth(252)
+                    .frame(maxWidth: 252)
+            } detail: {
+                detailColumn
+            }
+            .toolbar { titleBarItems }
+            .themedChrome(appState.theme)
+            // Always-on voice glue (zero-size): spoken command → session → spoken reply.
+            .background(VoiceOrchestrator())
+
+            // F033: Cmd+/ bindet das Umschalten (verstecktes Button-Element trägt das Shortcut).
+            Button("") { showShortcuts.toggle() }
+                .keyboardShortcut("/", modifiers: .command)
+                .opacity(0).frame(width: 0, height: 0)
+
+            if showShortcuts {
+                ShortcutOverlay(onClose: { showShortcuts = false })
+                    .zIndex(100)
+                Button("") { showShortcuts = false }
+                    .keyboardShortcut(.cancelAction)   // Esc schließt
+                    .opacity(0).frame(width: 0, height: 0)
+            }
         }
-        .toolbar { titleBarItems }
-        .themedChrome(appState.theme)
-        // Always-on voice glue (zero-size): spoken command → session → spoken reply.
-        .background(VoiceOrchestrator())
+        .onAppear {
+            // Headless-Seam (F033): Overlay sichtbar erzwingen, um den Inhalt zu verifizieren.
+            if ProcessInfo.processInfo.environment["CLAUDESTUDIO_SHOW_SHORTCUTS"] == "1" {
+                showShortcuts = true
+            }
+        }
     }
 
     @ViewBuilder

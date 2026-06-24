@@ -582,3 +582,8 @@
   überspringt das Wakeword-Gate (die Taste IST die Aktivierung) und verarbeitet das Audio direkt STT→Intent
   ohne Wakeword (→ set_background_color); dasselbe Kommando ohne PTT+ohne Wakeword wird am Gate gestoppt.
   Fn+Space-Geste durch das ptt-Flag ersetzt (wie alle UI-Gesten); Pipeline-Verhalten verifiziert. batch86.py. 356/360.
+[SESSION 1] [2026-06-24] [BUILD-109/UI-25] [PASSING] +1 Shortcut-Overlay (F033): neue ShortcutOverlay-View
+  (listet Cmd N/K//B/1-8 + Esc), in RootView per keyboardShortcut("/", .command) an showShortcuts gebunden
+  (Esc schließt). Verifiziert via ImageRenderer (Fenster-Server-unabhängig — umgeht das durch frühere
+  Aktivierungsversuche kaputte screencapture-l) → OCR aller Tastenkürzel + Cmd+/-Bindung in RootView.swift.
+  NEUES WERKZEUG: ImageRenderer-Seam (CLAUDESTUDIO_RENDER_OVERLAY) rendert SwiftUI-Views ohne Fenster. ui_batch25.py. 357/360.

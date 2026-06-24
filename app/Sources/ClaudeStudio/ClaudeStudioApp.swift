@@ -158,8 +158,25 @@ struct ClaudeStudioApp: App {
 /// dev launcher can tear the core down.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Headless-Render-Seam: eine SwiftUI-View per ImageRenderer OHNE Fenster-Server in eine PNG
+        // rendern (umgeht screencapture). Genutzt zur Verifikation von Overlays (z. B. F033).
+        if let path = ProcessInfo.processInfo.environment["CLAUDESTUDIO_RENDER_OVERLAY"] {
+            renderViewToPNG(AnyView(ShortcutOverlay().frame(width: 520, height: 420)), to: path)
+            exit(0)
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor
+    private func renderViewToPNG(_ view: AnyView, to path: String) {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        guard let img = renderer.nsImage,
+              let tiff = img.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? png.write(to: URL(fileURLWithPath: path))
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
