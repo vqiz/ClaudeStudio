@@ -1,0 +1,72 @@
+{
+  "watch_id": "watch-1",
+  "event_kinds": [
+    "create",
+    "modify",
+    "remove"
+  ],
+  "events": [
+    {
+      "kind": "create",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "create",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "create",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/sub/nested.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/sub/nested.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/sub/nested.txt"
+    },
+    {
+      "kind": "create",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "remove",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    },
+    {
+      "kind": "modify",
+      "path": "/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f062-7saedh5j/live.txt"
+    }
+  ],
+  "event_count": 15,
+  "stopped": true
+}

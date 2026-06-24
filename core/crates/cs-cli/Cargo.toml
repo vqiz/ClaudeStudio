@@ -32,3 +32,4 @@ anyhow = { workspace = true }
 # Privacy-Modus (F165): AES-256-GCM (ring) + gzip (flate2). Beide bereits in Cargo.lock.
 ring = "0.17"
 flate2 = "1"
+notify = "6"

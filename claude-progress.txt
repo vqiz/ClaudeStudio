@@ -365,3 +365,8 @@
   OCR-Bounding-Box y-Position nachgewiesen, F018-asc/desc.png). F019 drei Dichte-Stufen (RowDensity steuert
   Zeilenhöhe+Padding; Kompakt-Pitch 22px < Geräumig 52px bei 10 Zeilen, F019-kompakt/geraeumig.png). Seams
   table-asc/desc, density-kompakt/geraeumig. test-harness/probes/ui_batch4.py. 317/360.
+[SESSION 1] [2026-06-24] [BUILD-74] [PASSING] +1 Live-Datei-Watcher (F062): files.watch_start/poll/stop
+  startet einen echten notify-rs RecommendedWatcher (rekursiv) auf einem Verzeichnis; externe Änderungen
+  (Anlegen/Ändern/Löschen, auch in Unterordnern, per Terminal außerhalb der App) werden erkannt und per
+  Poll ausgelesen — verifiziert mit echten FS-Änderungen (create+modify+remove, 15 Events). notify@6 zu
+  cs-cli hinzugefügt. test-harness/probes/batch72.py. 318/360.

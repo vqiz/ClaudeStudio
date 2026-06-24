@@ -1,0 +1,12 @@
+{
+  "watch.start": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: watch.start"
+  },
+  "fs.watch": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: fs.watch"
+  }
+}

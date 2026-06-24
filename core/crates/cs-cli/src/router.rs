@@ -75,6 +75,22 @@ const LONG_HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 /// since the child owns its own work).
 const AGENT_HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(420);
 
+/// Ein laufender Datei-Watcher (F062): hält das `notify`-Watcher-Handle am Leben und
+/// sammelt die erkannten Änderungen (Pfad + Art) in einem gemeinsamen Puffer, den der
+/// Client per `files.watch_poll` ausliest.
+struct WatchHandle {
+    events: Arc<Mutex<Vec<Value>>>,
+    _watcher: notify::RecommendedWatcher,
+}
+
+/// Globale Registry aller aktiven Watcher, keyed by watch_id.
+static WATCHERS: std::sync::OnceLock<Mutex<HashMap<String, WatchHandle>>> = std::sync::OnceLock::new();
+static WATCH_CTR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn watchers() -> &'static Mutex<HashMap<String, WatchHandle>> {
+    WATCHERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// The server-side deadline for a given method.
 ///
 /// CANCELLATION SAFETY: when the deadline fires, the handler future is *dropped*.
@@ -1180,6 +1196,9 @@ impl Router {
             "model_router.route" => self.model_router_route(p),
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
+            "files.watch_start" => self.files_watch_start(p),
+            "files.watch_poll" => self.files_watch_poll(p),
+            "files.watch_stop" => self.files_watch_stop(p),
             "deployment.create_pr" => self.deployment_create_pr(p),
             "integrations.usage_report" => self.integrations_usage_report(p),
             "integrations.slack_command" => self.integrations_slack_command(p),
@@ -5140,6 +5159,81 @@ impl Router {
             .find_map(|r| r.get("result").cloned())
             .unwrap_or(Value::Null);
         Ok(json!({ "tool": name, "result": result }))
+    }
+
+    // MARK: Live file watching (notify-rs)
+
+    /// Startet einen echten `notify`-Dateisystem-Watcher (F062) auf `path` (rekursiv) und
+    /// registriert ihn unter einer watch_id. Externe Änderungen (Anlegen/Ändern/Löschen) — auch
+    /// außerhalb der App per Terminal — werden im Hintergrund gesammelt und per
+    /// `files.watch_poll` abrufbar; so kann der Datei-Baum live synchronisiert werden.
+    fn files_watch_start(&self, p: &Value) -> HandlerResult {
+        use notify::{EventKind, RecursiveMode, Watcher};
+        let path = req_str(p, "path")?;
+        let dir = Path::new(path);
+        if !dir.exists() {
+            return Err(IpcFailure::not_found(format!("Pfad existiert nicht: {path}")));
+        }
+        let events: Arc<Mutex<Vec<Value>>> = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            if let Ok(ev) = res {
+                let kind = match ev.kind {
+                    EventKind::Create(_) => "create",
+                    EventKind::Modify(_) => "modify",
+                    EventKind::Remove(_) => "remove",
+                    EventKind::Access(_) => "access",
+                    _ => "other",
+                };
+                // Access-Events ignorieren (reines Lesen ist keine Änderung).
+                if kind == "access" {
+                    return;
+                }
+                if let Ok(mut buf) = sink.lock() {
+                    for path in ev.paths {
+                        buf.push(json!({ "kind": kind, "path": path.to_string_lossy() }));
+                    }
+                }
+            }
+        })
+        .map_err(|e| IpcFailure::internal(format!("Watcher-Init fehlgeschlagen: {e}")))?;
+        watcher
+            .watch(dir, RecursiveMode::Recursive)
+            .map_err(|e| IpcFailure::internal(format!("watch() fehlgeschlagen: {e}")))?;
+        let id = format!(
+            "watch-{}",
+            WATCH_CTR.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        );
+        watchers()
+            .lock()
+            .unwrap()
+            .insert(id.clone(), WatchHandle { events, _watcher: watcher });
+        Ok(json!({ "watch_id": id, "path": path, "recursive": true }))
+    }
+
+    /// Liest die bisher gesammelten Änderungen eines Watchers aus (F062). `drain=true` leert den
+    /// Puffer danach (Standard), sodass aufeinanderfolgende Polls nur neue Events liefern.
+    fn files_watch_poll(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "watch_id")?;
+        let drain = p.get("drain").and_then(Value::as_bool).unwrap_or(true);
+        let reg = watchers().lock().unwrap();
+        let handle = reg
+            .get(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("unbekannte watch_id: {id}")))?;
+        let mut buf = handle.events.lock().unwrap();
+        let events: Vec<Value> = buf.clone();
+        if drain {
+            buf.clear();
+        }
+        Ok(json!({ "events": events, "count": events.len() }))
+    }
+
+    /// Beendet einen Watcher (F062): entfernt ihn aus der Registry; das `notify`-Handle wird
+    /// dadurch gedroppt und der OS-Watch freigegeben.
+    fn files_watch_stop(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "watch_id")?;
+        let removed = watchers().lock().unwrap().remove(id).is_some();
+        Ok(json!({ "ok": removed, "watch_id": id }))
     }
 
     // MARK: Git write operations (commit assistant, worktrees, merge)
