@@ -1,0 +1,12 @@
+{
+  "http_status": 200,
+  "bytes": 81676,
+  "out_path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f231-out-b21rvz5y/reply.mp3",
+  "voice_id": "Rachel",
+  "model_id": "eleven_multilingual_v2",
+  "server_received": {
+    "voice_id": "Rachel",
+    "text": "Die Sicherheitsprüfung ist abgeschlossen — keine kritischen Findings.",
+    "model_id": "eleven_multilingual_v2"
+  }
+}

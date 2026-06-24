@@ -472,3 +472,7 @@
   (echter WKWebView via NSViewRepresentable) lädt eine localhost-Dev-Server-URL und reloadet per Timer
   (Cache-Bypass = Live-Reload). Verifiziert: WKWebView zeigt localhost-Seite (PREVIEW ALPHA); nach Datei-
   Änderung am echten http.server erscheint im SELBEN Fenster PREVIEW BRAVO. WebKit verfügbar. ui_batch18.py. 336/360.
+[SESSION 1] [2026-06-24] [BUILD-92] [PASSING] +1 Online-TTS via ElevenLabs (F231): tts.synthesize POSTet den
+  Text an {api_base}/v1/text-to-speech/:voice_id (ElevenLabs-API-Shape) und schreibt die Audio-Bytes als
+  Datei. Verifiziert mit lokalem Audio-Substitut (echte say-Audio-Bytes): HTTP 200, 81676 Bytes Audio-Datei,
+  voice=Rachel. api_base konfigurierbar, Key extern. test-harness/probes/batch76.py. 337/360.

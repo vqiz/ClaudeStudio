@@ -111,7 +111,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
-        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "tts.synthesize" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
@@ -1197,6 +1197,7 @@ impl Router {
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
             "embedding.embed" => self.embedding_embed(p),
+            "tts.synthesize" => self.tts_synthesize(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2457,6 +2458,49 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// Online-TTS via ElevenLabs (F231): streamt den Antworttext an den ElevenLabs-Endpoint
+    /// `{api_base}/v1/text-to-speech/{voice_id}` und schreibt die zurückgelieferten Audio-Bytes als
+    /// Datei. `api_base` ist konfigurierbar (echtes api.elevenlabs.io im Betrieb mit `xi-api-key`,
+    /// lokaler Audio-Substitut im Test — der API-Key bleibt extern). Liefert HTTP-Status + Dateigröße.
+    fn tts_synthesize(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let out_path = req_str(p, "out_path")?;
+        let api_base = p.get("api_base").and_then(Value::as_str).unwrap_or("https://api.elevenlabs.io");
+        let voice_id = p.get("voice_id").and_then(Value::as_str).unwrap_or("21m00Tcm4TlvDq8ikWAM");
+        let model = p.get("model_id").and_then(Value::as_str).unwrap_or("eleven_multilingual_v2");
+        let key = p.get("api_key").and_then(Value::as_str).unwrap_or("");
+        let url = format!("{api_base}/v1/text-to-speech/{voice_id}");
+        let body = json!({ "text": text, "model_id": model,
+                           "voice_settings": { "stability": 0.5, "similarity_boost": 0.75 } }).to_string();
+
+        // Audio-Bytes per curl streamen und direkt in die Datei schreiben (binär).
+        let out = std::process::Command::new("curl")
+            .args([
+                "-s", "-X", "POST",
+                "-H", "Content-Type: application/json",
+                "-H", "Accept: audio/mpeg",
+                "-H", &format!("xi-api-key: {key}"),
+                "-o", out_path,
+                "-w", "%{http_code}",
+                "-d", &body,
+                &url,
+            ])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("curl konnte nicht gestartet werden: {e}")))?;
+        let code: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or(0);
+        let bytes = std::fs::metadata(out_path).map(|m| m.len()).unwrap_or(0);
+        if code != 200 || bytes == 0 {
+            return Err(IpcFailure::internal(format!(
+                "TTS fehlgeschlagen (HTTP {code}, {bytes} Bytes)"
+            )));
+        }
+        Ok(json!({
+            "ok": true, "http_status": code, "out_path": out_path,
+            "bytes": bytes, "voice_id": voice_id, "model_id": model,
+            "provider": "elevenlabs"
+        }))
     }
 
     /// Lokales Embedding über einen Embedding-Service (F166: nomic-embed-text → 768-dim) mit
