@@ -111,7 +111,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
-        | "tts.synthesize" | "stt.transcribe" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "tts.synthesize" | "stt.transcribe" | "stt.transcribe_online"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
@@ -1201,6 +1202,7 @@ impl Router {
             "embedding.embed" => self.embedding_embed(p),
             "tts.synthesize" => self.tts_synthesize(p),
             "stt.transcribe" => self.stt_transcribe(p),
+            "stt.transcribe_online" => self.stt_transcribe_online(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2553,6 +2555,45 @@ impl Router {
         Ok(json!({
             "ok": true, "transcript": transcript, "engine": "whisper.cpp",
             "model": model, "offline": true
+        }))
+    }
+
+    /// Online-STT via Deepgram Nova-3 (F228): lädt das aufgenommene Audio per HTTP an den Deepgram-
+    /// Endpoint `{api_base}/v1/listen` und parst das Transkript aus der Antwort
+    /// (`results.channels[0].alternatives[0].transcript`). `api_base` ist konfigurierbar (echtes
+    /// api.deepgram.com mit Token im Betrieb, lokaler STT-Substitut im Test — der Key bleibt extern).
+    fn stt_transcribe_online(&self, p: &Value) -> HandlerResult {
+        let audio = req_str(p, "audio")?;
+        let api_base = p.get("api_base").and_then(Value::as_str).unwrap_or("https://api.deepgram.com");
+        let model = p.get("model").and_then(Value::as_str).unwrap_or("nova-3");
+        let key = p.get("api_key").and_then(Value::as_str).unwrap_or("");
+        let url = format!("{api_base}/v1/listen?model={model}&smart_format=true");
+        let out = std::process::Command::new("curl")
+            .args([
+                "-s", "-X", "POST",
+                "-H", &format!("Authorization: Token {key}"),
+                "-H", "Content-Type: audio/wav",
+                "--data-binary", &format!("@{audio}"),
+                &url,
+            ])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("curl nicht startbar: {e}")))?;
+        let resp: Value = serde_json::from_slice(&out.stdout).unwrap_or(json!({}));
+        let transcript = resp
+            .pointer("/results/channels/0/alternatives/0/transcript")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if transcript.is_empty() {
+            return Err(IpcFailure::internal(format!(
+                "kein Transkript von Deepgram: {}",
+                String::from_utf8_lossy(&out.stdout).chars().take(200).collect::<String>()
+            )));
+        }
+        Ok(json!({
+            "ok": true, "transcript": transcript, "provider": "deepgram",
+            "model": model, "online": true
         }))
     }
 

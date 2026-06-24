@@ -527,3 +527,7 @@
   → whisper-cli + GGML-Modell (ggml-base.en, gitignored, vom Probe geladen). stt.transcribe ruft whisper-cli
   mit lokalem Modell auf; verifiziert: ein per `say` erzeugtes 16-kHz-WAV wird offline transkribiert (89%
   Wort-Übereinstimmung, kein Netz/Mikrofon). test-harness/probes/batch78.py. 345/360.
+[SESSION 1] [2026-06-24] [BUILD-100] [PASSING] +1 Online-STT via Deepgram (F228): stt.transcribe_online lädt
+  das Audio per HTTP an {api_base}/v1/listen (Deepgram-Nova-3-Shape) und parst das Transkript aus
+  results.channels[0].alternatives[0].transcript. Lokaler Deepgram-Substitut transkribiert das empfangene
+  Audio mit ECHTEM whisper.cpp → korrektes Transkript (88% Übereinstimmung). Key extern. batch79.py. 346/360.

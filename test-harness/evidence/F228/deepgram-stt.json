@@ -1,0 +1,7 @@
+{
+  "reference": "the deployment pipeline failed at the integration test stage",
+  "transcript": "the deployment pipeline failed at the Intecratzion Test stage.",
+  "word_overlap": 0.88,
+  "provider": "deepgram",
+  "model": "nova-3"
+}
