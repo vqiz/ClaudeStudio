@@ -112,6 +112,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
         | "tts.synthesize" | "stt.transcribe" | "stt.transcribe_online" | "voice.run_command"
+        | "voice.detect_wakeword" | "voice.pipeline"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
@@ -1204,6 +1205,8 @@ impl Router {
             "stt.transcribe" => self.stt_transcribe(p),
             "stt.transcribe_online" => self.stt_transcribe_online(p),
             "voice.run_command" => self.voice_run_command(p),
+            "voice.detect_wakeword" => self.voice_detect_wakeword(p),
+            "voice.pipeline" => self.voice_pipeline(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2588,6 +2591,66 @@ impl Router {
             }
         }
         Ok(json!({ "ok": false, "transcript": transcript, "action": "unknown" }))
+    }
+
+    /// Lokale Wakeword-Erkennung via openwakeword (F227): führt das vortrainierte Modell über die
+    /// Audiodatei aus und liefert Score + Trigger-Entscheidung. `script` zeigt auf den
+    /// openwakeword-Python-Helfer (Default: test-harness/lib/oww_detect.py relativ zur library_dir).
+    fn voice_detect_wakeword(&self, p: &Value) -> HandlerResult {
+        let audio = req_str(p, "audio")?;
+        let default_script = self.inner.library_dir.join("test-harness/lib/oww_detect.py");
+        let script = p.get("script").and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| default_script.to_string_lossy().to_string());
+        let python = p.get("python_bin").and_then(Value::as_str).unwrap_or("python3");
+        let out = std::process::Command::new(python)
+            .args([&script, audio])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("openwakeword nicht startbar: {e}")))?;
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(json!({}));
+        let score = v.get("score").and_then(Value::as_f64);
+        if score.is_none() {
+            return Err(IpcFailure::internal(format!(
+                "openwakeword lieferte kein Ergebnis: {}",
+                String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+            )));
+        }
+        Ok(json!({
+            "ok": true, "wakeword": v.get("wakeword"), "score": score,
+            "triggered": v.get("triggered").and_then(Value::as_bool).unwrap_or(false)
+        }))
+    }
+
+    /// Voice-Pipeline End-to-End (F226): Audio → Wakeword (openwakeword) → STT (Whisper.cpp) →
+    /// Intent-Parser. Nur wenn das Wakeword triggert, wird transkribiert und der Intent abgeleitet.
+    /// Liefert das Ergebnis jeder Stufe.
+    fn voice_pipeline(&self, p: &Value) -> HandlerResult {
+        // 1) Wakeword-Gate.
+        let ww = self.voice_detect_wakeword(p)?;
+        let triggered = ww.get("triggered").and_then(Value::as_bool).unwrap_or(false);
+        if !triggered {
+            return Ok(json!({ "ok": true, "stages": ["wakeword"], "gated": true, "wakeword": ww }));
+        }
+        // 2) STT.
+        let audio = req_str(p, "audio")?;
+        let model = req_str(p, "model")?;
+        let bin = p.get("whisper_bin").and_then(Value::as_str).unwrap_or("whisper-cli");
+        let lang = p.get("language").and_then(Value::as_str).unwrap_or("en");
+        let out = std::process::Command::new(bin)
+            .args(["-m", model, "-f", audio, "-nt", "--language", lang])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("whisper-cli nicht startbar: {e}")))?;
+        let transcript = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        // 3) Intent.
+        let intent = parse_voice_intent(&transcript);
+        Ok(json!({
+            "ok": true,
+            "stages": ["wakeword", "stt", "intent"],
+            "gated": false,
+            "wakeword": ww,
+            "transcript": transcript,
+            "intent": intent
+        }))
     }
 
     /// Offline-STT via Whisper.cpp (F229): transkribiert eine lokale Audiodatei (16-kHz-WAV) komplett
@@ -8012,6 +8075,36 @@ fn ocr_image(path: &Path) -> String {
 
 /// Minimaler HTTP-JSON-Aufruf über das System-`curl` (für integrations.github_sync).
 /// Liefert die geparste JSON-Antwort oder `{}` bei Fehler.
+/// Leitet aus einem (transkribierten) Sprachbefehl einen Intent ab (F226/F230/F238): erkennt
+/// "Hintergrundfarbe ändern auf <Farbe>" (→ set_background_color) und "starte/start <Task>"
+/// (→ start_task). Liefert `{ action, ... }`.
+fn parse_voice_intent(transcript: &str) -> Value {
+    let lc = transcript.to_lowercase();
+    let colors = [
+        ("blau", "blue"), ("blue", "blue"), ("rot", "red"), ("red", "red"),
+        ("grün", "green"), ("gruen", "green"), ("green", "green"),
+        ("gelb", "yellow"), ("yellow", "yellow"), ("schwarz", "black"), ("weiß", "white"),
+    ];
+    if (lc.contains("hintergrund") || lc.contains("background")) && lc.contains("farbe")
+        || lc.contains("background color")
+    {
+        if let Some((_, en)) = colors.iter().find(|(de, _)| lc.contains(de)) {
+            return json!({ "action": "set_background_color", "color": en });
+        }
+    }
+    for kw in ["starte ", "startet ", "start ", "führe ", "fuehre ", "run "] {
+        if let Some(idx) = lc.find(kw) {
+            let rest = transcript[idx + kw.len()..].trim()
+                .trim_start_matches("den ").trim_start_matches("die ")
+                .trim_start_matches("the ").trim_end_matches('.').trim();
+            if !rest.is_empty() {
+                return json!({ "action": "start_task", "task": rest });
+            }
+        }
+    }
+    json!({ "action": "unknown" })
+}
+
 fn curl_json(method: &str, url: &str, body: Option<&str>) -> Value {
     let mut args: Vec<String> = vec![
         "-s".into(), "-X".into(), method.into(),

@@ -1,0 +1,21 @@
+{
+  "triggered_run": {
+    "stages": [
+      "wakeword",
+      "stt",
+      "intent"
+    ],
+    "transcript": "Hate Javas change the background color to red.",
+    "intent": {
+      "action": "set_background_color",
+      "color": "red"
+    },
+    "wakeword_score": 0.9844
+  },
+  "gated_run": {
+    "stages": [
+      "wakeword"
+    ],
+    "gated": true
+  }
+}

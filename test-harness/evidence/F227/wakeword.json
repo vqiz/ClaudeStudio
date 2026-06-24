@@ -1,0 +1,14 @@
+{
+  "wakeword_audio": {
+    "ok": true,
+    "score": 0.9979,
+    "triggered": true,
+    "wakeword": "hey_jarvis"
+  },
+  "nonword_audio": {
+    "ok": true,
+    "score": 0.0001,
+    "triggered": false,
+    "wakeword": "hey_jarvis"
+  }
+}
