@@ -578,3 +578,7 @@
   - F250 (echtes GitHub-Issue — kein Token, gh nicht authentifiziert, outward-facing).
   Klick/Drag/Hover/Keystroke/Rechtsklick-Automation bestätigt nicht verfügbar; kein GitHub-Token; kein
   Monaco-Editor. Build gesund: cs-cli 31 + cs-claude 20 Tests grün, swift build clean.
+[SESSION 1] [2026-06-24] [BUILD-108] [PASSING] +1 Push-to-Talk-Modus (F233): voice.pipeline {ptt:true}
+  überspringt das Wakeword-Gate (die Taste IST die Aktivierung) und verarbeitet das Audio direkt STT→Intent
+  ohne Wakeword (→ set_background_color); dasselbe Kommando ohne PTT+ohne Wakeword wird am Gate gestoppt.
+  Fn+Space-Geste durch das ptt-Flag ersetzt (wie alle UI-Gesten); Pipeline-Verhalten verifiziert. batch86.py. 356/360.

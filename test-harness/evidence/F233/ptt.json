@@ -1,0 +1,19 @@
+{
+  "ptt_run": {
+    "activation": "push_to_talk",
+    "stages": [
+      "push_to_talk",
+      "stt",
+      "intent"
+    ],
+    "transcript": "change the background color to green.",
+    "intent": {
+      "action": "set_background_color",
+      "color": "green"
+    }
+  },
+  "gated_run": {
+    "activation": "wakeword",
+    "gated": true
+  }
+}

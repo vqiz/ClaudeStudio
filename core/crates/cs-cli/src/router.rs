@@ -2716,14 +2716,25 @@ impl Router {
 
     /// Voice-Pipeline End-to-End (F226): Audio → Wakeword (openwakeword) → STT (Whisper.cpp) →
     /// Intent-Parser. Nur wenn das Wakeword triggert, wird transkribiert und der Intent abgeleitet.
+    /// Mit `ptt: true` (F233, Push-to-Talk als Alternative zum Wakeword) wird das Wakeword-Gate
+    /// übersprungen — die Taste IST die Aktivierung, das Audio wird direkt verarbeitet.
     /// Liefert das Ergebnis jeder Stufe.
     fn voice_pipeline(&self, p: &Value) -> HandlerResult {
-        // 1) Wakeword-Gate.
-        let ww = self.voice_detect_wakeword(p)?;
-        let triggered = ww.get("triggered").and_then(Value::as_bool).unwrap_or(false);
-        if !triggered {
-            return Ok(json!({ "ok": true, "stages": ["wakeword"], "gated": true, "wakeword": ww }));
-        }
+        let ptt = p.get("ptt").and_then(Value::as_bool).unwrap_or(false);
+        // 1) Aktivierung: Push-to-Talk überspringt das Wakeword-Gate; sonst Wakeword-Erkennung.
+        let ww = if ptt {
+            json!({ "skipped": true, "reason": "push_to_talk" })
+        } else {
+            let w = self.voice_detect_wakeword(p)?;
+            let triggered = w.get("triggered").and_then(Value::as_bool).unwrap_or(false);
+            if !triggered {
+                return Ok(json!({ "ok": true, "stages": ["wakeword"], "gated": true,
+                                  "activation": "wakeword", "wakeword": w }));
+            }
+            w
+        };
+        let activation = if ptt { "push_to_talk" } else { "wakeword" };
+        let _ = &ww;
         // 2) STT.
         let audio = req_str(p, "audio")?;
         let model = req_str(p, "model")?;
@@ -2738,8 +2749,9 @@ impl Router {
         let intent = parse_voice_intent(&transcript);
         Ok(json!({
             "ok": true,
-            "stages": ["wakeword", "stt", "intent"],
+            "stages": [activation, "stt", "intent"],
             "gated": false,
+            "activation": activation,
             "wakeword": ww,
             "transcript": transcript,
             "intent": intent
