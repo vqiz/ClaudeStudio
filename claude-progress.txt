@@ -283,3 +283,7 @@
   F316 code.auto_fix_loop: gebrochener Test (add gibt a-b) -> Schleife (max 5): Tests laufen, bei rot
   repariert der echte claude den QUELLCODE, Tests erneut -> grün nach 3 Schritten. Verifiziert: Quelle
   korrigiert (add(2,3)==5), Testdatei unverändert (nicht entkernt). test-harness/probes/llm_batch2.py. 292/360.
+[SESSION 1] [2026-06-24] [BUILD-53 / LLM-3] [PASSING] +1 Orchestrator-Zerlegung (echter claude):
+  F120 agents.decompose_task: echter claude-Orchestrator zerlegt 'Health-Endpoint zu todo-api' in 4
+  konkrete Subtasks (je mit Titel, aufgabenbezogen), round-robin auf 2 Worker verteilt. JSON aus
+  claude-Freitext robust extrahiert (extract_json_value). test-harness/probes/llm_batch3.py. 293/360.

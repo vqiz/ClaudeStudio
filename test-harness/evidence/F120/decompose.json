@@ -1,0 +1,43 @@
+{
+  "subtask_count": 4,
+  "titles": [
+    "Health-Check-Route implementieren",
+    "Route in die App einbinden",
+    "Automatisierten Test schreiben",
+    "Dokumentation und Verifikation"
+  ],
+  "assignments": [
+    {
+      "subtask": {
+        "description": "Erstelle in der todo-api einen neuen Express-Router bzw. Handler für GET /health. Der Endpoint gibt HTTP 200 mit einem JSON-Body wie {\"status\":\"ok\",\"uptime\":<process.uptime()>,\"timestamp\":<ISO-Zeit>} zurück. Keine Authentifizierung erforderlich, keine DB-Abhängigkeit im Standardpfad.",
+        "id": "st1",
+        "title": "Health-Check-Route implementieren"
+      },
+      "worker": "design-w"
+    },
+    {
+      "subtask": {
+        "description": "Registriere den /health-Handler in der zentralen Express-App (app.js/server.js), sodass er vor Auth- und 404-Middleware greift. Stelle sicher, dass die Route weder bestehende Routen noch Middleware-Reihenfolge anderer Endpoints beeinflusst.",
+        "id": "st2",
+        "title": "Route in die App einbinden"
+      },
+      "worker": "logic-w"
+    },
+    {
+      "subtask": {
+        "description": "Schreibe einen Integrationstest (z.B. mit Jest + supertest), der GET /health aufruft und prüft: Statuscode 200, Content-Type application/json und das Vorhandensein des Felds status mit Wert 'ok'. Test isoliert lauffähig ohne externe DB.",
+        "id": "st3",
+        "title": "Automatisierten Test schreiben"
+      },
+      "worker": "design-w"
+    },
+    {
+      "subtask": {
+        "description": "Ergänze README/API-Doku um den /health-Endpoint und führe die Testsuite (npm test) sowie einen manuellen curl-Aufruf gegen den laufenden Server aus, um Funktion und grünen Testlauf zu bestätigen.",
+        "id": "st4",
+        "title": "Dokumentation und Verifikation"
+      },
+      "worker": "logic-w"
+    }
+  ]
+}

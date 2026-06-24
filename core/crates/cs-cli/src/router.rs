@@ -250,6 +250,48 @@ impl Router {
         }))
     }
 
+    /// Orchestrator-Zerlegung (F120): der echte `claude` (Opus-Orchestrator) zerlegt eine
+    /// Entwicklungsaufgabe in konkrete Subtasks (JSON-Array) und weist sie den Workern
+    /// round-robin zu. Liefert die Subtask-Liste + Zuordnungen.
+    fn agents_decompose_task(&self, p: &Value) -> HandlerResult {
+        let task = req_str(p, "task")?;
+        let workers: Vec<String> = p
+            .get("workers")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|w| w.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let cwd = p
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
+        let prompt = format!(
+            "Du bist der Orchestrator eines Entwickler-Teams. Zerlege die Aufgabe \"{task}\" in 3 bis 6 \
+             konkrete, eigenständige Subtasks. Antworte AUSSCHLIESSLICH mit einem reinen JSON-Array von \
+             Objekten der Form {{\"id\":\"st1\",\"title\":\"...\",\"description\":\"...\"}} — keine \
+             Markdown-Codeblöcke, kein erklärender Text davor oder danach."
+        );
+        let (out, _) = run_claude_agent(&cwd, &prompt);
+        let subtasks = match extract_json_value(&out) {
+            Value::Array(a) => a,
+            _ => Vec::new(),
+        };
+        let assignments: Vec<Value> = subtasks
+            .iter()
+            .enumerate()
+            .map(|(i, st)| {
+                let worker = if workers.is_empty() {
+                    "unassigned".to_string()
+                } else {
+                    workers[i % workers.len()].clone()
+                };
+                json!({ "subtask": st, "worker": worker })
+            })
+            .collect();
+        Ok(json!({ "task": task, "subtasks": subtasks, "subtask_count": subtasks.len(),
+                   "assignments": assignments, "workers": workers }))
+    }
+
     /// Auto-Loop-Agent (F316): führt die Test-Suite aus; solange sie rot ist, lässt es den echten
     /// `claude` den QUELLCODE reparieren und führt die Tests erneut aus — maximal `max_iter`
     /// Runden. Liefert die Iterations-Historie und ob am Ende alles grün ist.
@@ -580,6 +622,7 @@ impl Router {
             "coverage.measure" => self.coverage_measure(p),
             "testing.generate_tests" => self.testing_generate_tests(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
+            "agents.decompose_task" => self.agents_decompose_task(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
@@ -6719,6 +6762,31 @@ fn run_claude_agent(cwd: &str, prompt: &str) -> (String, i32) {
         Ok(o) => (String::from_utf8_lossy(&o.stdout).to_string(), o.status.code().unwrap_or(-1)),
         Err(e) => (format!("claude konnte nicht gestartet werden: {e}"), -1),
     }
+}
+
+/// Extrahiert einen JSON-Wert aus `claude`-Freitext (toleriert Markdown-Fences und
+/// umgebenden Text): versucht den ganzen String, sonst das erste `[..]`-Array bzw.
+/// `{..}`-Objekt. Liefert `null` bei Misserfolg.
+fn extract_json_value(text: &str) -> Value {
+    let t = text.trim();
+    if let Ok(v) = serde_json::from_str::<Value>(t) {
+        return v;
+    }
+    if let (Some(s), Some(e)) = (t.find('['), t.rfind(']')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<Value>(&t[s..=e]) {
+                return v;
+            }
+        }
+    }
+    if let (Some(s), Some(e)) = (t.find('{'), t.rfind('}')) {
+        if e > s {
+            if let Ok(v) = serde_json::from_str::<Value>(&t[s..=e]) {
+                return v;
+            }
+        }
+    }
+    Value::Null
 }
 
 /// POSTet `body` an `url` und liefert nur den HTTP-Statuscode (für slack_command).
