@@ -468,3 +468,7 @@
   - F023 (Drag&Drop), F043 (Card-Klick), F250 (echter GitHub-Token — gh nicht authentifiziert), F359 (WebView).
   Klick/Drag/Hover/Keystroke-Automation bestätigt nicht verfügbar (AX + CGEvent getestet). Build gesund:
   cargo test -p cs-cli 31 passed; swift build clean.
+[SESSION 1] [2026-06-24] [BUILD-91/UI-18] [PASSING] +1 Eingebettete Browser-Preview (F359): neuer WebPreview
+  (echter WKWebView via NSViewRepresentable) lädt eine localhost-Dev-Server-URL und reloadet per Timer
+  (Cache-Bypass = Live-Reload). Verifiziert: WKWebView zeigt localhost-Seite (PREVIEW ALPHA); nach Datei-
+  Änderung am echten http.server erscheint im SELBEN Fenster PREVIEW BRAVO. WebKit verfügbar. ui_batch18.py. 336/360.

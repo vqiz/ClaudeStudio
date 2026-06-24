@@ -114,6 +114,33 @@ struct KPITestView: View {
     }
 }
 
+/// Eingebettete Browser-Vorschau (F359) — `CLAUDESTUDIO_UITEST=webpreview`, URL aus
+/// `CLAUDESTUDIO_PREVIEW_URL`. Bettet den ECHTEN WKWebView (`WebPreview`) ein, der die lokale
+/// Dev-Server-Seite lädt und per Live-Reload aktualisiert. Per OCR der gerenderten Seite nachgewiesen.
+struct WebPreviewTestView: View {
+    private var url: URL {
+        URL(string: ProcessInfo.processInfo.environment["CLAUDESTUDIO_PREVIEW_URL"]
+            ?? "http://127.0.0.1:8000/") ?? URL(string: "about:blank")!
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                Text("Browser Preview").font(.headline)
+                Spacer()
+                Text(url.absoluteString).font(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(.bar)
+            Divider()
+            WebPreview(url: url, reloadInterval: 1.0)
+        }
+        .frame(width: 900, height: 600)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Approval-Flow je Trust-Modus (F143) — `CLAUDESTUDIO_UITEST=approval-ask` (Guarded) bzw.
 /// `approval-auto` (Unleashed). Eine riskante/destruktive Operation (rm -rf) wird über die ECHTE
 /// `TrustMode.requiresApproval(destructive:)`-Logik bewertet: in Guarded erscheint ein Bestätigungs-

@@ -62,6 +62,8 @@ struct ClaudeStudioApp: App {
                 SessionSplitTestView()
             } else if uiTestMode == "context" {
                 ContextBarTestView()
+            } else if uiTestMode == "webpreview" {
+                WebPreviewTestView()
             } else if uiTestMode == "approval-ask" {
                 ApprovalFlowTestView(mode: .guarded)
             } else if uiTestMode == "approval-auto" {
