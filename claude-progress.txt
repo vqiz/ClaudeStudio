@@ -334,3 +334,6 @@
 [SESSION 1] [2026-06-24] [BUILD-65] [PASSING] +1 Responsive-Checker (echtes Playwright): F340
   testing.responsive_check rendert die Seite bei 375/768/1440px (echtes chromium) + prüft
   scrollWidth>clientWidth -> Overflow@375 (1200>375) ja, @1440 nein. test-harness/probes/batch65.py. 308/360.
+[SESSION 1] [2026-06-24] [BUILD-66] [PASSING] +1 Design-Mode Farb-Feedback (echtes Playwright): F338
+  testing.measure_color: nach Code-Farbänderung (#1A73E8) misst der Checker per getComputedStyle am
+  Element rgb(26,115,232) (vorher grau). test-harness/probes/batch66.py. 309/360.

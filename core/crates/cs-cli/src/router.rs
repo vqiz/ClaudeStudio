@@ -94,7 +94,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
-        | "testing.responsive_check" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "testing.responsive_check" | "testing.measure_color"
+        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
@@ -561,6 +562,52 @@ impl Router {
         Ok(json!({ "green": green, "iterations": history.len(), "history": history }))
     }
 
+    /// Design-Mode Farb-Messung (F338): rendert `url` mit echtem chromium und misst die berechnete
+    /// CSS-Farbe (`getComputedStyle`) des Elements `selector` — so wird eine Farbänderung im Code nach
+    /// Reload am Element verifiziert. Liefert die gemessene Farbe als rgb-Tripel.
+    fn testing_measure_color(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let url = req_str(p, "url")?;
+        let selector = req_str(p, "selector")?;
+        let prop = p.get("property").and_then(Value::as_str).unwrap_or("color");
+        let script = format!(
+            "import {{ chromium }} from 'playwright';\n\
+             const browser = await chromium.launch({{ headless: true }});\n\
+             const page = await browser.newPage();\n\
+             await page.goto('{url}');\n\
+             const col = await page.evaluate(() => {{\n\
+               const el = document.querySelector('{selector}');\n\
+               return el ? getComputedStyle(el)['{prop}'] : null;\n\
+             }});\n\
+             await browser.close();\n\
+             console.log(JSON.stringify({{ color: col }}));\n"
+        );
+        let script_path = Path::new(cwd).join("measure_color.mjs");
+        std::fs::write(&script_path, &script).map_err(|e| e.to_string())?;
+        let out = std::process::Command::new("node")
+            .arg("measure_color.mjs")
+            .current_dir(cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("node start: {e}")))?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let parsed = stdout
+            .lines()
+            .rev()
+            .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+            .unwrap_or(Value::Null);
+        let color = parsed.get("color").and_then(Value::as_str).unwrap_or("").to_string();
+        // rgb(r, g, b) parsen
+        let rgb: Vec<i64> = color
+            .trim_start_matches("rgb(")
+            .trim_start_matches("rgba(")
+            .trim_end_matches(')')
+            .split(',')
+            .filter_map(|s| s.trim().parse::<f64>().ok().map(|f| f as i64))
+            .take(3)
+            .collect();
+        Ok(json!({ "selector": selector, "property": prop, "color": color, "rgb": rgb }))
+    }
+
     /// Responsive-Checker (F340): rendert `base_url` mit echtem chromium in mehreren Viewport-Breiten
     /// und meldet horizontalen Overflow (scrollWidth > clientWidth) je Breite. `cwd` braucht playwright.
     fn testing_responsive_check(&self, p: &Value) -> HandlerResult {
@@ -953,6 +1000,7 @@ impl Router {
             "testing.generate_tests" => self.testing_generate_tests(p),
             "testing.e2e_record" => self.testing_e2e_record(p),
             "testing.responsive_check" => self.testing_responsive_check(p),
+            "testing.measure_color" => self.testing_measure_color(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),

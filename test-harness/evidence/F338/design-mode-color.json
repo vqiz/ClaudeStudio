@@ -1,0 +1,22 @@
+{
+  "before": {
+    "color": "rgb(136, 136, 136)",
+    "property": "color",
+    "rgb": [
+      136,
+      136,
+      136
+    ],
+    "selector": "#cta"
+  },
+  "after": {
+    "color": "rgb(26, 115, 232)",
+    "property": "color",
+    "rgb": [
+      26,
+      115,
+      232
+    ],
+    "selector": "#cta"
+  }
+}
