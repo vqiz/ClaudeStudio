@@ -99,7 +99,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
-        | "mcp.call_tool" | "agents.browser_task" => AGENT_HANDLER_TIMEOUT,
+        | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -369,6 +369,52 @@ impl Router {
         Ok(json!({ "original": original, "optimized": optimized,
                    "original_len": original.chars().count(),
                    "optimized_len": optimized.chars().count() }))
+    }
+
+    /// Co-Pilot-Aktion ausführen (F219): der Druck auf einen Aktions-Button einer Vorschlagskarte
+    /// startet sofort den passenden Task/Agenten und protokolliert den Lauf im Event-Log. 'fix_tests'
+    /// lässt den echten `claude` die roten Tests reparieren; 'fix_findings' fährt einen Security-Scan.
+    fn copilot_run_action(&self, p: &Value) -> HandlerResult {
+        let action = req_str(p, "action")?.to_string();
+        let cwd = req_str(p, "cwd")?;
+        let cid = unique_id("cop");
+        let mut log = vec![json!({ "correlation_id": cid, "kind": "copilot_action_started",
+                                   "action": action, "ts": now_millis() })];
+        let mut result = Value::Null;
+        match action.as_str() {
+            "fix_tests" => {
+                let test_cmd = p.get("test_command").and_then(Value::as_str).unwrap_or("node --test");
+                let prompt = format!(
+                    "Die Tests in diesem Projekt schlagen fehl. Führe `{test_cmd}` aus, lies die Fehler \
+                     und repariere ausschließlich den Produktions-Quellcode (nicht die Tests), bis alle \
+                     Tests grün sind. Nutze deine Tools."
+                );
+                run_claude_agent(cwd, &prompt);
+                let exit = std::process::Command::new("sh").arg("-c").arg(test_cmd)
+                    .current_dir(cwd).output().map(|o| o.status.code().unwrap_or(-1)).unwrap_or(-1);
+                result = json!({ "tests_green": exit == 0 });
+                log.push(json!({ "correlation_id": cid, "kind": "agent_result",
+                                 "action": action, "tests_green": exit == 0, "ts": now_millis() }));
+            }
+            "fix_findings" => {
+                let scan = self.security_code_scan(&json!({ "cwd": cwd }))?;
+                result = scan.clone();
+                log.push(json!({ "correlation_id": cid, "kind": "agent_result",
+                                 "action": action, "findings": scan.get("count"), "ts": now_millis() }));
+            }
+            _ => {
+                log.push(json!({ "correlation_id": cid, "kind": "agent_result", "action": action }));
+            }
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
+            .open(self.inner.state_dir.join("event_log.jsonl"))
+        {
+            use std::io::Write;
+            for e in &log {
+                let _ = writeln!(f, "{e}");
+            }
+        }
+        Ok(json!({ "action": action, "correlation_id": cid, "result": result, "log": log }))
     }
 
     /// Kleinunternehmer-Check als PDF-Report (F199): der echte `claude` prüft §19-UStG-Konformität,
@@ -1015,6 +1061,7 @@ impl Router {
             "graph.query_asset" => self.graph_query_asset(p),
             "graph.remember" => self.graph_remember(p),
             "copilot.suggestions" => Ok(copilot_suggestions_payload(p)),
+            "copilot.run_action" => self.copilot_run_action(p),
             "copilot.focus" => Ok(copilot_focus_payload(p)),
             "copilot.config_get" => self.copilot_config_get(),
             "copilot.config_set" => self.copilot_config_set(p),

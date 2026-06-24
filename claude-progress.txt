@@ -327,3 +327,7 @@
 [SESSION 1] [2026-06-24] [BUILD-63] [PASSING] +1 Session-Notiz-Persistenz (echter Core):
   F150 session.set_note/get_note: Notiz zu einer Session in session_notes.json (State-Dir); nach
   App-Neustart (neuer Core-Prozess, gleiches HOME) noch vorhanden. test-harness/probes/batch63.py. 306/360.
+[SESSION 1] [2026-06-24] [BUILD-64] [PASSING] +1 Co-Pilot-Aktion (echter claude): F219 copilot.run_action:
+  Druck auf [Tests reparieren] (action=fix_tests) startet den echten claude-Fix-Agenten -> rote Tests
+  grün; Lauf im Event-Log (copilot_action_started/agent_result, in os.mission_control sichtbar).
+  test-harness/probes/llm_batch15.py. 307/360.

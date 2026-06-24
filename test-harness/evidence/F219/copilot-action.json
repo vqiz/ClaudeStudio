@@ -1,0 +1,21 @@
+{
+  "button": "Tests reparieren",
+  "result": {
+    "tests_green": true
+  },
+  "log": [
+    {
+      "action": "fix_tests",
+      "correlation_id": "cop-1782291002187-0",
+      "kind": "copilot_action_started",
+      "ts": 1782291002187
+    },
+    {
+      "action": "fix_tests",
+      "correlation_id": "cop-1782291002187-0",
+      "kind": "agent_result",
+      "tests_green": true,
+      "ts": 1782291028058
+    }
+  ]
+}
