@@ -441,3 +441,6 @@
   .thinking; TranscriptRow.thinkingView rendert eine kollabierbare DisclosureGroup ("Extended Thinking"). Zu-
   geklappt nur der Button, aufgeklappt der volle Denkprozess. ThinkingSectionTestView. Seam think-collapsed/
   think-expanded. ui_batch14.py. 332/360.
+[SESSION 1] [2026-06-24] [BUILD-88/UI-15] [PASSING] +1 Split-View (F146): neuer SessionSplitView (echter
+  HSplitView) — links Session-Transkript, rechts die aus dem letzten Edit/Write-Tool-Call abgeleitete
+  bearbeitete Datei (src/index.js) READ-ONLY mit Inhalt. SessionSplitTestView. Seam split. ui_batch15.py. 333/360.

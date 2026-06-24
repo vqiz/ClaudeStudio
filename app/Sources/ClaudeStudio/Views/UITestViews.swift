@@ -114,6 +114,39 @@ struct KPITestView: View {
     }
 }
 
+/// Split-View Session + bearbeitete Datei (F146) — `CLAUDESTUDIO_UITEST=split`. Rendert den ECHTEN
+/// SessionSplitView: links die Session (Transkript inkl. Edit-Tool-Call), rechts die abgeleitete
+/// bearbeitete Datei (src/index.js) read-only. Per OCR beider Spalten nachgewiesen.
+struct SessionSplitTestView: View {
+    private var events: [SessionEvent] {
+        [
+            SessionEvent(role: .user, kind: .message("Füge einen DELETE-Endpoint hinzu.")),
+            SessionEvent(role: .assistant, kind: .message("Ich bearbeite die Route-Datei.")),
+            SessionEvent(role: .tool, kind: .toolCall(ToolCall(
+                name: "Edit", input: "src/index.js — DELETE /todos/:id",
+                output: "+6 −0", status: .succeeded))),
+        ]
+    }
+
+    private let content = """
+    const express = require('express');
+    const app = express();
+    let todos = [{ id: 1, title: 'x' }];
+    app.get('/todos', (req, res) => res.json(todos));
+    app.delete('/todos/:id', (req, res) => {
+      todos = todos.filter(t => t.id !== Number(req.params.id));
+      res.status(204).end();
+    });
+    app.listen(3000);
+    """
+
+    var body: some View {
+        SessionSplitView(events: events, fileContent: content)
+            .frame(width: 940, height: 520)
+            .preferredColorScheme(.light)
+    }
+}
+
 /// Extended-Thinking als kollabierbare Sektion (F147) — `CLAUDESTUDIO_UITEST=think-collapsed` bzw.
 /// `think-expanded`. Rendert die ECHTE TranscriptRow für ein `.thinking`-Event: zugeklappt nur der
 /// "Extended Thinking"-Button, aufgeklappt der vollständige Denkprozess. Per OCR/Pixel nachgewiesen.

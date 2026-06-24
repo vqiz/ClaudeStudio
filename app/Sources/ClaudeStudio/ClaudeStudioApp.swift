@@ -58,6 +58,8 @@ struct ClaudeStudioApp: App {
                 DefinitionsSectionTestView(expanded: true)
             } else if uiTestMode == "defs-collapsed" {
                 DefinitionsSectionTestView(expanded: false)
+            } else if uiTestMode == "split" {
+                SessionSplitTestView()
             } else if uiTestMode == "think-collapsed" {
                 ThinkingSectionTestView(expanded: false)
             } else if uiTestMode == "think-expanded" {

@@ -1,0 +1,5 @@
+{
+  "left_ocr": "4 session\n\nwo fiige einen delete-endpoint hinzu.\n+) ich bearbeite die route-datei.\n\n@ > s© edit ok\n",
+  "right_ocr": "b srefindex.js read-only\nconst express = require('express');\nconst app = express();\nlet todos = [{ id: 1, title: 'x' }];\napp.get('/todos', (req, res) => res.json(todos));\napp.delete('/todos/:id', (req, res) => {\ntodos = todos.filter(t => t.",
+  "screen": "test-harness/evidence/F146-split.png"
+}

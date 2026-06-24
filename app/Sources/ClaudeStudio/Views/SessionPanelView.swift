@@ -178,6 +178,59 @@ private struct LiveSessionRow: View {
     }
 }
 
+/// Split-View (F146): links die Session-Transkript-Spalte, rechts die gerade vom Agent bearbeitete
+/// Datei in einer READ-ONLY-Ansicht. Die „bearbeitete Datei" wird aus dem letzten Edit/Write-Tool-Call
+/// der Session abgeleitet. Ein echter `HSplitView` mit verschiebbarem Trenner.
+struct SessionSplitView: View {
+    let events: [SessionEvent]
+    let fileContent: String
+
+    /// Die zuletzt bearbeitete Datei aus den Events (letzter Edit/Write-Tool-Call).
+    var editedFile: String {
+        for event in events.reversed() {
+            if case .toolCall(let call) = event.kind,
+               call.name == "Edit" || call.name == "Write" {
+                // Der Dateiname steht am Anfang des Tool-Inputs (vor " — ").
+                return call.input.components(separatedBy: " — ").first ?? call.input
+            }
+        }
+        return "—"
+    }
+
+    var body: some View {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Session", systemImage: "sparkles").font(.headline)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(events) { TranscriptRow(event: $0) }
+                    }
+                }
+            }
+            .padding(12).frame(minWidth: 260)
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Label(editedFile, systemImage: "doc.text").font(.headline)
+                    Spacer()
+                    Text("read-only")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(.quaternary, in: Capsule())
+                        .foregroundStyle(.secondary)
+                }
+                ScrollView {
+                    Text(fileContent)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(12).frame(minWidth: 260)
+        }
+    }
+}
+
 /// Der Live-Kosten-Footer (F144): zeigt den laufenden USD-Counter (akkumulierte Kosten /
 /// Budget), die Token-Zahl und einen Live-Indikator. Der `CostTracker` summiert die Kosten
 /// JEDER Modell-Antwort (Event), daher steigt der Counter mit jeder Antwort. Eine einzige
