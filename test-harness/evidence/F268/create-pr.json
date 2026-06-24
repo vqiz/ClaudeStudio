@@ -1,0 +1,18 @@
+{
+  "pr_number": 42,
+  "html_url": "https://github.com/acme/todo-api/pull/42",
+  "title": "Add DELETE /todos/:id endpoint",
+  "body_excerpt": "## Änderungen\n\n- Neuer `DELETE /todos/:id` Endpoint zum Löschen eines Todos anhand seiner ID\n- Entfernt das passende Todo aus der Liste per `filter` (ID-Vergleich numerisch via `Number()`)\n- Antwortet mit Status `204 No Content` bei Erfolg",
+  "head": "feat/delete-todo",
+  "base": "main",
+  "commit_count": 1,
+  "server_recorded": {
+    "number": 42,
+    "html_url": "https://github.com/acme/todo-api/pull/42",
+    "title": "Add DELETE /todos/:id endpoint",
+    "body": "## Änderungen\n\n- Neuer `DELETE /todos/:id` Endpoint zum Löschen eines Todos anhand seiner ID\n- Entfernt das passende Todo aus der Liste per `filter` (ID-Vergleich numerisch via `Number()`)\n- Antwortet mit Status `204 No Content` bei Erfolg",
+    "head": "feat/delete-todo",
+    "base": "main",
+    "state": "open"
+  }
+}

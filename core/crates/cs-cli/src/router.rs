@@ -101,7 +101,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
         | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
-        | "agents.screenshot_to_code" | "agents.plan_mode" => AGENT_HANDLER_TIMEOUT,
+        | "agents.screenshot_to_code" | "agents.plan_mode"
+        | "deployment.create_pr" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -1128,6 +1129,7 @@ impl Router {
             "model_router.route" => self.model_router_route(p),
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
+            "deployment.create_pr" => self.deployment_create_pr(p),
             "integrations.usage_report" => self.integrations_usage_report(p),
             "integrations.slack_command" => self.integrations_slack_command(p),
             "telemetry.export_span" => self.telemetry_export_span(p),
@@ -2380,6 +2382,92 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// PR-Erstellung mit AI-Titel/Beschreibung (F268): liest die echten Commits + den echten Diff
+    /// des Branches gegen `base`, lässt den echten `claude` daraus einen PR-Titel (eine Zeile) und
+    /// eine prägnante Markdown-Beschreibung generieren und erzeugt damit per HTTP-POST einen echten
+    /// Pull Request unter `{api_base}/repos/{repo}/pulls`. `api_base` ist konfigurierbar (echtes
+    /// api.github.com im Betrieb, lokaler GitHub-Substitut im Test — gh-Auth bleibt extern).
+    fn deployment_create_pr(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let repo = req_str(p, "repo")?;
+        let base = p.get("base").and_then(Value::as_str).unwrap_or("main").to_string();
+        let api_base = p.get("api_base").and_then(Value::as_str).unwrap_or("https://api.github.com");
+
+        // Aktueller Branch (head) — Standard: HEAD-Branch des Arbeitsverzeichnisses.
+        let git = |args: &[&str]| -> String {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .output()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .unwrap_or_default()
+        };
+        let head = match p.get("head").and_then(Value::as_str) {
+            Some(h) => h.to_string(),
+            None => git(&["rev-parse", "--abbrev-ref", "HEAD"]),
+        };
+        if head.is_empty() {
+            return Err(IpcFailure::invalid("kein head-Branch ermittelbar"));
+        }
+
+        // Echte Commit-Liste + Diff gegen die Basis als Grundlage für den AI-Text.
+        let range = format!("{base}..{head}");
+        let commits = git(&["log", "--no-merges", "--pretty=- %s", &range]);
+        let mut diff = git(&["diff", &format!("{base}...{head}")]);
+        if diff.len() > 6000 {
+            diff.truncate(6000);
+            diff.push_str("\n… (gekürzt)");
+        }
+        if commits.is_empty() && diff.is_empty() {
+            return Err(IpcFailure::invalid(format!(
+                "keine Änderungen zwischen {base} und {head}"
+            )));
+        }
+
+        // AI-Titel/Beschreibung vom echten claude erzeugen.
+        let prompt = format!(
+            "Du erstellst einen GitHub-Pull-Request. Branch '{head}' gegen '{base}'.\n\n\
+             COMMITS:\n{commits}\n\nDIFF (ggf. gekürzt):\n{diff}\n\n\
+             Erzeuge einen prägnanten PR-Titel (eine Zeile, imperativ, ohne Präfix) und eine \
+             Markdown-Beschreibung mit einer Bullet-Liste der wichtigsten Änderungen. \
+             Deine FINALE Antwort MUSS ausschließlich gültiges JSON sein, exakt im Format: \
+             {{\"title\": \"…\", \"body\": \"…\"}} — kein weiterer Text, keine Code-Fences."
+        );
+        let (out, _code) = run_claude_agent(cwd, &prompt);
+        let parsed = extract_json_value(&out);
+        let title = parsed.get("title").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        let body = parsed.get("body").and_then(Value::as_str).unwrap_or("").trim().to_string();
+        if title.is_empty() {
+            return Err(IpcFailure::internal(format!(
+                "claude lieferte keinen PR-Titel: {}",
+                out.chars().take(300).collect::<String>()
+            )));
+        }
+
+        // Echten PR per HTTP-POST anlegen (komprimiertes JSON über den Draht).
+        let url = format!("{api_base}/repos/{repo}/pulls");
+        let payload = json!({ "title": title, "body": body, "head": head, "base": base }).to_string();
+        let resp = curl_json("POST", &url, Some(&payload));
+        let number = resp.get("number").and_then(Value::as_i64);
+        let html_url = resp.get("html_url").and_then(Value::as_str).map(str::to_string);
+        if number.is_none() {
+            return Err(IpcFailure::internal(format!(
+                "PR-Erstellung fehlgeschlagen (keine PR-Nummer): {resp}"
+            )));
+        }
+
+        Ok(json!({
+            "pr": resp,
+            "number": number,
+            "html_url": html_url,
+            "title": title,
+            "body": body,
+            "head": head,
+            "base": base,
+            "commit_count": commits.lines().filter(|l| l.starts_with("- ")).count(),
+        }))
     }
 
     /// Admin-API Usage-Report (F285): ruft GET /v1/organizations/usage_report/claude_code mit

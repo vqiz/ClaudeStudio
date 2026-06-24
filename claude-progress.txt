@@ -346,3 +346,7 @@
 [SESSION 1] [2026-06-24] [BUILD-69] [PASSING] +1 Sauberer Stopp (Session-Panel): F141 — session.stop
   terminiert den (Stub-)Subprozess, das Panel erhält ein 'stopped'-Event, der Status wechselt auf
   beendet (completed-Run-Event) und es fließen keine weiteren Stream-Events. test-harness/probes/batch69.py. 312/360.
+[SESSION 1] [2026-06-24] [BUILD-70] [PASSING] +1 PR mit AI-Titel/Beschreibung: F268 deployment.create_pr
+  erhebt die echten Commits + den echten Diff eines Feature-Branches, lässt den echten claude daraus
+  Titel + Markdown-Beschreibung generieren und legt per echtem HTTP-POST an {api_base}/repos/:repo/pulls
+  einen PR an (GitHub-API als lokaler Substitut, gh-Auth extern). test-harness/probes/batch70.py. 313/360.
