@@ -413,3 +413,6 @@
   in allen vier Zuständen über das echte VoiceController.VoiceState.micColor-Mapping — idle grau, listening
   grün, thinking orange, speaking blau, je per Pixelfarbe verifiziert. Seams mic-thinking/mic-speaking (idle/
   listening aus F030). KEIN Mikrofon nötig (reines Status-Rendering). ui_batch8.py. 325/360.
+[SESSION 1] [2026-06-24] [BUILD-81] [PASSING] +1 Offline-TTS (F232): AVSpeechSynthesizer (dieselbe Engine
+  wie VoiceController.speak()) synthetisiert via .write() echte PCM-Sprachaudio offline — DE 67103 Frames/
+  peak 0.83, EN 49575/0.87, kein Netz/Mikrofon. Swift-Harness test-harness/lib/ttsprobe.swift. batch75.py. 326/360.

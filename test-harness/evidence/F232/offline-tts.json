@@ -1,0 +1,19 @@
+{
+  "de": {
+    "frames": 67103,
+    "peak": 0.82662964,
+    "bytes": 272508,
+    "done": true
+  },
+  "en": {
+    "frames": 49575,
+    "peak": 0.8695679,
+    "bytes": 202396,
+    "done": true
+  },
+  "engine": "AVSpeechSynthesizer.write (offline)",
+  "audio_files": [
+    "test-harness/evidence/F232/tts_de.caf",
+    "test-harness/evidence/F232/tts_en.caf"
+  ]
+}
