@@ -1,0 +1,22 @@
+{
+  "labels_detected": [
+    "sessions",
+    "kosten",
+    "features",
+    "agenten"
+  ],
+  "values_detected": [
+    "5",
+    "314",
+    "1,20",
+    "aktive=2"
+  ],
+  "green_arrow_pixels": 848,
+  "delta_sign_seen": true,
+  "ocr_excerpt": "@ © @ Claudestudio\nSessions heute Kosten heute Features passing Aktive Agenten\n5 1,220USD 314 2\nB42 4 +0,40 +4 D +1\n",
+  "image_size": [
+    1320,
+    860
+  ],
+  "screenshot": "test-harness/evidence/F016-kpi.png"
+}

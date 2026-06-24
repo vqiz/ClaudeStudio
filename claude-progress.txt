@@ -355,3 +355,8 @@
   Komponenten-Code (HTML/CSS) erzeugen; im Browser übernimmt die Komponente Layout, Texte ('Mein
   Dashboard'/'Umsatz heute'/'Aktualisieren') und Akzentfarbe #1A73E8. Figma-MCP als lokaler stdio-
   Substitut, Token extern. test-harness/probes/batch71.py. 314/360.
+[SESSION 1] [2026-06-24] [BUILD-72/UI-3] [PASSING] +1 KPI-Karten-Reihe (F016): KPITestView rendert vier
+  Metriken (Sessions heute 5/+2, Kosten heute 1,20 USD/+0,40, Features passing 314/+4, aktive Agenten
+  2/+1) als Karten mit großem Wert + grünem Delta-Aufwärts-Pfeil; KpiMetric berechnet Wert/Delta/Richtung
+  aus Heute/Gestern-Rohwerten. Verifiziert per fenster-gezieltem Screenshot + OCR (alle 4 Labels+Werte)
+  + Pixel (848px grüne Pfeile). Seam CLAUDESTUDIO_UITEST=kpi. test-harness/probes/ui_batch3.py. 315/360.

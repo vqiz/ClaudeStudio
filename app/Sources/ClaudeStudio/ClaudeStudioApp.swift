@@ -34,6 +34,8 @@ struct ClaudeStudioApp: App {
                 ChartTestView()
             } else if uiTestMode == "grid" {
                 GridTestView(width: uiTestWidth)
+            } else if uiTestMode == "kpi" {
+                KPITestView()
             } else {
                 RootView()
                     .environment(appState)
