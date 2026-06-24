@@ -340,3 +340,6 @@
 [SESSION 1] [2026-06-24] [BUILD-67 / VISION] [PASSING] +1 Screenshot-to-Code (echter claude Vision +
   Playwright): F336 agents.screenshot_to_code: claude liest einen UI-Screenshot (Vision) + generiert
   index.html; gerendert (file://) enthält Header + Karte + Button. test-harness/probes/llm_batch17.py. 310/360.
+[SESSION 1] [2026-06-24] [BUILD-68] [PASSING] +1 Plan-Mode (echter claude): F138 agents.plan_mode lässt
+  den echten claude im (lese-only) Plan-Modus einen strukturierten Umsetzungsplan erzeugen (10 nummerierte
+  Schritte für 'DELETE-Endpoint', nichts ausgeführt). test-harness/probes/llm_batch18.py. 311/360.

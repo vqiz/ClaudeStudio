@@ -1,0 +1,14 @@
+{
+  "step_count": 10,
+  "steps": [
+    "1. Öffne `index.js` im Projektverzeichnis (`/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f138-z2q4xinq/index.js`) als zu ändernde Datei; die aktuelle App ist ein Express-Server mit dem In-Memory-Array `todos = [{id:1,title:'x'}]` und nur einer Route `app.get('/todos', ...)`.",
+    "2. Füge nach der bestehenden Zeile `app.get('/todos', (req,res)=>res.json(todos));` (Zeile 4) und vor `app.listen(3000);` (Zeile 5) einen neuen DELETE-Handler ein.",
+    "3. Implementiere den Handler als `app.delete('/todos/:id', (req,res)=> { ... });`, der den Pfad-Parameter `req.params.id` mit `Number(...)` (bzw. `parseInt(req.params.id, 10)`) in eine Zahl umwandelt, da die Array-`id` numerisch ist.",
+    "4. Suche im Handler den Index des Todos via `const i = todos.findIndex(t => t.id === id);`.",
+    "5. Behandle den Nicht-gefunden-Fall: Falls `i === -1`, antworte mit Status 404 (`res.status(404).json({error:'not found'})`).",
+    "6. Behandle den Erfolgsfall: Entferne das Element mit `todos.splice(i, 1)` und antworte mit Status 204 (`res.status(204).end()`) oder gib das gelöschte Todo als JSON zurück.",
+    "7. Stelle sicher, dass die JSON-Antwort kompakt über die Leitung geht (Express `res.json` serialisiert ohne Pretty-Print-Whitespace — keine zusätzliche Formatierung hinzufügen).",
+    "8. Speichere `index.js` und prüfe, dass keine andere Funktion betroffen ist (GET-Route und `app.listen(3000)` bleiben unverändert)."
+  ],
+  "plan_excerpt": "1. Öffne `index.js` im Projektverzeichnis (`/private/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-f138-z2q4xinq/index.js`) als zu ändernde Datei; die aktuelle App ist ein Express-Server mit dem In-Memory-Array `todos = [{id:1,title:'x'}]` und nur einer Route `app.get('/todos', ...)`.\n\n2. Füge nach der bestehenden Zeile `app.get('/todos', (req,res)=>res.json(todos));` (Zeile 4) und vor `app.listen(3000);` (Zeile 5) einen neuen DELETE-Handler ein.\n\n3. Implementiere den Handler als `app.delet"
+}

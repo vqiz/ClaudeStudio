@@ -101,7 +101,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
         | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
-        | "agents.screenshot_to_code" => AGENT_HANDLER_TIMEOUT,
+        | "agents.screenshot_to_code" | "agents.plan_mode" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -503,6 +503,43 @@ impl Router {
         let (out, _) = run_claude_agent(cwd, &prompt);
         let report = extract_json_value(&out);
         Ok(json!({ "kind": kind, "report": report }))
+    }
+
+    /// Plan-Mode-Visualizer (F138): der echte `claude` läuft im Plan-Modus (`--permission-mode plan`,
+    /// führt nichts aus) und liefert einen strukturierten Plan; der Visualizer zeigt ihn als Liste.
+    /// Liefert den Plan-Text + die erkannten Schritte.
+    fn agents_plan_mode(&self, p: &Value) -> HandlerResult {
+        let task = req_str(p, "task")?;
+        let cwd = p.get("cwd").and_then(Value::as_str).map(String::from)
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
+        let binary = std::env::var("CLAUDESTUDIO_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+        let prompt = format!(
+            "Du bist im PLAN-MODUS: du darfst das Projekt nur ansehen (Read/Glob/Grep), aber NICHTS \
+             ausführen oder ändern. Erstelle einen konkreten, schrittweisen Umsetzungsplan für die \
+             Aufgabe: \"{task}\". Deine FINALE Antwort MUSS ausschließlich der vollständige Plan als \
+             nummerierte Liste konkreter Schritte sein (1., 2., 3., ...) — keine Zusammenfassung, kein \
+             einleitender oder abschließender Fließtext."
+        );
+        // Nur Lese-Tools -> faktischer Plan-Modus (keine Ausführung), Plan steht im --print-Output.
+        let out = std::process::Command::new(&binary)
+            .args(["--print", "--output-format", "text",
+                   "--allowedTools", "Read,Glob,Grep",
+                   "--permission-mode", "bypassPermissions", &prompt])
+            .current_dir(&cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("claude konnte nicht gestartet werden: {e}")))?;
+        let plan = String::from_utf8_lossy(&out.stdout).to_string();
+        let steps: Vec<String> = plan
+            .lines()
+            .map(str::trim)
+            .filter(|l| {
+                l.starts_with("- ") || l.starts_with("* ")
+                    || l.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+                        && (l.contains('.') || l.contains(')'))
+            })
+            .map(str::to_string)
+            .collect();
+        Ok(json!({ "ok": out.status.success(), "plan": plan, "steps": steps, "step_count": steps.len() }))
     }
 
     /// Orchestrator-Zerlegung (F120): der echte `claude` (Opus-Orchestrator) zerlegt eine
@@ -1026,6 +1063,7 @@ impl Router {
             "testing.measure_color" => self.testing_measure_color(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
+            "agents.plan_mode" => self.agents_plan_mode(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
             "agents.browser_task" => self.agents_browser_task(p),
             "agents.screenshot_to_code" => self.agents_screenshot_to_code(p),
