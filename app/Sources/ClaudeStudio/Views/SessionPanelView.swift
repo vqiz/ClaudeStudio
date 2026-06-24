@@ -257,7 +257,20 @@ struct TranscriptRow: View {
         DisclosureGroup(isExpanded: $expanded) {
             VStack(alignment: .leading, spacing: 6) {
                 labeled("Input", call.input)
-                if let output = call.output { labeled("Output", output) }
+                // F149: Tool-Output strukturiert — stdout (JSON ggf. eingerückt) und Exit-Code getrennt.
+                if let output = call.formattedOutput {
+                    labeled(call.exitCode != nil ? "stdout" : "Output", output)
+                }
+                if let code = call.exitCode {
+                    HStack(spacing: 6) {
+                        Text("exit code").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("\(code)")
+                            .font(.system(.caption, design: .monospaced).weight(.bold))
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background((code == 0 ? Color.green : Color.red).opacity(0.16), in: Capsule())
+                            .foregroundStyle(code == 0 ? .green : .red)
+                    }
+                }
             }
             .padding(.top, 4)
         } label: {

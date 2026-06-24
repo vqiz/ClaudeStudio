@@ -429,3 +429,7 @@
   eigene View extrahiert (SessionPanelView nutzt sie weiter). Der echte CostTracker summiert 0,012 USD je
   Antwort-Event; CostCounterTestView zeigt $0.024 (2 Antworten) → $0.072 (6 Antworten) — Counter steigt
   nach jeder Modell-Antwort. Seam cost-step1/cost-step2. ui_batch11.py. 329/360.
+[SESSION 1] [2026-06-24] [BUILD-85/UI-12] [PASSING] +1 Strukturierter Tool-Output (F149): ToolCall um exitCode
+  + formattedOutput (JSON pretty-print) erweitert; toolCallView zeigt stdout und Exit-Code GETRENNT (Badge)
+  und JSON eingerückt statt Rohtext. ToolOutputTestView: Bash → stdout+exit 0, Read → formatiertes JSON.
+  Seam tooloutput. ui_batch12.py. 330/360.

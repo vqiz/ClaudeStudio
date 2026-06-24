@@ -58,13 +58,33 @@ struct ToolCall: Identifiable, Hashable, Sendable {
     var input: String
     var output: String?
     var status: Status
+    /// Exit-Code einer Shell-Ausführung (F149): wird im Panel getrennt vom stdout angezeigt.
+    var exitCode: Int?
 
-    init(id: UUID = UUID(), name: String, input: String, output: String? = nil, status: Status = .running) {
+    init(id: UUID = UUID(), name: String, input: String, output: String? = nil,
+         status: Status = .running, exitCode: Int? = nil) {
         self.id = id
         self.name = name
         self.input = input
         self.output = output
         self.status = status
+        self.exitCode = exitCode
+    }
+
+    /// Falls `output` gültiges JSON ist, hübsch eingerückt zurückgeben (F149: JSON strukturiert
+    /// statt Rohtext); sonst der Originaltext.
+    var formattedOutput: String? {
+        guard let output else { return nil }
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.first == "{" || trimmed.first == "[",
+              let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data),
+              let pretty = try? JSONSerialization.data(withJSONObject: obj,
+                                                       options: [.prettyPrinted, .sortedKeys]),
+              let str = String(data: pretty, encoding: .utf8) else {
+            return output
+        }
+        return str
     }
 }
 

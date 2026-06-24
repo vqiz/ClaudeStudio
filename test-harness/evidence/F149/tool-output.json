@@ -1,0 +1,11 @@
+{
+  "ocr": "0 v & bash ok\ninput\nnpm test\nstdout\npass test/todos.test.js\ntests: 4 passed, 4 total\nexitcode @\nf v & read ok\ninput\npackage.json\noutput\n{\n\"name\" : \"todo-api\",\n\"scripts\" : {\n\"test\" : \"jest\"\n},\n\"version\" : \"1.0.0\"\n}\n",
+  "json_keys_seen": [
+    "name",
+    "version",
+    "scripts",
+    "todo-api",
+    "jest"
+  ],
+  "screen": "test-harness/evidence/F149-tooloutput.png"
+}

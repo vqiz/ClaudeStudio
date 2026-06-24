@@ -114,6 +114,40 @@ struct KPITestView: View {
     }
 }
 
+/// Strukturierter Tool-Output (F149) — `CLAUDESTUDIO_UITEST=tooloutput`. Rendert die ECHTEN
+/// TranscriptRow-Karten (aufgeklappt) für (a) eine Shell-Ausführung, deren stdout und Exit-Code
+/// GETRENNT angezeigt werden, und (b) ein JSON-Resultat, das eingerückt (geparst) statt als
+/// Rohtext erscheint — beides strukturiert, nicht als Rohtext.
+struct ToolOutputTestView: View {
+    private var events: [SessionEvent] {
+        [
+            SessionEvent(role: .tool, kind: .toolCall(ToolCall(
+                name: "Bash", input: "npm test",
+                output: "PASS  test/todos.test.js\nTests: 4 passed, 4 total",
+                status: .succeeded, exitCode: 0))),
+            SessionEvent(role: .tool, kind: .toolCall(ToolCall(
+                name: "Read", input: "package.json",
+                output: "{\"name\":\"todo-api\",\"version\":\"1.0.0\",\"scripts\":{\"test\":\"jest\"}}",
+                status: .succeeded))),
+        ]
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(events) { e in
+                    TranscriptRow(event: e, initiallyExpanded: true)
+                }
+            }
+            .padding(20)
+            .frame(width: 560, alignment: .leading)
+        }
+        .frame(width: 600, height: 480, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Live-Kosten-Counter (F144) — `CLAUDESTUDIO_UITEST=cost-step1` bzw. `cost-step2`. Seedet eine
 /// AgentSession mit unterschiedlich vielen Antwort-Events; der ECHTE CostTracker summiert die
 /// Kosten jeder Antwort, sodass der USD-Counter zwischen den Schritten steigt. Gerendert wird der

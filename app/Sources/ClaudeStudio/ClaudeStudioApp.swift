@@ -58,6 +58,8 @@ struct ClaudeStudioApp: App {
                 DefinitionsSectionTestView(expanded: true)
             } else if uiTestMode == "defs-collapsed" {
                 DefinitionsSectionTestView(expanded: false)
+            } else if uiTestMode == "tooloutput" {
+                ToolOutputTestView()
             } else if uiTestMode == "cost-step1" {
                 CostCounterTestView(responses: 2)
             } else if uiTestMode == "cost-step2" {
