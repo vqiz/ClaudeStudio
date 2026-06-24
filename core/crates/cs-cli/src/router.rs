@@ -110,7 +110,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
-        | "testing.responsive_check" | "testing.measure_color"
+        | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
@@ -1196,6 +1196,7 @@ impl Router {
             "model_router.route" => self.model_router_route(p),
             "models.compare" => self.models_compare(p),
             "integrations.github_sync" => self.integrations_github_sync(p),
+            "embedding.embed" => self.embedding_embed(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2452,6 +2453,59 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// Lokales Embedding über einen Embedding-Service (F166: nomic-embed-text → 768-dim) mit
+    /// optionalem Fallback auf OpenAI text-embedding-3-small (F167), wenn der lokale Dienst nicht
+    /// erreichbar ist. `nomic_url`/`openai_url` sind konfigurierbar (echter Dienst im Betrieb;
+    /// im Test echtes lokales nomic-embed-text bzw. OpenAI-Format-Substitut). `provider` ∈
+    /// {"nomic","openai","auto"}: bei "auto" wird zuerst nomic versucht und bei Misserfolg
+    /// transparent auf OpenAI umgeschaltet (`fallback: true`).
+    fn embedding_embed(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let provider = p.get("provider").and_then(Value::as_str).unwrap_or("auto");
+        let nomic_url = p.get("nomic_url").and_then(Value::as_str);
+        let openai_url = p.get("openai_url").and_then(Value::as_str);
+
+        // 1) Lokales nomic-embed-text bevorzugen (außer provider == "openai").
+        if provider != "openai" {
+            if let Some(url) = nomic_url {
+                let body = json!({ "text": text, "model": "nomic-embed-text" }).to_string();
+                let resp = curl_json("POST", url, Some(&body));
+                if let Some(vec) = resp.get("embedding").and_then(Value::as_array) {
+                    if !vec.is_empty() {
+                        return Ok(json!({
+                            "provider_used": "nomic", "model": "nomic-embed-text",
+                            "dim": vec.len(), "embedding": vec, "fallback": false
+                        }));
+                    }
+                }
+                if provider == "nomic" {
+                    return Err(IpcFailure::internal(
+                        "nomic-embed-text-Dienst nicht erreichbar / kein Vektor",
+                    ));
+                }
+            } else if provider == "nomic" {
+                return Err(IpcFailure::invalid("provider=nomic erfordert nomic_url"));
+            }
+        }
+
+        // 2) Fallback: OpenAI text-embedding-3-small (OpenAI-Antwortformat: data[0].embedding).
+        if let Some(url) = openai_url {
+            let body = json!({ "input": text, "model": "text-embedding-3-small" }).to_string();
+            let resp = curl_json("POST", url, Some(&body));
+            if let Some(vec) = resp.pointer("/data/0/embedding").and_then(Value::as_array) {
+                if !vec.is_empty() {
+                    return Ok(json!({
+                        "provider_used": "openai", "model": "text-embedding-3-small",
+                        "dim": vec.len(), "embedding": vec, "fallback": provider == "auto"
+                    }));
+                }
+            }
+        }
+        Err(IpcFailure::internal(
+            "kein Embedding-Provider lieferte ein Ergebnis (nomic + OpenAI fehlgeschlagen)",
+        ))
     }
 
     /// PR-Erstellung mit AI-Titel/Beschreibung (F268): liest die echten Commits + den echten Diff

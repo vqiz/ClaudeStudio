@@ -1,0 +1,6 @@
+{
+  "provider_used": "openai",
+  "fallback": true,
+  "dim": 1536,
+  "model": "text-embedding-3-small"
+}

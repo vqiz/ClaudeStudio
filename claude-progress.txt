@@ -374,3 +374,8 @@
   das ECHTE AppTheme.save()/.load() (UserDefaults) + .themedChrome() (Fensterhintergrund + colorScheme).
   Nachweis per Helligkeit: Light lum=253 → Dark lum=36; nach App-NEUSTART ohne erneutes Setzen weiterhin
   lum=36 (Auswahl persistiert). Seam CLAUDESTUDIO_UITEST=theme + CLAUDESTUDIO_THEME. ui_batch5.py. 319/360.
+[SESSION 1] [2026-06-24] [BUILD-76] [PASSING] +2 Embedding-Provider: F166 embedding.embed bindet ein
+  ECHTES nomic-embed-text (transformers+torch, 768-dim) über einen Embedding-Endpoint ein — 768-dim
+  Vektor + Semantik (verwandt 0.694 > unverwandt 0.437). F167 provider=auto fällt bei totem nomic_url
+  transparent auf OpenAI text-embedding-3-small (1536-dim, OpenAI-Antwortformat) zurück (fallback=true).
+  nomic_url/openai_url konfigurierbar; OpenAI-Endpoint Format-Substitut. test-harness/probes/batch73.py. 321/360.

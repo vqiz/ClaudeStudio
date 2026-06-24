@@ -1,0 +1,22 @@
+{
+  "model": "all-MiniLM-L6-v2",
+  "actual_dim": 384,
+  "nonzero_floats": 384,
+  "vector_head": [
+    0.00820068921893835,
+    0.131308913230896,
+    0.05451945587992668,
+    0.006485919468104839,
+    -0.004706645850092173,
+    0.020581288263201714,
+    0.008414056152105331,
+    -0.03183548524975777
+  ],
+  "config_vector": {
+    "collection": "claudestudio",
+    "dimensions": 1536,
+    "qdrant_url": null,
+    "top_k": 8
+  },
+  "note": "Der echte neuronale Embedder ist all-MiniLM-L6-v2 mit 384 Dimensionen. nomic-embed-text/768 ist im Core NICHT implementiert; 768 gilt nur fuer den HashEmbedder-Fallback."
+}

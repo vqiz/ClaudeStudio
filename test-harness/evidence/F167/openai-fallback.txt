@@ -1,0 +1,5 @@
+Suche nach OpenAI-Embedding-Fallback im echten Core-Quellcode:
+grep -rni 'openai' core/crates  -> (0 Treffer)
+grep -rni 'fallback=openai' core -> (0 Treffer)
+
+Der tatsaechliche Fallback ist der dependency-freie HashEmbedder (Tag 'hash-768', siehe core/crates/cs-cli/src/embedding.rs), NICHT OpenAI text-embedding-3-small.
