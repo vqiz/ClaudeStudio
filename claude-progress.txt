@@ -535,3 +535,8 @@
   transkribiert das deutsche `say`-Audio mit echtem Whisper.cpp (multilingual) und parst den Intent
   ('Ändere die Hintergrundfarbe auf blau' → set_background_color=blue). Die App wendet die erkannte Farbe
   sichtbar an (BackgroundColorTestView, 100% blau). Echte Kette say→STT→Intent→UI. Seam bgcolor. ui_batch24.py. 347/360.
+[SESSION 1] [2026-06-24] [BUILD-102] [PASSING] +1 Voice-Aktion startet Task (F238): voice.run_command parst
+  aus dem deutschen `say`-Audio (echtes Whisper.cpp) den Start-Intent ('Starte den ...' → start_task) und
+  schreibt ein voice_task_started-Event ins Event-Log (echte Ausführungs-Auslösung, im Log verifiziert).
+  Tasktext durch die deutsche Aussprache von 'Check' STT-bedingt leicht verfremdet — Mechanismus echt.
+  test-harness/probes/batch80.py. 348/360.

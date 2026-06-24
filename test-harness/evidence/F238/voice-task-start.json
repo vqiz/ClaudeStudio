@@ -1,0 +1,12 @@
+{
+  "transcript": "Startet den Steuertschick.",
+  "action": "start_task",
+  "task": "Steuertschick",
+  "executed": true,
+  "event_log_entry": {
+    "kind": "voice_task_started",
+    "task": "Steuertschick",
+    "transcript": "Startet den Steuertschick.",
+    "ts": 1782301193634
+  }
+}

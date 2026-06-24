@@ -2565,15 +2565,24 @@ impl Router {
             }
         }
         // Intent: Task starten.
-        for kw in ["starte ", "start ", "führe ", "fuehre ", "run "] {
+        for kw in ["starte ", "startet ", "start ", "führe ", "fuehre ", "run "] {
             if let Some(idx) = lc.find(kw) {
                 let rest = transcript[idx + kw.len()..].trim()
                     .trim_start_matches("den ").trim_start_matches("die ")
                     .trim_start_matches("the ").trim_end_matches('.').trim();
                 if !rest.is_empty() {
+                    // Echte Ausführung anstoßen: ein Task-Start-Event in das Event-Log schreiben.
+                    let event = json!({ "kind": "voice_task_started", "task": rest,
+                                        "transcript": transcript, "ts": now_millis() });
+                    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
+                        .open(self.inner.state_dir.join("event_log.jsonl"))
+                    {
+                        use std::io::Write;
+                        let _ = writeln!(f, "{event}");
+                    }
                     return Ok(json!({
                         "ok": true, "transcript": transcript,
-                        "action": "start_task", "task": rest, "executed": true
+                        "action": "start_task", "task": rest, "executed": true, "event": event
                     }));
                 }
             }
