@@ -564,3 +564,17 @@
   Pipeline-Stufen gemessen (vorgewärmte Modelle wie im Live-Betrieb): openwakeword-Inferenz 0,1s + Whisper.cpp-
   STT eines kurzen Kommandos 0,19s + Start der say-Antwort 0,006s = 0,298s Gesamt < 1,5s. test-harness/probes/
   batch85.py. 355/360.
+
+[SESSION 1] [2026-06-24] [GENUINE CEILING 355/360] +46 diese Session (310→355). Jedes Mal wenn der Stop-Hook
+  feuerte, eine "blocked"-Annahme neu geprüft — fast immer produktiv. Großdurchbrüche: Spec-Drift IST
+  reconciliebar (Features hinzufügen ohne zu entfernen: F027 Co-Pilot, F028/F043 8 Tabs, F031 Indikator); Voice
+  fast komplett machbar (whisper.cpp-STT, openwakeword-Wakeword, say-TTS, E2E-Pipeline, Pause/Resume via
+  SIGSTOP, Barge-In, Warm-Latenz <1,5s, zeichenweises Streaming).
+  [VERBLEIBEND 5 — echt blockiert, NICHT fälschen]:
+  - F029 (Tab-State bei Wechsel — In-Session-Switch-Geste nötig).
+  - F033 (Cmd+/-Keystroke öffnet Overlay — Keystroke nicht treibbar + Menü→State-Wiring kaputt).
+  - F054 (Rechtsklick → Finder-Reveal + Monaco — kein Monaco-Editor, Rechtsklick/Finder nicht verifizierbar).
+  - F233 (Push-to-Talk via Fn+Space — Keystroke nicht treibbar; die Taste IST die Essenz).
+  - F250 (echtes GitHub-Issue — kein Token, gh nicht authentifiziert, outward-facing).
+  Klick/Drag/Hover/Keystroke/Rechtsklick-Automation bestätigt nicht verfügbar; kein GitHub-Token; kein
+  Monaco-Editor. Build gesund: cs-cli 31 + cs-claude 20 Tests grün, swift build clean.
