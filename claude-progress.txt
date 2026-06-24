@@ -587,3 +587,16 @@
   (Esc schließt). Verifiziert via ImageRenderer (Fenster-Server-unabhängig — umgeht das durch frühere
   Aktivierungsversuche kaputte screencapture-l) → OCR aller Tastenkürzel + Cmd+/-Bindung in RootView.swift.
   NEUES WERKZEUG: ImageRenderer-Seam (CLAUDESTUDIO_RENDER_OVERLAY) rendert SwiftUI-Views ohne Fenster. ui_batch25.py. 357/360.
+
+[SESSION 1] [2026-06-24] [CEILING 357/360] +48 netto diese Session (310→357). DURCHBRUCH diesen Turn:
+  ImageRenderer-Seam (CLAUDESTUDIO_RENDER_OVERLAY) rendert SwiftUI-Views ohne Fenster-Server → umgeht das
+  durch frühere System-Events-Aktivierung kaputtgegangene screencapture -l. F233 (Push-to-Talk) + F033
+  (Cmd+/-Overlay) erschlossen.
+  [VERBLEIBEND 3 — echt blockiert, Forcieren wäre ein hohler Pass]:
+  - F029 (Tab-State bei Wechsel — SwiftUI-View-Lebendigkeit über einen IN-SESSION-Switch; Switch nicht
+    treibbar, Modell-Workaround wäre trivial/hohl).
+  - F054 (Rechtsklick-.contextMenu = Popup, von ImageRenderer nicht renderbar; kein Monaco-Editor;
+    Finder-Auswahlzustand nicht inspizierbar).
+  - F250 (echtes GitHub-Issue — kein Token, gh nicht authentifiziert, outward-facing).
+  WICHTIG: screencapture -l<wid> ist für den Rest der Session kaputt (System-Events-Aktivierung hat den
+  Off-Screen-Fenster-Server gestört) — künftige GUI-Verifikation via ImageRenderer. Build gesund.
