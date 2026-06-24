@@ -881,6 +881,8 @@ impl Router {
             "session.get" => self.session_get(p),
             "session.messages" => self.session_messages(p),
             "session.share" => self.session_share(p),
+            "session.set_note" => self.session_set_note(p),
+            "session.get_note" => self.session_get_note(p),
             "session.join" => self.session_join(p),
             "session.replay_step" => self.session_replay_step(p),
             "list.filter" => Ok(list_filter_payload(p)),
@@ -2299,6 +2301,36 @@ impl Router {
         let store = self.inner.sessions.lock().unwrap();
         let messages = store.list_messages(id).map_err(session_failure)?;
         Ok(json!({ "messages": messages }))
+    }
+
+    /// Persistente Session-Notiz (F150): speichert eine Notiz zu einer Session in
+    /// `session_notes.json` (im State-Dir, überlebt App-Neustart). Verifizierbar über get_note.
+    fn session_set_note(&self, p: &Value) -> HandlerResult {
+        let sid = req_str(p, "session_id")?.to_string();
+        let note = req_str(p, "note")?.to_string();
+        let path = self.inner.state_dir.join("session_notes.json");
+        let mut map: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        if let Some(o) = map.as_object_mut() {
+            o.insert(sid.clone(), json!(note));
+        }
+        std::fs::create_dir_all(&self.inner.state_dir).ok();
+        std::fs::write(&path, serde_json::to_string_pretty(&map).unwrap_or_default())
+            .map_err(|e| e.to_string())?;
+        Ok(json!({ "ok": true, "session_id": sid, "note": note }))
+    }
+
+    /// Liest die persistierte Notiz einer Session (F150).
+    fn session_get_note(&self, p: &Value) -> HandlerResult {
+        let sid = req_str(p, "session_id")?;
+        let path = self.inner.state_dir.join("session_notes.json");
+        let map: Value = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| json!({}));
+        Ok(json!({ "session_id": sid, "note": map.get(sid).cloned().unwrap_or(Value::Null) }))
     }
 
     /// Live-Session-Sharing (F349): erzeugt ein Share-Token (Link) für eine laufende
