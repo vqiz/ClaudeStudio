@@ -1,0 +1,21 @@
+{
+  "green": true,
+  "iterations": 3,
+  "history": [
+    {
+      "exit": 1,
+      "iteration": 0,
+      "phase": "test"
+    },
+    {
+      "iteration": 0,
+      "phase": "fix"
+    },
+    {
+      "exit": 0,
+      "iteration": 1,
+      "phase": "test"
+    }
+  ],
+  "test_unchanged": true
+}

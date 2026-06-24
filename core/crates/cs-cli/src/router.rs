@@ -250,6 +250,44 @@ impl Router {
         }))
     }
 
+    /// Auto-Loop-Agent (F316): führt die Test-Suite aus; solange sie rot ist, lässt es den echten
+    /// `claude` den QUELLCODE reparieren und führt die Tests erneut aus — maximal `max_iter`
+    /// Runden. Liefert die Iterations-Historie und ob am Ende alles grün ist.
+    fn code_auto_fix_loop(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let test_cmd = req_str(p, "test_command")?;
+        let max_iter = p.get("max_iter").and_then(Value::as_u64).unwrap_or(5) as usize;
+        let run_tests = || -> i32 {
+            std::process::Command::new("sh")
+                .arg("-c").arg(test_cmd).current_dir(cwd).output()
+                .map(|o| o.status.code().unwrap_or(-1)).unwrap_or(-1)
+        };
+        let mut history = Vec::new();
+        let mut green = false;
+        for i in 0..max_iter {
+            let exit = run_tests();
+            history.push(json!({ "iteration": i, "phase": "test", "exit": exit }));
+            if exit == 0 {
+                green = true;
+                break;
+            }
+            let prompt = format!(
+                "Die Tests in diesem Projekt schlagen fehl. Führe `{test_cmd}` aus, lies die \
+                 Fehlermeldungen und korrigiere ausschließlich den PRODUKTIONS-Quellcode (NICHT die \
+                 Testdateien), bis alle Tests grün sind. Führe die Tests am Ende erneut aus, um es zu \
+                 bestätigen. Nutze deine Tools."
+            );
+            let (_log, _exit) = run_claude_agent(cwd, &prompt);
+            history.push(json!({ "iteration": i, "phase": "fix" }));
+        }
+        if !green {
+            let exit = run_tests(); // finaler Check nach der letzten Fix-Runde
+            green = exit == 0;
+            history.push(json!({ "iteration": max_iter, "phase": "final_test", "exit": exit }));
+        }
+        Ok(json!({ "green": green, "iterations": history.len(), "history": history }))
+    }
+
     /// Test-Generierungs-Agent (F321): lässt den echten `claude` autonom Unit-Tests für die
     /// Zieldatei schreiben (Write/Bash/Read-Tools, bypass-Permissions) und ausführen. Gibt die
     /// erzeugten Testdateien + das Agenten-Log zurück; der Probe verifiziert grün + Coverage.
@@ -541,6 +579,7 @@ impl Router {
             "worktree.status" => self.worktree_status(p),
             "coverage.measure" => self.coverage_measure(p),
             "testing.generate_tests" => self.testing_generate_tests(p),
+            "code.auto_fix_loop" => self.code_auto_fix_loop(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
