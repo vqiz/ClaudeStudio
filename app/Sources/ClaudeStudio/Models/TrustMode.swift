@@ -78,4 +78,16 @@ enum TrustMode: String, CaseIterable, Identifiable, Codable, Sendable {
         default: return nil
         }
     }
+
+    /// Ob eine Operation der gegebenen Risikostufe in diesem Modus eine menschliche Bestätigung
+    /// erfordert (F143-Approval-Flow). Entspricht der dokumentierten Modus-Semantik (`blurb`):
+    /// Read-Only fragt bei JEDER Operation, Guarded nur bei riskanten/destruktiven, Autonomous/
+    /// Unleashed laufen ohne Rückfrage.
+    func requiresApproval(destructive: Bool) -> Bool {
+        switch self {
+        case .readOnly: return true
+        case .guarded: return destructive
+        case .autonomous, .unleashed: return false
+        }
+    }
 }

@@ -448,3 +448,7 @@
   ContextBar-View — proportionaler Token-Balken + Liste der geladenen Kontext-Blöcke (Dateien/Tools/Memory)
   mit Token-Zahlen. ContextBarTestView: index.js 1200 / README 800 / Notizen 300 / Bash 60 / Read 40 =
   2400 tokens. Seam context. ui_batch16.py. 334/360.
+[SESSION 1] [2026-06-24] [BUILD-90/UI-17] [PASSING] +1 Approval-Flow je Trust-Modus (F143): echte
+  TrustMode.requiresApproval(destructive:) — Read-Only fragt immer, Guarded nur bei destruktiven Ops,
+  Autonomous/Unleashed nie. ApprovalFlowTestView: Guarded legt 'rm -rf build/' mit Approve/Deny-Prompt vor,
+  Unleashed führt ohne Rückfrage aus. Seam approval-ask/approval-auto. ui_batch17.py. 335/360.

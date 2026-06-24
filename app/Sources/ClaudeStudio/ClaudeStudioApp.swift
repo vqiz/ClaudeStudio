@@ -62,6 +62,10 @@ struct ClaudeStudioApp: App {
                 SessionSplitTestView()
             } else if uiTestMode == "context" {
                 ContextBarTestView()
+            } else if uiTestMode == "approval-ask" {
+                ApprovalFlowTestView(mode: .guarded)
+            } else if uiTestMode == "approval-auto" {
+                ApprovalFlowTestView(mode: .unleashed)
             } else if uiTestMode == "think-collapsed" {
                 ThinkingSectionTestView(expanded: false)
             } else if uiTestMode == "think-expanded" {

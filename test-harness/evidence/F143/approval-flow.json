@@ -1,0 +1,8 @@
+{
+  "guarded_ocr": "© guarded trust-modus\nbash: rm -rf build/\nw approval required — riskante operation wartet auf bestatigung\napprove deny\n",
+  "unleashed_ocr": "® unleashed trust-mmodus\nbash: rm -rf build/\n@ auto-approved — ohne riickfrage ausgefiihrt (succeeded)\n",
+  "screens": [
+    "test-harness/evidence/F143-ask.png",
+    "test-harness/evidence/F143-auto.png"
+  ]
+}

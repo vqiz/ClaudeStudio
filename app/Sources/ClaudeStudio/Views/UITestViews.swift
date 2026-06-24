@@ -114,6 +114,59 @@ struct KPITestView: View {
     }
 }
 
+/// Approval-Flow je Trust-Modus (F143) — `CLAUDESTUDIO_UITEST=approval-ask` (Guarded) bzw.
+/// `approval-auto` (Unleashed). Eine riskante/destruktive Operation (rm -rf) wird über die ECHTE
+/// `TrustMode.requiresApproval(destructive:)`-Logik bewertet: in Guarded erscheint ein Bestätigungs-
+/// Prompt (Approve/Deny), in Unleashed läuft sie ohne Rückfrage. Per OCR nachgewiesen.
+struct ApprovalFlowTestView: View {
+    let mode: TrustMode
+    private let command = "Bash: rm -rf build/"
+
+    var body: some View {
+        let needsApproval = mode.requiresApproval(destructive: true)
+        return ZStack(alignment: .top) {
+            Color.white
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Label(mode.label, systemImage: mode.symbol).foregroundStyle(mode.tint)
+                    Text("Trust-Modus").font(.caption).foregroundStyle(.secondary)
+                }
+                .font(.headline)
+
+                Text(command).font(.system(.body, design: .monospaced))
+
+                if needsApproval {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Approval required — riskante Operation wartet auf Bestätigung",
+                              systemImage: "hand.raised.fill")
+                            .foregroundStyle(.orange).font(.callout.weight(.semibold))
+                        HStack(spacing: 10) {
+                            Text("Approve").padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.green.opacity(0.18), in: Capsule()).foregroundStyle(.green)
+                            Text("Deny").padding(.horizontal, 12).padding(.vertical, 5)
+                                .background(.red.opacity(0.18), in: Capsule()).foregroundStyle(.red)
+                        }
+                        .font(.callout.weight(.semibold))
+                    }
+                    .padding(12)
+                    .background(.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                } else {
+                    Label("Auto-approved — ohne Rückfrage ausgeführt (succeeded)",
+                          systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green).font(.callout.weight(.semibold))
+                        .padding(12)
+                        .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+                }
+                Spacer()
+            }
+            .padding(24)
+            .frame(width: 520, alignment: .leading)
+        }
+        .frame(width: 560, height: 320, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Active-Context-Bar (F145) — `CLAUDESTUDIO_UITEST=context`. Rendert den ECHTEN ContextBar mit
 /// geseedeten Kontext-Blöcken (Dateien + Tools + Memory) und ihren Token-Anteilen. Per OCR
 /// nachgewiesen (Blocknamen + Token-Zahlen + Gesamtsumme).
