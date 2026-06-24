@@ -1,0 +1,3 @@
+{
+  "output_tail": "Ausgeführt. Exaktes Ergebnis:\n\n```\nSKILL_F241_OK\nsumme=42\n```\n\nBeide Zeilen wie erwartet — der Marker `SKILL_F241_OK` wurde ausgegeben und die Summe `19 + 23` korrekt zu `42` berechnet. Exit-Code 0.\n"
+}

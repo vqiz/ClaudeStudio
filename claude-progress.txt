@@ -291,3 +291,7 @@
   F215 tasks.test_run führt den Task-Prompt mit claude --output-format json aus -> echte API-Usage
   (input/output_tokens) + duration_ms. Verifiziert: 13480 Tokens (13245 in / 235 out), 7351ms, echtes
   Ergebnis. test-harness/probes/llm_batch4.py. 294/360.
+[SESSION 1] [2026-06-24] [BUILD-55 / LLM-5] [PASSING] +3 echter claude: F241 skills.test (echtes
+  Shell-Kommando ausgeführt: SKILL_F241_OK, summe=42); F347 prompts.optimize (schwacher Prompt 19->2278
+  Zeichen, konkreter mit Format/Akzeptanzkriterien); F201 compliance.check kind=impressum (Website-Fixture
+  ohne Impressum -> 11 Findings, compliant=False). test-harness/probes/llm_batch5.py. 297/360.

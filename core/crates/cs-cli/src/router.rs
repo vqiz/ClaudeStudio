@@ -97,7 +97,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
-        | "refactoring.migrate_component" | "tasks.test_run" => AGENT_HANDLER_TIMEOUT,
+        | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
+        | "prompts.optimize" | "compliance.check" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -277,6 +278,64 @@ impl Router {
             "cost_usd": v.get("total_cost_usd").cloned().unwrap_or(json!(0)),
             "duration_ms": v.get("duration_ms").cloned().unwrap_or(json!(0)),
         }))
+    }
+
+    /// Skill direkt testen (F241): der echte `claude` befolgt die Skill-Anweisungen und führt die
+    /// enthaltenen Shell-Kommandos wirklich aus (Bash-Tool); das echte Ausführungsergebnis wird
+    /// zurückgegeben — wie der Test-Button im Skill-Editor.
+    fn skills_test(&self, p: &Value) -> HandlerResult {
+        let body = req_str(p, "body")?;
+        let cwd = p.get("cwd").and_then(Value::as_str).map(String::from)
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
+        let prompt = format!(
+            "Du testest ein ClaudeStudio-Skill. Befolge die folgenden Skill-Anweisungen exakt und führe \
+             die enthaltenen Shell-Kommandos WIRKLICH aus (nutze das Bash-Tool). Berichte danach das \
+             exakte Ausführungsergebnis.\n\n--- SKILL ---\n{body}"
+        );
+        let (out, exit) = run_claude_agent(&cwd, &prompt);
+        Ok(json!({ "ok": exit == 0, "output": out }))
+    }
+
+    /// Prompt-Optimizer (F347): der echte `claude` verbessert einen schwachen Prompt (konkreter,
+    /// mit Kontext/Format/Akzeptanzkriterien). Liefert Original + optimierte Variante.
+    fn prompts_optimize(&self, p: &Value) -> HandlerResult {
+        let original = req_str(p, "prompt")?;
+        let cwd = std::env::temp_dir().to_string_lossy().to_string();
+        let meta = format!(
+            "Du bist ein Prompt-Optimizer für ein Coding-Agenten-Tool. Verbessere den folgenden schwachen \
+             Prompt deutlich: mache ihn konkret, ergänze Kontext, das gewünschte Ausgabeformat und klare \
+             Akzeptanzkriterien (z.B. Tests). Antworte AUSSCHLIESSLICH mit dem optimierten Prompt — kein \
+             Vorwort, keine Erklärung.\n\nSCHWACHER PROMPT:\n{original}"
+        );
+        let (out, _) = run_claude_agent(&cwd, &meta);
+        let optimized = out.trim().to_string();
+        Ok(json!({ "original": original, "optimized": optimized,
+                   "original_len": original.chars().count(),
+                   "optimized_len": optimized.chars().count() }))
+    }
+
+    /// Compliance-Analyse (F199-F202): der echte `claude` analysiert das Projekt (Read/Grep/Glob)
+    /// auf einen rechtlichen Aspekt und liefert ein strukturiertes Findings-JSON.
+    fn compliance_check(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let kind = req_str(p, "kind")?;
+        let focus = match kind {
+            "impressum" => "ein vollständiges Impressum nach §5 DDG/TMG, eine Datenschutzerklärung und AGB",
+            "dsgvo" => "DSGVO-Datenschutzprobleme (personenbezogene Daten ohne Einwilligung, fehlende Datenschutzerklärung, Tracking ohne Consent)",
+            "kleinunternehmer" => "Kleinunternehmer-Konformität nach §19 UStG (z.B. ob Rechnungen korrekt OHNE Umsatzsteuer mit §19-Hinweis ausgewiesen werden)",
+            "reverse_charge" => "Reverse-Charge-Behandlung bei EU-B2B-Rechnungen (Steuerschuldnerschaft des Leistungsempfängers)",
+            _ => "rechtliche Pflichtangaben",
+        };
+        let prompt = format!(
+            "Analysiere ALLE relevanten Dateien im aktuellen Projektverzeichnis (nutze Glob/Grep/Read) auf \
+             {focus}. Liste jedes konkrete Problem oder Fehlen als Finding. Antworte AUSSCHLIESSLICH mit \
+             einem reinen JSON-Objekt der Form {{\"findings\":[{{\"issue\":\"...\",\"file\":\"...\",\
+             \"severity\":\"low|medium|high\"}}],\"summary\":\"...\",\"compliant\":true|false}} — kein \
+             Markdown, kein weiterer Text."
+        );
+        let (out, _) = run_claude_agent(cwd, &prompt);
+        let report = extract_json_value(&out);
+        Ok(json!({ "kind": kind, "report": report }))
     }
 
     /// Orchestrator-Zerlegung (F120): der echte `claude` (Opus-Orchestrator) zerlegt eine
@@ -653,6 +712,9 @@ impl Router {
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
             "tasks.test_run" => self.tasks_test_run(p),
+            "skills.test" => self.skills_test(p),
+            "prompts.optimize" => self.prompts_optimize(p),
+            "compliance.check" => self.compliance_check(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),

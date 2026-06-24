@@ -1,0 +1,61 @@
+{
+  "compliant": false,
+  "findings": [
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Kein Impressum vorhanden: Es existiert keine Datei (z.B. impressum.html) und keine Sektion mit den nach §5 DDG/TMG vorgeschriebenen Pflichtangaben (Name/Firma, Anschrift, vertretungsberechtigte Person, Kontakt). Bei einem gewerblichen Shop besteht Impressumspflicht.",
+      "severity": "high"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine Anbieterkennzeichnung: Name und ladungsfähige Anschrift (Straße, PLZ, Ort) des Betreibers fehlen vollständig.",
+      "severity": "high"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine schnelle elektronische Kontaktmöglichkeit angegeben (E-Mail-Adresse und Telefonnummer), wie von §5 Abs.1 Nr.2 DDG gefordert.",
+      "severity": "high"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine Angabe zur Umsatzsteuer-Identifikationsnummer (§5 Abs.1 Nr.6 DDG), sofern vorhanden, sowie ggf. Handelsregister und Registernummer.",
+      "severity": "medium"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Kein Hinweis auf die EU-Plattform zur Online-Streitbeilegung (OS-Plattform) und keine Angabe zur Verbraucherstreitbeilegung (§36 VSBG), bei einem Online-Shop erforderlich.",
+      "severity": "medium"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine Datenschutzerklärung vorhanden: Es fehlt eine Datei/Seite mit den nach Art.13 DSGVO erforderlichen Informationen (Verantwortlicher, Zwecke, Rechtsgrundlagen, Speicherdauer, Betroffenenrechte, Beschwerderecht).",
+      "severity": "high"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine AGB (Allgemeine Geschäftsbedingungen) vorhanden, obwohl es sich um einen Shop mit Produktverkauf handelt; Regelungen zu Vertragsschluss, Preisen, Zahlung, Lieferung fehlen.",
+      "severity": "high"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine Widerrufsbelehrung und kein Muster-Widerrufsformular für Verbraucher (§312g, §355 BGB / Art.246a EGBGB), bei einem Online-Shop verpflichtend.",
+      "severity": "high"
+    },
+    {
+      "file": "index.html",
+      "issue": "Keine Verlinkung zu Impressum, Datenschutzerklärung oder AGB im Seitenkopf/-fuß; die Pflichtseiten müssen von jeder Seite leicht erkennbar und unmittelbar erreichbar sein.",
+      "severity": "high"
+    },
+    {
+      "file": "about.html",
+      "issue": "Die Seite 'Über uns' enthält keinerlei Anbieterangaben und ersetzt kein Impressum; sie ist inhaltlich leer.",
+      "severity": "medium"
+    },
+    {
+      "file": "(fehlt im Projekt)",
+      "issue": "Keine Cookie-/Consent-Information bzw. Einwilligungsmechanismus erkennbar (§25 TDDDG); bei Einsatz nicht notwendiger Cookies/Tracking erforderlich.",
+      "severity": "low"
+    }
+  ],
+  "summary": "Das Projekt besteht nur aus zwei minimalen HTML-Dateien (index.html, about.html) und enthält keinerlei rechtliche Pflichtseiten. Es fehlen vollständig ein §5-DDG/TMG-konformes Impressum, eine DSGVO-Datenschutzerklärung sowie AGB inklusive Widerrufsbelehrung. Für einen gewerblichen Online-Shop ist die Seite damit nicht rechtskonform; es besteht erhebliches Abmahnrisiko."
+}
