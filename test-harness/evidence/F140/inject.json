@@ -1,0 +1,15 @@
+{
+  "inject": {
+    "during_pause": true,
+    "injected": true,
+    "message": "Bitte zusätzlich die Tests ausführen.",
+    "ok": true,
+    "queued_for_session": "a30cb843-70fc-4722-b324-e92c2bbd9611"
+  },
+  "event_log_entry": {
+    "kind": "voice_injected_message",
+    "message": "Bitte zusätzlich die Tests ausführen.",
+    "session_id": "a30cb843-70fc-4722-b324-e92c2bbd9611",
+    "ts": 1782301952233
+  }
+}

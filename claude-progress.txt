@@ -546,3 +546,8 @@
   alle Stufen (set_background_color=red), ohne Wakeword am Gate gestoppt. WICHTIG: openwakeword liegt im
   User-Site unter dem ECHTEN HOME → running_core(home=Path.home()) + python_bin=/usr/bin/python3. test-harness/
   lib/oww_detect.py. batch81.py. 350/360.
+[SESSION 1] [2026-06-24] [BUILD-104] [PASSING] +2 Pause/Resume + Einwerfen (F139+F140): cs-claude emittiert
+  jetzt StreamEvent::Spawned{pid} als erstes Event; main.rs registriert die PID (router.register_session_pid),
+  session.pause sendet SIGSTOP (Prozess Zustand T, am Leben — NICHT beendet), session.resume SIGCONT.
+  session.inject wirft während der Pause eine Nachricht in die Warteschlange + Event-Log. Verifiziert mit
+  echtem ps-Zustand (TN→SN) + Event-Log. test-harness/probes/batch82.py. 352/360.

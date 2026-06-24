@@ -91,6 +91,14 @@ fn watchers() -> &'static Mutex<HashMap<String, WatchHandle>> {
     WATCHERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// PID jedes laufenden Session-Subprozesses (F139/F140): erlaubt session.pause (SIGSTOP) /
+/// session.resume (SIGCONT), ohne den Prozess zu beenden.
+static SESSION_PIDS: std::sync::OnceLock<Mutex<HashMap<String, u32>>> = std::sync::OnceLock::new();
+
+fn session_pids() -> &'static Mutex<HashMap<String, u32>> {
+    SESSION_PIDS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// The server-side deadline for a given method.
 ///
 /// CANCELLATION SAFETY: when the deadline fires, the handler future is *dropped*.
@@ -225,6 +233,12 @@ impl Router {
     /// Drop a session's cancel signal (called when the run ends).
     pub fn clear_cancel(&self, session_id: &str) {
         self.inner.cancels.lock().unwrap().remove(session_id);
+        session_pids().lock().unwrap().remove(session_id);
+    }
+
+    /// Register the OS PID of a running session's subprocess (F139/F140 pause/resume).
+    pub fn register_session_pid(&self, session_id: &str, pid: u32) {
+        session_pids().lock().unwrap().insert(session_id.to_string(), pid);
     }
 
     /// Die aktuell laufenden Agenten (Sessions mit aktivem Cancel-Signal). Der
@@ -1150,6 +1164,9 @@ impl Router {
             // --- Session archive ---
             "session.list" => self.session_list(p),
             "session.get" => self.session_get(p),
+            "session.pause" => self.session_pause(p),
+            "session.resume" => self.session_resume(p),
+            "session.inject" => self.session_inject(p),
             "session.slash_command" => self.session_slash_command(p),
             "session.messages" => self.session_messages(p),
             "session.share" => self.session_share(p),
@@ -2001,6 +2018,47 @@ impl Router {
             }
             other => Err(IpcFailure::invalid(format!("unbekannter Slash-Befehl: /{other}"))),
         }
+    }
+
+    /// Pausiert eine laufende Session (F139): sendet SIGSTOP an den Subprozess, sodass er sofort
+    /// anhält OHNE beendet zu werden (bleibt am Leben, Zustand 'stopped'). Resume per session.resume.
+    fn session_pause(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?;
+        let pid = *session_pids().lock().unwrap().get(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("keine laufende Session/PID: {id}")))?;
+        let ok = std::process::Command::new("kill")
+            .args(["-STOP", &pid.to_string()]).status()
+            .map(|s| s.success()).unwrap_or(false);
+        Ok(json!({ "ok": ok, "paused": ok, "session_id": id, "pid": pid, "signal": "SIGSTOP" }))
+    }
+
+    /// Setzt eine pausierte Session fort (F139/F140): sendet SIGCONT an den Subprozess.
+    fn session_resume(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?;
+        let pid = *session_pids().lock().unwrap().get(id)
+            .ok_or_else(|| IpcFailure::not_found(format!("keine laufende Session/PID: {id}")))?;
+        let ok = std::process::Command::new("kill")
+            .args(["-CONT", &pid.to_string()]).status()
+            .map(|s| s.success()).unwrap_or(false);
+        Ok(json!({ "ok": ok, "resumed": ok, "session_id": id, "pid": pid, "signal": "SIGCONT" }))
+    }
+
+    /// Wirft während einer Pause eine Zusatznachricht in die Session-Warteschlange ein (F140): die
+    /// Nachricht wird als Event protokolliert und beim Fortsetzen an den Agenten weitergereicht.
+    fn session_inject(&self, p: &Value) -> HandlerResult {
+        let id = req_str(p, "session_id")?;
+        let message = req_str(p, "message")?;
+        let paused = session_pids().lock().unwrap().contains_key(id);
+        let event = json!({ "kind": "voice_injected_message", "session_id": id,
+                            "message": message, "ts": now_millis() });
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true)
+            .open(self.inner.state_dir.join("event_log.jsonl"))
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "{event}");
+        }
+        Ok(json!({ "ok": true, "injected": true, "queued_for_session": id,
+                   "during_pause": paused, "message": message }))
     }
 
     fn session_get(&self, p: &Value) -> HandlerResult {

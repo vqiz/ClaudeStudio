@@ -1,0 +1,20 @@
+{
+  "pid": 34127,
+  "spawned_pid": 34127,
+  "state_after_pause": "TN",
+  "state_after_resume": "SN",
+  "pause": {
+    "ok": true,
+    "paused": true,
+    "pid": 34127,
+    "session_id": "a30cb843-70fc-4722-b324-e92c2bbd9611",
+    "signal": "SIGSTOP"
+  },
+  "resume": {
+    "ok": true,
+    "pid": 34127,
+    "resumed": true,
+    "session_id": "a30cb843-70fc-4722-b324-e92c2bbd9611",
+    "signal": "SIGCONT"
+  }
+}

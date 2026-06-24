@@ -359,6 +359,9 @@ async fn handle_connection(stream: UnixStream, router: Router) -> anyhow::Result
 /// Map a [`StreamEvent`] to a tagged JSON object for the `session.event` frame.
 fn stream_event_to_json(event: &StreamEvent) -> serde_json::Value {
     match event {
+        StreamEvent::Spawned { pid } => {
+            serde_json::json!({ "kind": "spawned", "pid": pid })
+        }
         StreamEvent::AssistantText(text) => {
             serde_json::json!({ "kind": "assistant_text", "text": text })
         }
@@ -447,6 +450,11 @@ fn spawn_claude_forwarder(
 
         while let Some(event) = stream.next().await {
             match &event {
+                StreamEvent::Spawned { pid } => {
+                    // PID registrieren, damit session.pause/resume den Prozess (SIGSTOP/SIGCONT)
+                    // anhalten/fortsetzen kann, ohne ihn zu beenden (F139/F140).
+                    router.register_session_pid(&session_id, *pid);
+                }
                 StreamEvent::AssistantText(text) => {
                     // `record_message` embeds inline; offload it so the slow neural
                     // pass runs on the blocking pool instead of the executor thread.

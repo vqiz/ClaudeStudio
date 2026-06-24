@@ -243,6 +243,12 @@ fn prepare_database_mcp() -> Option<(String, Vec<String>)> {
 /// A single parsed event from the `claude --output-format stream-json` stream.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum StreamEvent {
+    /// The child process was spawned — carries its OS PID so the session can be
+    /// paused (SIGSTOP) / resumed (SIGCONT) without terminating it (F139/F140).
+    Spawned {
+        /// The OS process id of the spawned `claude` (or stub) process.
+        pid: u32,
+    },
     /// Assistant produced some text (a complete message block).
     AssistantText(String),
     /// An incremental chunk of the assistant's text, streamed as it's produced
@@ -581,6 +587,7 @@ impl ClaudeSession {
             command.current_dir(dir);
         }
         let mut child = command.spawn().map_err(|e| Error::Spawn(e.to_string()))?;
+        let pid = child.id().unwrap_or(0);
 
         let stdout = child.stdout.take().ok_or(Error::NoStdout)?;
         let stderr = child.stderr.take();
@@ -635,10 +642,14 @@ impl ClaudeSession {
         })
         .filter_map(|event| async move { event });
 
+        // Den Spawned-Event (mit PID) zuerst senden, damit der Aufrufer den Prozess pausieren kann.
+        let head = futures::stream::once(async move { StreamEvent::Spawned { pid } });
         Ok(Box::pin(
-            lines
-                .flat_map(|line| futures::stream::iter(parse_stream_line(&line)))
-                .chain(tail),
+            head.chain(
+                lines
+                    .flat_map(|line| futures::stream::iter(parse_stream_line(&line)))
+                    .chain(tail),
+            ),
         ))
     }
 }
