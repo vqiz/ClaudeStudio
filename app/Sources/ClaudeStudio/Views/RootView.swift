@@ -29,6 +29,8 @@ struct RootView: View {
     @ViewBuilder
     private var detailColumn: some View {
         switch appState.selectedSidebarItem ?? .projects {
+        case .coPilot:
+            CoPilotView()
         case .projects:
             ProjectsView()
         case .osView:
@@ -251,6 +253,11 @@ struct SidebarView: View {
         List(selection: $selection) {
             Section("Workspace") {
                 ForEach(SidebarItem.workspace) { item in
+                    Label(item.title, systemImage: item.symbol).tag(item)
+                }
+            }
+            Section("Tools") {
+                ForEach(SidebarItem.tools) { item in
                     Label(item.title, systemImage: item.symbol).tag(item)
                 }
             }

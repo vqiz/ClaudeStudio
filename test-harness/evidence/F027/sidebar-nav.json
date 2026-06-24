@@ -1,0 +1,20 @@
+{
+  "sidebar_entries_found": [
+    "co-pilot",
+    "projects",
+    "os view",
+    "brain view",
+    "archive",
+    "task library",
+    "voice log",
+    "settings"
+  ],
+  "detail_copilot": "*\nco-pilot\ninline-ki-assistent — beschreibe eine aufgabe, der co-pilot handelt\nwas soll der co-pilot tun?\nk. b. , behebe",
+  "detail_osview": ".\nos view\n45 sessions - live from core\n© running now (i) events\n4 sessions fe projects\n4 sonnet 4 sonnet oo\nantworte nur",
+  "detail_archive": "*\narchive 70 (28b)) cop al\n45 sessions - live from core\n@& total sessions\n© in 28d window © resumable @& projects\noll se",
+  "screens": [
+    "test-harness/evidence/F027-copilot.png",
+    "test-harness/evidence/F027-osview.png",
+    "test-harness/evidence/F027-archive.png"
+  ]
+}

@@ -506,3 +506,9 @@
   - CREDENTIAL (1): F250 (echtes GitHub-Issue, kein Token, outward-facing).
   Build gesund: cargo test -p cs-cli 31 passed; swift build clean. Klick/Drag/Hover/Keystroke/Rechtsklick-
   Automation bestätigt nicht verfügbar; Mikrofon-Hardware nicht verfügbar; kein GitHub-Token.
+[SESSION 1] [2026-06-24] [BUILD-96/UI-21] [PASSING] +1 Sidebar 8 Haupteinträge + Co-Pilot (F027): neue
+  CoPilotView (exponiert copilot.run_action) + SidebarItem.coPilot hinzugefügt; Workspace-Sektion auf die 8
+  Spec-Haupteinträge gebracht (Co-Pilot, Projects, OS View, Brain View, Archive, Task Library, Voice Log,
+  Settings), Extras (MCP/Extensions/Hooks) in neue Tools-Sektion verschoben (nichts entfernt). Am ECHTEN
+  RootView verifiziert: 8/8 Einträge + Navigation (CLAUDESTUDIO_SIDEBAR-Seam → Co-Pilot/OS-View/Archive
+  Detail-Titel stimmt). ui_batch21.py. 341/360.

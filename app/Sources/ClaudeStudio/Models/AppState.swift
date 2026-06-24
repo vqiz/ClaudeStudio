@@ -4,6 +4,7 @@ import ClaudeStudioKit
 
 /// Top-level navigation destinations surfaced in the sidebar.
 enum SidebarItem: Hashable, Identifiable, CaseIterable {
+    case coPilot
     case projects
     case osView
     case brainView
@@ -23,6 +24,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
 
     var title: String {
         switch self {
+        case .coPilot: return "Co-Pilot"
         case .projects: return "Projects"
         case .osView: return "OS View"
         case .brainView: return "Brain View"
@@ -41,6 +43,7 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
 
     var symbol: String {
         switch self {
+        case .coPilot: return "wand.and.stars"
         case .projects: return "folder.badge.gearshape"
         case .osView: return "rectangle.3.group"
         case .brainView: return "brain"
@@ -57,8 +60,16 @@ enum SidebarItem: Hashable, Identifiable, CaseIterable {
         }
     }
 
-    /// Items shown in the primary navigation section.
+    /// Die acht Haupteinträge der primären Navigation (F027).
     static let workspace: [SidebarItem] = [
+        .coPilot, .projects, .osView, .brainView, .archive, .taskLibrary, .voiceLog, .settings
+    ]
+
+    /// Werkzeug-Einträge (weiterhin erreichbar, aber sekundär zu den acht Haupteinträgen).
+    static let tools: [SidebarItem] = [.mcp, .extensions, .hooks]
+
+    /// (alt) frühere Flachliste — bleibt ungenutzt, ersetzt durch `workspace` + `tools`.
+    static let workspaceLegacy: [SidebarItem] = [
         .projects, .osView, .brainView, .archive, .taskLibrary, .mcp, .extensions, .hooks, .voiceLog, .settings
     ]
 
@@ -127,6 +138,12 @@ final class AppState {
 
     init() {
         self.selectedProjectID = projectStore.projects.first?.id
+        // Headless-UITest-Seam (F027): die ausgewählte Sidebar-Sektion per Env vorgeben, damit jeder
+        // Navigations-Zustand (Klick-Effekt) deterministisch gerendert werden kann.
+        if let raw = ProcessInfo.processInfo.environment["CLAUDESTUDIO_SIDEBAR"],
+           let item = SidebarItem.allCases.first(where: { "\($0)" == raw }) {
+            self.selectedSidebarItem = item
+        }
         let session = AgentSession(
             title: "Refactor IPC framing",
             projectName: "claude-studio",
