@@ -280,6 +280,28 @@ impl Router {
         }))
     }
 
+    /// Framework-Migrations-Assistent (F341): der echte `claude` migriert eine React-Klassen-
+    /// Komponente zu einer Funktions-Komponente mit Hooks (Verhalten/Render identisch) und führt
+    /// die Tests erneut aus. Liefert den migrierten Quelltext.
+    fn refactoring_migrate_component(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let file = req_str(p, "file")?;
+        let prompt = format!(
+            "Migriere die React-KLASSEN-Komponente in der Datei `{file}` zu einer FUNKTIONS-Komponente \
+             mit Hooks: `useState` statt `this.state`, Props als Funktionsparameter statt `this.props`, \
+             KEIN `class` mehr. Verhalten und gerenderte Ausgabe MÜSSEN identisch bleiben. Ändere NUR \
+             `{file}` (nicht die Testdateien). Führe anschließend `node --test` aus und stelle sicher, \
+             dass die Tests weiterhin grün sind. Nutze deine Tools."
+        );
+        let (log, exit) = run_claude_agent(cwd, &prompt);
+        let source = std::fs::read_to_string(Path::new(cwd).join(&file)).unwrap_or_default();
+        let tail: String = {
+            let chars: Vec<char> = log.chars().collect();
+            chars[chars.len().saturating_sub(300)..].iter().collect()
+        };
+        Ok(json!({ "ok": exit == 0, "file": file, "source": source, "agent_log_tail": tail }))
+    }
+
     /// Skill direkt testen (F241): der echte `claude` befolgt die Skill-Anweisungen und führt die
     /// enthaltenen Shell-Kommandos wirklich aus (Bash-Tool); das echte Ausführungsergebnis wird
     /// zurückgegeben — wie der Test-Button im Skill-Editor.
@@ -712,6 +734,7 @@ impl Router {
             "testing.generate_tests" => self.testing_generate_tests(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
+            "refactoring.migrate_component" => self.refactoring_migrate_component(p),
             "tasks.test_run" => self.tasks_test_run(p),
             "skills.test" => self.skills_test(p),
             "prompts.optimize" => self.prompts_optimize(p),

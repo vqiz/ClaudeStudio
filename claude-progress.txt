@@ -303,3 +303,8 @@
   F126 teams.run_flow: Worktree -> echter claude implementiert 'Token-Auth zu todo-api' (erzeugt auth.js,
   ändert index.js) -> committet -> Merge nach main. Main enthält echten Auth-Code (Authorization/Bearer),
   git log zeigt 'merge team work'. test-harness/probes/llm_batch7.py. 300/360.
+[SESSION 1] [2026-06-24] [BUILD-58 / LLM-8] [PASSING] +1 Framework-Migration (echter claude + React):
+  F341 refactoring.migrate_component: echte React-Klassen-Komponente (Greeting) -> vom echten claude zu
+  Funktions-Komponente mit useState migriert; renderToStaticMarkup-Test bleibt grün (Ausgabe identisch),
+  'class' verschwunden, Testdatei unverändert. npm install react/react-dom (Netzwerk vorhanden).
+  test-harness/probes/llm_batch8.py. 301/360.

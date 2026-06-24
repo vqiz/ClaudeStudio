@@ -1,0 +1,4 @@
+{
+  "migrated_source": "import React, { useState } from 'react';\nexport function Greeting({ name }) {\n  const [count] = useState(3);\n  return React.createElement('div', null, `Hallo ${name}, Count: ${count}`);\n}\n",
+  "tests_green_after": true
+}
