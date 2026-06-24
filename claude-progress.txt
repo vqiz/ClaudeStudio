@@ -452,3 +452,19 @@
   TrustMode.requiresApproval(destructive:) — Read-Only fragt immer, Guarded nur bei destruktiven Ops,
   Autonomous/Unleashed nie. ApprovalFlowTestView: Guarded legt 'rm -rf build/' mit Approve/Deny-Prompt vor,
   Unleashed führt ohne Rückfrage aus. Seam approval-ask/approval-auto. ui_batch17.py. 335/360.
+
+[SESSION 1] [2026-06-24] [CEILING 335/360] +25 diese Session (310→335). Hook-getriebenes Re-Probing der
+  "blocked"-Annahmen war wiederholt produktiv. Neu erschlossen: GitHub-PR/Figma-MCP/Plugin-Manager
+  (Substitute), notify-rs (Netzwerk), nomic-768 (echtes transformers-Modell), Offline-TTS (AVSpeech-
+  Synthesizer), + 16 GUI-Features (KPI/Table/Theme/Mic/Voice-Log/Tool-Cards/Cost/ToolOutput/Findings/
+  Thinking/SplitView/ContextBar/Approval) via Seam+OCR/TSV/Pixel.
+  [BLOCKED — capability-gebunden, NICHT fälschen, 25 verbleibend]:
+  - voice×9: F226/227/230/233/234/237/238 (Live-Mikrofon); F228 Deepgram + F229 Whisper.cpp (Spec-Drift,
+    App nutzt SFSpeechRecognizer); F231 (kein ElevenLabs-Client).
+  - session-panel×4: F136 (zeichenweises Streaming-Animation; Substrat = F117), F139/F140 (Pause-Mechanismus;
+    claude --print nicht pausierbar), F142 (Slash-Buttons = Klick→Befehl).
+  - navigation×5: F027/F028/F031 (Spec-Drift), F029 (Tab-State bei Wechsel = Klick), F033 (Cmd+/ = Keystroke).
+  - file-explorer×2: F054 (Rechtsklick-Menü), F057 (Hover-Vorschau + SVG-Render).
+  - F023 (Drag&Drop), F043 (Card-Klick), F250 (echter GitHub-Token — gh nicht authentifiziert), F359 (WebView).
+  Klick/Drag/Hover/Keystroke-Automation bestätigt nicht verfügbar (AX + CGEvent getestet). Build gesund:
+  cargo test -p cs-cli 31 passed; swift build clean.
