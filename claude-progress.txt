@@ -308,3 +308,7 @@
   Funktions-Komponente mit useState migriert; renderToStaticMarkup-Test bleibt grün (Ausgabe identisch),
   'class' verschwunden, Testdatei unverändert. npm install react/react-dom (Netzwerk vorhanden).
   test-harness/probes/llm_batch8.py. 301/360.
+[SESSION 1] [2026-06-24] [BUILD-59 / E2E] [PASSING] +1 E2E-Recorder (echtes Playwright + headless chromium):
+  F324 testing.e2e_record erzeugt aus einer Klick-Sequenz eine echte Playwright-Spec (page.goto/click/
+  expect_text) + führt sie HEADLESS gegen einen localhost-Server aus -> grün. Netzwerk vorhanden,
+  playwright+chromium installierbar. test-harness/probes/llm_batch9.py. 302/360.

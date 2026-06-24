@@ -1,0 +1,5 @@
+{
+  "green": true,
+  "exit": 0,
+  "spec": "import { chromium } from 'playwright';\nconst browser = await chromium.launch({ headless: true });\nconst page = await browser.newPage();\nlet ok = true;\nawait page.goto('http://127.0.0.1:50767/index.html');\nawait page.click('#go');\n{ const t = await page.textContent('#out'); if (!t || !t.includes('DONE_F324')) { console.error('FAIL expect_text', '#out', t); ok = false; } }\nawait browser.close();\nprocess.exit(ok ? 0 : 1);\n"
+}

@@ -93,7 +93,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "knowledge.teach" | "knowledge.search" | "knowledge.chunk_text"
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
-        | "integrations.slack_command" | "telemetry.export_span"
+        | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
@@ -441,6 +441,62 @@ impl Router {
         Ok(json!({ "green": green, "iterations": history.len(), "history": history }))
     }
 
+    /// E2E-Recorder (F324): erzeugt aus einer aufgezeichneten Interaktions-Sequenz eine echte
+    /// Playwright-Spec (chromium) und führt sie HEADLESS gegen `base_url` aus. Liefert die Spec
+    /// und ob sie grün lief. `cwd` muss `playwright` installiert haben.
+    fn testing_e2e_record(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let base_url = req_str(p, "base_url")?;
+        let interactions = p.get("interactions").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut spec = String::from(
+            "import { chromium } from 'playwright';\n\
+             const browser = await chromium.launch({ headless: true });\n\
+             const page = await browser.newPage();\n\
+             let ok = true;\n",
+        );
+        for it in &interactions {
+            let act = it.get("action").and_then(Value::as_str).unwrap_or("");
+            match act {
+                "goto" => {
+                    let path = it.get("path").and_then(Value::as_str).unwrap_or("/");
+                    spec.push_str(&format!("await page.goto('{base_url}{path}');\n"));
+                }
+                "click" => {
+                    let sel = it.get("selector").and_then(Value::as_str).unwrap_or("");
+                    spec.push_str(&format!("await page.click('{sel}');\n"));
+                }
+                "fill" => {
+                    let sel = it.get("selector").and_then(Value::as_str).unwrap_or("");
+                    let val = it.get("value").and_then(Value::as_str).unwrap_or("");
+                    spec.push_str(&format!("await page.fill('{sel}', '{val}');\n"));
+                }
+                "expect_text" => {
+                    let sel = it.get("selector").and_then(Value::as_str).unwrap_or("");
+                    let text = it.get("text").and_then(Value::as_str).unwrap_or("");
+                    spec.push_str(&format!(
+                        "{{ const t = await page.textContent('{sel}'); \
+                         if (!t || !t.includes('{text}')) {{ console.error('FAIL expect_text', '{sel}', t); ok = false; }} }}\n"
+                    ));
+                }
+                _ => {}
+            }
+        }
+        spec.push_str("await browser.close();\nprocess.exit(ok ? 0 : 1);\n");
+        let spec_path = Path::new(cwd).join("e2e.spec.mjs");
+        std::fs::write(&spec_path, &spec).map_err(|e| e.to_string())?;
+        let out = std::process::Command::new("node")
+            .arg("e2e.spec.mjs")
+            .current_dir(cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("node konnte nicht gestartet werden: {e}")))?;
+        let exit = out.status.code().unwrap_or(-1);
+        Ok(json!({
+            "spec": spec, "spec_path": spec_path.to_string_lossy(),
+            "exit": exit, "green": exit == 0,
+            "stderr": String::from_utf8_lossy(&out.stderr).trim().to_string(),
+        }))
+    }
+
     /// Test-Generierungs-Agent (F321): lässt den echten `claude` autonom Unit-Tests für die
     /// Zieldatei schreiben (Write/Bash/Read-Tools, bypass-Permissions) und ausführen. Gibt die
     /// erzeugten Testdateien + das Agenten-Log zurück; der Probe verifiziert grün + Coverage.
@@ -732,6 +788,7 @@ impl Router {
             "worktree.status" => self.worktree_status(p),
             "coverage.measure" => self.coverage_measure(p),
             "testing.generate_tests" => self.testing_generate_tests(p),
+            "testing.e2e_record" => self.testing_e2e_record(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
