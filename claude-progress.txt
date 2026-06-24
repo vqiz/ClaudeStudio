@@ -337,3 +337,6 @@
 [SESSION 1] [2026-06-24] [BUILD-66] [PASSING] +1 Design-Mode Farb-Feedback (echtes Playwright): F338
   testing.measure_color: nach Code-Farbänderung (#1A73E8) misst der Checker per getComputedStyle am
   Element rgb(26,115,232) (vorher grau). test-harness/probes/batch66.py. 309/360.
+[SESSION 1] [2026-06-24] [BUILD-67 / VISION] [PASSING] +1 Screenshot-to-Code (echter claude Vision +
+  Playwright): F336 agents.screenshot_to_code: claude liest einen UI-Screenshot (Vision) + generiert
+  index.html; gerendert (file://) enthält Header + Karte + Button. test-harness/probes/llm_batch17.py. 310/360.

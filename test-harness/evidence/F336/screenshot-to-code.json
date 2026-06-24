@@ -1,0 +1,8 @@
+{
+  "rendered": {
+    "header": true,
+    "button": true,
+    "card": true
+  },
+  "html_excerpt": "<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Layout</title>\n  <style>\n    * {\n      margin: 0;\n      padding: 0;\n      box-sizing: border-box;\n    }\n\n    body {\n      font-family: Arial, Helvetica, sans-serif;\n      background-color: #efefef;\n      min-height: 100vh;\n      color: #222;\n    }\n\n    header {\n      background-color: #1a73e8;\n      color: #ffffff;\n      padding: 28px 24px;\n      letter-spacing: 1px;\n    }\n\n    header h1 {\n      font-size: 14px;\n      font-weight: bold;\n      text-t"
+}

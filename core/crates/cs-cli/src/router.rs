@@ -100,7 +100,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
-        | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action" => AGENT_HANDLER_TIMEOUT,
+        | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
+        | "agents.screenshot_to_code" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -280,6 +281,28 @@ impl Router {
             "cost_usd": v.get("total_cost_usd").cloned().unwrap_or(json!(0)),
             "duration_ms": v.get("duration_ms").cloned().unwrap_or(json!(0)),
         }))
+    }
+
+    /// Screenshot-to-Code (F336): der echte `claude` betrachtet einen UI-Screenshot (Read-Tool, Vision)
+    /// und generiert daraus eine HTML/CSS-Datei (`index.html`), die das Layout reproduziert. Liefert
+    /// den erzeugten HTML-Quelltext.
+    fn agents_screenshot_to_code(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let image = req_str(p, "image")?;
+        let prompt = format!(
+            "Sieh dir den UI-Screenshot `{image}` in diesem Verzeichnis an (lies die Bilddatei mit dem \
+             Read-Tool) und erzeuge eine eigenständige HTML+CSS-Datei `index.html`, die das gezeigte \
+             Layout reproduziert. Das Layout enthält einen Header (oben), eine Karte (Card) in der Mitte \
+             und einen Button. Verwende ein semantisches `<header>` (oder `<h1>`), einen Container mit \
+             class=\"card\" und ein `<button>`. Schreibe die Datei wirklich mit dem Write-Tool."
+        );
+        let (log, exit) = run_claude_agent(cwd, &prompt);
+        let html = std::fs::read_to_string(Path::new(cwd).join("index.html")).unwrap_or_default();
+        let tail: String = {
+            let chars: Vec<char> = log.chars().collect();
+            chars[chars.len().saturating_sub(200)..].iter().collect()
+        };
+        Ok(json!({ "ok": exit == 0, "html": html, "agent_log_tail": tail }))
     }
 
     /// Computer-Use / Browser-Agent (F348): der echte `claude` erhält den Playwright-MCP-Server
@@ -1005,6 +1028,7 @@ impl Router {
             "agents.decompose_task" => self.agents_decompose_task(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
             "agents.browser_task" => self.agents_browser_task(p),
+            "agents.screenshot_to_code" => self.agents_screenshot_to_code(p),
             "tasks.test_run" => self.tasks_test_run(p),
             "skills.test" => self.skills_test(p),
             "prompts.optimize" => self.prompts_optimize(p),
