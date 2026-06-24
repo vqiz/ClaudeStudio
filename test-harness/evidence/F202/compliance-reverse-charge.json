@@ -1,0 +1,48 @@
+{
+  "compliant": false,
+  "findings": [
+    {
+      "file": "invoice.js",
+      "issue": "VAT-Satz ist hart auf 19% (deutsche USt) verdrahtet; bei EU-B2B-Leistungen mit Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge) darf keine USt ausgewiesen werden (0%).",
+      "line": 3,
+      "severity": "high"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "Keinerlei Erkennung des Reverse-Charge-Falls: Es fehlt jede Prüfung, ob der Kunde ein EU-Unternehmen außerhalb Deutschlands ist (Land/Mitgliedstaat) und somit Reverse Charge greift.",
+      "line": 3,
+      "severity": "high"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "USt-IdNr. des Leistungsempfängers wird weder erfasst noch validiert (z. B. VIES-Prüfung); für eine steuerfreie Reverse-Charge-Rechnung ist eine gültige USt-IdNr. zwingend.",
+      "line": 1,
+      "severity": "high"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "Es fehlt der gesetzlich vorgeschriebene Pflichthinweis auf der Rechnung (z. B. \"Steuerschuldnerschaft des Leistungsempfängers / Reverse charge\") gemäß § 14a UStG / Art. 226 MwStSystRL.",
+      "line": 4,
+      "severity": "high"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "Das Rechnungsobjekt enthält weder die eigene USt-IdNr. des Leistenden noch die des Empfängers; beide sind bei Reverse-Charge-Rechnungen Pflichtangaben.",
+      "line": 4,
+      "severity": "medium"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "Keine Unterscheidung zwischen B2B und B2C bzw. inländischen, EU- und Drittlandskunden; alle Fälle werden pauschal mit 19% behandelt.",
+      "line": 2,
+      "severity": "medium"
+    },
+    {
+      "file": "invoice.js",
+      "issue": "Kein Mechanismus zur Hinterlegung/Anwendung des Reverse-Charge-Status pro Position oder Rechnung (z. B. taxCategory/tax exemption reason).",
+      "line": 3,
+      "severity": "low"
+    }
+  ],
+  "summary": "Die einzige relevante Datei invoice.js berechnet USt fest mit 19% und ignoriert Reverse Charge bei EU-B2B-Rechnungen vollständig: keine Länder-/USt-IdNr.-Prüfung, keine 0%-Behandlung, kein Reverse-Charge-Pflichthinweis und keine Pflichtangaben (USt-IdNr. von Leistendem und Empfänger). Die Steuerschuldnerschaft des Leistungsempfängers wird nicht unterstützt."
+}

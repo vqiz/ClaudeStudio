@@ -295,3 +295,7 @@
   Shell-Kommando ausgeführt: SKILL_F241_OK, summe=42); F347 prompts.optimize (schwacher Prompt 19->2278
   Zeichen, konkreter mit Format/Akzeptanzkriterien); F201 compliance.check kind=impressum (Website-Fixture
   ohne Impressum -> 11 Findings, compliant=False). test-harness/probes/llm_batch5.py. 297/360.
+[SESSION 1] [2026-06-24] [BUILD-56 / LLM-6] [PASSING] +2 Compliance (echter claude): F200 DSGVO-Audit
+  (Projekt mit Klartext-Logging personenbez. Daten -> Finding mit Datei+Zeile server.js:4); F202
+  Reverse-Charge-Check (Rechnungslogik mit fixen 19% -> fehlende EU-B2B-Reverse-Charge korrekt erkannt).
+  compliance.check liefert jetzt auch Zeilennummern. test-harness/probes/llm_batch6.py. 299/360.

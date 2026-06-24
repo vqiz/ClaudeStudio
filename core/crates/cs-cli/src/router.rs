@@ -328,10 +328,11 @@ impl Router {
         };
         let prompt = format!(
             "Analysiere ALLE relevanten Dateien im aktuellen Projektverzeichnis (nutze Glob/Grep/Read) auf \
-             {focus}. Liste jedes konkrete Problem oder Fehlen als Finding. Antworte AUSSCHLIESSLICH mit \
-             einem reinen JSON-Objekt der Form {{\"findings\":[{{\"issue\":\"...\",\"file\":\"...\",\
-             \"severity\":\"low|medium|high\"}}],\"summary\":\"...\",\"compliant\":true|false}} — kein \
-             Markdown, kein weiterer Text."
+             {focus}. Liste jedes konkrete Problem oder Fehlen als Finding mit Datei UND Zeilennummer \
+             (falls auf eine konkrete Codestelle bezogen; sonst die betroffene Datei). Antworte \
+             AUSSCHLIESSLICH mit einem reinen JSON-Objekt der Form {{\"findings\":[{{\"issue\":\"...\",\
+             \"file\":\"...\",\"line\":<zahl_oder_null>,\"severity\":\"low|medium|high\"}}],\
+             \"summary\":\"...\",\"compliant\":true|false}} — kein Markdown, kein weiterer Text."
         );
         let (out, _) = run_claude_agent(cwd, &prompt);
         let report = extract_json_value(&out);

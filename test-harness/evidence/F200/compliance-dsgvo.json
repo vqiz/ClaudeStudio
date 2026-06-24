@@ -1,0 +1,42 @@
+{
+  "compliant": false,
+  "findings": [
+    {
+      "file": "server.js",
+      "issue": "E-Mail-Adresse und IP-Adresse (beides personenbezogene Daten i.S.v. Art. 4 DSGVO) werden ohne Rechtsgrundlage/Einwilligung und ohne Zweckbindung im Klartext in die Server-Logs geschrieben (Logging personenbezogener Daten).",
+      "line": 4,
+      "severity": "high"
+    },
+    {
+      "file": "server.js",
+      "issue": "E-Mail-Adresse wird beim Signup in der Datenbank gespeichert, ohne dass eine dokumentierte Einwilligung oder andere Rechtsgrundlage (Art. 6 DSGVO) erhoben/geprüft wird; keine Consent-Erfassung vorhanden.",
+      "line": 5,
+      "severity": "high"
+    },
+    {
+      "file": "server.js",
+      "issue": "SQL-Injection durch ungeparametrisierte String-Interpolation der E-Mail in das INSERT-Statement; Verstoß gegen die Pflicht zu angemessenen technischen Maßnahmen zur Datensicherheit (Art. 32 DSGVO).",
+      "line": 5,
+      "severity": "high"
+    },
+    {
+      "file": "server.js",
+      "issue": "Keine Datenschutzerklärung/Privacy-Policy im Projekt vorhanden und kein Endpoint/Hinweis, der Informationspflichten nach Art. 13 DSGVO bei der Datenerhebung erfüllt.",
+      "line": null,
+      "severity": "high"
+    },
+    {
+      "file": "server.js",
+      "issue": "Keine Mechanismen zur Wahrnehmung von Betroffenenrechten (Auskunft, Löschung, Berichtigung – Art. 15–17 DSGVO) implementiert; gespeicherte Nutzerdaten lassen sich nicht löschen oder exportieren.",
+      "line": null,
+      "severity": "medium"
+    },
+    {
+      "file": "server.js",
+      "issue": "Keine Speicherbegrenzung/Aufbewahrungsfrist oder Anonymisierung der personenbezogenen Daten (E-Mail, IP) definiert; Verstoß gegen Grundsatz der Speicherbegrenzung (Art. 5 Abs. 1 lit. e DSGVO).",
+      "line": null,
+      "severity": "medium"
+    }
+  ],
+  "summary": "Die einzige Projektdatei server.js verarbeitet personenbezogene Daten (E-Mail, IP) ohne Rechtsgrundlage/Einwilligung, ohne Informationspflichten (Datenschutzerklärung fehlt), loggt sie im Klartext, speichert sie SQL-injection-anfällig und bietet weder Betroffenenrechte noch Speicherbegrenzung. Es bestehen mehrere gravierende DSGVO-Verstöße."
+}
