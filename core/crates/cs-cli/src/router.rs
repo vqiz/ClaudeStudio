@@ -98,7 +98,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
-        | "prompts.optimize" | "compliance.check" | "teams.run_flow"
+        | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
         | "mcp.call_tool" | "agents.browser_task" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
@@ -369,6 +369,45 @@ impl Router {
         Ok(json!({ "original": original, "optimized": optimized,
                    "original_len": original.chars().count(),
                    "optimized_len": optimized.chars().count() }))
+    }
+
+    /// Kleinunternehmer-Check als PDF-Report (F199): der echte `claude` prüft §19-UStG-Konformität,
+    /// das Ergebnis wird als echter PDF-Report (Prüfpunkte) erzeugt. Liefert PDF-Pfad + Report.
+    fn compliance_report_pdf(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let prompt =
+            "Analysiere ALLE Rechnungs-/Code-Dateien im aktuellen Projektverzeichnis (Glob/Grep/Read) auf \
+             Kleinunternehmer-Konformität nach Paragraph 19 UStG: Rechnungen müssen OHNE ausgewiesene \
+             Umsatzsteuer sein und den Paragraph-19-Hinweis enthalten. Liste jeden Prüfpunkt als Finding. \
+             Antworte AUSSCHLIESSLICH mit reinem JSON {\"findings\":[{\"issue\":\"...\",\"file\":\"...\",\
+             \"severity\":\"low|medium|high\",\"result\":\"ok|fehler\"}],\"summary\":\"...\",\
+             \"compliant\":true|false} — kein Markdown.";
+        let (out, _) = run_claude_agent(cwd, prompt);
+        let report = extract_json_value(&out);
+        let mut lines = vec![
+            "Kleinunternehmer-Check (Paragraph 19 UStG)".to_string(),
+            "".to_string(),
+            format!("Konform: {}", report.get("compliant").and_then(Value::as_bool).unwrap_or(false)),
+            format!("Zusammenfassung: {}", report.get("summary").and_then(Value::as_str).unwrap_or("")),
+            "".to_string(),
+            "Pruefpunkte:".to_string(),
+        ];
+        if let Some(findings) = report.get("findings").and_then(Value::as_array) {
+            for (i, f) in findings.iter().enumerate() {
+                lines.push(format!(
+                    "{}. {} [{}] -> {} ({})",
+                    i + 1,
+                    f.get("issue").and_then(Value::as_str).unwrap_or(""),
+                    f.get("severity").and_then(Value::as_str).unwrap_or(""),
+                    f.get("result").and_then(Value::as_str).unwrap_or(""),
+                    f.get("file").and_then(Value::as_str).unwrap_or(""),
+                ));
+            }
+        }
+        let pdf_path = Path::new(cwd).join("kleinunternehmer-report.pdf");
+        write_simple_pdf(&pdf_path, &lines).map_err(|e| IpcFailure::internal(e.to_string()))?;
+        Ok(json!({ "pdf": pdf_path.to_string_lossy(), "report": report,
+                   "check_points": lines.len() }))
     }
 
     /// Compliance-Analyse (F199-F202): der echte `claude` analysiert das Projekt (Read/Grep/Glob)
@@ -832,6 +871,7 @@ impl Router {
             "skills.test" => self.skills_test(p),
             "prompts.optimize" => self.prompts_optimize(p),
             "compliance.check" => self.compliance_check(p),
+            "compliance.report_pdf" => self.compliance_report_pdf(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
@@ -7096,6 +7136,59 @@ fn run_claude_agent(cwd: &str, prompt: &str) -> (String, i32) {
         Ok(o) => (String::from_utf8_lossy(&o.stdout).to_string(), o.status.code().unwrap_or(-1)),
         Err(e) => (format!("claude konnte nicht gestartet werden: {e}"), -1),
     }
+}
+
+/// Schreibt einen minimalen, gültigen einseitigen PDF-Report mit UNKOMPRIMIERTEM Text-Stream
+/// (F199) — die Zeilen sind dadurch direkt im PDF lesbar/greppbar. Nicht-ASCII wird ASCII-isiert.
+fn write_simple_pdf(path: &Path, lines: &[String]) -> std::io::Result<()> {
+    fn esc(s: &str) -> String {
+        let mut out = String::new();
+        for c in s.chars() {
+            match c {
+                'ä' => out.push_str("ae"), 'ö' => out.push_str("oe"), 'ü' => out.push_str("ue"),
+                'Ä' => out.push_str("Ae"), 'Ö' => out.push_str("Oe"), 'Ü' => out.push_str("Ue"),
+                'ß' => out.push_str("ss"), '§' => out.push_str("Paragraph "),
+                '(' | ')' | '\\' => { out.push('\\'); out.push(c); }
+                c if (c as u32) < 128 => out.push(c),
+                _ => out.push('?'),
+            }
+        }
+        out
+    }
+    let mut content = String::from("BT /F1 11 Tf 50 760 Td 15 TL\n");
+    for (i, line) in lines.iter().enumerate() {
+        if i == 0 {
+            content.push_str(&format!("({}) Tj\n", esc(line)));
+        } else {
+            content.push_str(&format!("T* ({}) Tj\n", esc(line)));
+        }
+    }
+    content.push_str("ET");
+
+    let objs: Vec<String> = vec![
+        "<</Type/Catalog/Pages 2 0 R>>".to_string(),
+        "<</Type/Pages/Kids[3 0 R]/Count 1>>".to_string(),
+        "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>".to_string(),
+        format!("<</Length {}>>\nstream\n{}\nendstream", content.len(), content),
+        "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>".to_string(),
+    ];
+    let mut pdf = String::from("%PDF-1.4\n");
+    let mut offsets = Vec::new();
+    for (i, obj) in objs.iter().enumerate() {
+        offsets.push(pdf.len());
+        pdf.push_str(&format!("{} 0 obj\n{}\nendobj\n", i + 1, obj));
+    }
+    let xref_off = pdf.len();
+    pdf.push_str(&format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1));
+    for off in &offsets {
+        pdf.push_str(&format!("{off:010} 00000 n \n"));
+    }
+    pdf.push_str(&format!(
+        "trailer\n<</Size {}/Root 1 0 R>>\nstartxref\n{}\n%%EOF",
+        objs.len() + 1,
+        xref_off
+    ));
+    std::fs::write(path, pdf)
 }
 
 /// Extrahiert einen JSON-Wert aus `claude`-Freitext (toleriert Markdown-Fences und

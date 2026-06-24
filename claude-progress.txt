@@ -320,3 +320,7 @@
   + Playwright-MCP): F348 agents.browser_task gibt dem echten claude den Playwright-MCP-Server (--mcp-config)
   + lässt ihn autonom ein Formular auf localhost ausfüllen + absenden -> Server empfing echte Daten
   (name=Max Mustermann, email=max@example.com). test-harness/probes/llm_batch11.py. 304/360.
+[SESSION 1] [2026-06-24] [BUILD-62 / PDF] [PASSING] +1 Kleinunternehmer-PDF-Report (echter claude +
+  Rust-PDF-Writer): F199 compliance.report_pdf: echter claude prüft invoice-Fixture auf §19 UStG,
+  Ergebnis wird als echter PDF-Report (write_simple_pdf, unkomprimierter Textstream) mit Prüfpunkten
+  erzeugt; %PDF + %%EOF gültig, Prüfpunkte greppbar, §19-Verstoß erkannt. test-harness/probes/llm_batch12.py. 305/360.

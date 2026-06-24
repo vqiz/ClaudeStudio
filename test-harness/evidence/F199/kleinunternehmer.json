@@ -1,0 +1,34 @@
+{
+  "pdf_bytes": 1428,
+  "check_points": 10,
+  "report": {
+    "compliant": false,
+    "findings": [
+      {
+        "file": "invoice.js",
+        "issue": "Umsatzsteuer wird berechnet (net * 0.19) statt 0% bei Kleinunternehmer",
+        "result": "fehler",
+        "severity": "high"
+      },
+      {
+        "file": "invoice.js",
+        "issue": "Umsatzsteuer wird im Rückgabeobjekt ausgewiesen (Feld 'vat')",
+        "result": "fehler",
+        "severity": "high"
+      },
+      {
+        "file": "invoice.js",
+        "issue": "Bruttobetrag enthält aufgeschlagene Umsatzsteuer (gross = net + vat)",
+        "result": "fehler",
+        "severity": "high"
+      },
+      {
+        "file": "invoice.js",
+        "issue": "Kein Paragraph-19-UStG-Hinweis auf der Rechnung (note ist leer)",
+        "result": "fehler",
+        "severity": "high"
+      }
+    ],
+    "summary": "Die Datei invoice.js erstellt Rechnungen mit ausgewiesener 19% Umsatzsteuer und ohne den vorgeschriebenen Paragraph-19-UStG-Hinweis. Damit ist sie nicht Kleinunternehmer-konform: USt muss entfallen (0%) und der Hinweis 'Gemäß Paragraph 19 UStG wird keine Umsatzsteuer berechnet' muss enthalten sein."
+  }
+}
