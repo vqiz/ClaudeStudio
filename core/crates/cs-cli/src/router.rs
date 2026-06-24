@@ -97,7 +97,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
-        | "refactoring.migrate_component" => AGENT_HANDLER_TIMEOUT,
+        | "refactoring.migrate_component" | "tasks.test_run" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -247,6 +247,35 @@ impl Router {
             "gauges": { "running_agents": agents.len(),
                         "queued_tasks": queue.len(),
                         "recent_events": events.len() },
+        }))
+    }
+
+    /// Task-Test-Lauf (F215): führt den Task-Prompt mit dem echten `claude` aus
+    /// (`--output-format json`) und liefert das Ergebnis samt ECHTER Token-Anzahl
+    /// (input/output aus der API-Usage) und Dauer — die Werte, die der Test-Tab anzeigt.
+    fn tasks_test_run(&self, p: &Value) -> HandlerResult {
+        let prompt = req_str(p, "prompt")?;
+        let cwd = p
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(String::from)
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
+        let binary = std::env::var("CLAUDESTUDIO_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+        let out = std::process::Command::new(&binary)
+            .args(["--print", "--output-format", "json", prompt])
+            .current_dir(&cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("claude konnte nicht gestartet werden: {e}")))?;
+        let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|_| json!({}));
+        let usage = v.get("usage").cloned().unwrap_or_else(|| json!({}));
+        let it = usage.get("input_tokens").and_then(Value::as_i64).unwrap_or(0);
+        let ot = usage.get("output_tokens").and_then(Value::as_i64).unwrap_or(0);
+        Ok(json!({
+            "ok": v.get("is_error").and_then(Value::as_bool).map(|e| !e).unwrap_or(true),
+            "result": v.get("result").cloned().unwrap_or(Value::Null),
+            "input_tokens": it, "output_tokens": ot, "total_tokens": it + ot,
+            "cost_usd": v.get("total_cost_usd").cloned().unwrap_or(json!(0)),
+            "duration_ms": v.get("duration_ms").cloned().unwrap_or(json!(0)),
         }))
     }
 
@@ -623,6 +652,7 @@ impl Router {
             "testing.generate_tests" => self.testing_generate_tests(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
+            "tasks.test_run" => self.tasks_test_run(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),

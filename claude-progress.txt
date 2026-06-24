@@ -287,3 +287,7 @@
   F120 agents.decompose_task: echter claude-Orchestrator zerlegt 'Health-Endpoint zu todo-api' in 4
   konkrete Subtasks (je mit Titel, aufgabenbezogen), round-robin auf 2 Worker verteilt. JSON aus
   claude-Freitext robust extrahiert (extract_json_value). test-harness/probes/llm_batch3.py. 293/360.
+[SESSION 1] [2026-06-24] [BUILD-54 / LLM-4] [PASSING] +1 Task-Test-Lauf Token+Dauer (echter claude):
+  F215 tasks.test_run führt den Task-Prompt mit claude --output-format json aus -> echte API-Usage
+  (input/output_tokens) + duration_ms. Verifiziert: 13480 Tokens (13245 in / 235 out), 7351ms, echtes
+  Ergebnis. test-harness/probes/llm_batch4.py. 294/360.
