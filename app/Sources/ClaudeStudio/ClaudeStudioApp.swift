@@ -36,6 +36,8 @@ struct ClaudeStudioApp: App {
                 GridTestView(width: uiTestWidth)
             } else if uiTestMode == "kpi" {
                 KPITestView()
+            } else if uiTestMode == "cards" {
+                DashboardCardsTestView()
             } else if uiTestMode == "table-asc" {
                 SortTableTestView(ascending: true)
             } else if uiTestMode == "table-desc" {

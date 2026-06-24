@@ -1,0 +1,24 @@
+{
+  "after_reorder": {
+    "yB": 266,
+    "yA": 352,
+    "yC": 440,
+    "bodyA": true,
+    "bodyB": true,
+    "bodyC": false,
+    "text": "@ © @ claudestudio v card b kosten inhalt von karte b: detailwerte und diagramm. ~ card a sessions inhalt von karte a: detailwerte und diagramm > card c agenten"
+  },
+  "after_restart": {
+    "yB": 266,
+    "yA": 352,
+    "yC": 440,
+    "bodyA": true,
+    "bodyB": true,
+    "bodyC": false,
+    "text": "@ © @ claudestudio v card b kosten inhalt von karte b: detailwerte und diagramm. ~ card a sessions inhalt von karte a: detailwerte und diagramm > card c agenten"
+  },
+  "screens": [
+    "test-harness/evidence/F023-reorder.png",
+    "test-harness/evidence/F023-persist.png"
+  ]
+}

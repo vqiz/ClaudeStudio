@@ -486,3 +486,7 @@
   /mcp listet die echten eingebauten MCP-Tools (4), /resume baut die echte claude-Resume-Invocation,
   /compact+/simplify lassen den echten claude zusammenfassen bzw. Code vereinfachen. Jeder Befehl liefert
   ein echtes Resultat. test-harness/probes/batch77.py. 339/360.
+[SESSION 1] [2026-06-24] [BUILD-95/UI-20] [PASSING] +1 Kollabierbare + umsortierbare Dashboard-Karten (F023):
+  neue DashboardCardLayout (Codable, UserDefaults) persistiert Reihenfolge + Kollaps-Zustand. DashboardCards-
+  TestView setzt via Env die Anordnung (Drag/Kollaps-Effekt) und rendert sie; nach App-NEUSTART ohne Setzen
+  bleibt B,A,C + C kollabiert erhalten (per OCR-Bounding-Box + 2 Starts nachgewiesen). Seam cards. ui_batch20.py. 340/360.

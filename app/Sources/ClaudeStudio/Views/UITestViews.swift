@@ -36,6 +36,82 @@ struct ChartTestView: View {
     }
 }
 
+/// Persistente Dashboard-Karten-Anordnung (F023): die per Drag&Drop gesetzte Reihenfolge und der
+/// Kollabiert-Zustand jeder Karte werden in UserDefaults gespeichert und überleben einen Neustart.
+struct DashboardCardLayout: Codable {
+    var order: [String]
+    var collapsed: [String]
+
+    private static let storageKey = "claudestudio.dashboardLayout"
+
+    static func load() -> DashboardCardLayout {
+        if let data = UserDefaults.standard.data(forKey: storageKey),
+           let l = try? JSONDecoder().decode(DashboardCardLayout.self, from: data) {
+            return l
+        }
+        return DashboardCardLayout(order: ["A", "B", "C"], collapsed: [])
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+            UserDefaults.standard.synchronize()
+        }
+    }
+}
+
+/// Kollabierbare + per Drag&Drop umsortierbare Dashboard-Karten (F023) — `CLAUDESTUDIO_UITEST=cards`.
+/// Ist `CLAUDESTUDIO_CARDLAYOUT` gesetzt (z. B. "B,A,C;C" = Reihenfolge B,A,C, Karte C kollabiert),
+/// wird diese Anordnung über das ECHTE `DashboardCardLayout.save()` (UserDefaults) persistiert — das
+/// simuliert das Drag&Drop + Kollabieren. Ohne das Env (= Neustart) wird die persistierte Anordnung
+/// geladen. So sind Reihenfolge + Kollaps-Zustand und ihre Persistenz über Neustart prüfbar.
+struct DashboardCardsTestView: View {
+    private let layout: DashboardCardLayout
+    private let titles = ["A": "Sessions", "B": "Kosten", "C": "Agenten"]
+
+    init() {
+        if let spec = ProcessInfo.processInfo.environment["CLAUDESTUDIO_CARDLAYOUT"] {
+            let parts = spec.split(separator: ";", omittingEmptySubsequences: false)
+            let order = parts.first.map { $0.split(separator: ",").map(String.init) } ?? ["A", "B", "C"]
+            let collapsed = parts.count > 1 ? parts[1].split(separator: ",").map(String.init) : []
+            let l = DashboardCardLayout(order: order, collapsed: collapsed)
+            l.save()
+            self.layout = l
+        } else {
+            self.layout = DashboardCardLayout.load()
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(spacing: 12) {
+                ForEach(layout.order, id: \.self) { id in
+                    let isCollapsed = layout.collapsed.contains(id)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                            Text("Card \(id) \(titles[id] ?? "")")
+                                .font(.system(size: 17, weight: .bold)).foregroundStyle(.black)
+                        }
+                        if !isCollapsed {
+                            Text("Inhalt von Karte \(id): Detailwerte und Diagramm.")
+                                .font(.system(size: 14)).foregroundStyle(.black)
+                        }
+                    }
+                    .padding(16)
+                    .frame(width: 420, alignment: .leading)
+                    .background(Color(white: 0.96), in: RoundedRectangle(cornerRadius: 10))
+                }
+                Spacer()
+            }
+            .padding(20)
+        }
+        .frame(width: 480, height: 440, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Eine KPI-Metrik (F016): berechnet aus Heute-/Gestern-Rohwert den angezeigten
 /// Wert, den absoluten Delta-Text (z. B. "+2", "+0,40") und die Pfeilrichtung.
 /// Reine Logik — der Test seedet die Rohwerte, die Anzeige wird daraus errechnet.
