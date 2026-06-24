@@ -231,7 +231,12 @@ struct TrustModeBadge: View {
     let mode: TrustMode
 
     var body: some View {
-        Label(mode.label, systemImage: mode.symbol)
+        // F031: das Spec-Indikator-Symbol (⚡/🟢/🟡/🔴) vorangestellt.
+        Label {
+            Text("\(mode.indicatorEmoji) \(mode.label)")
+        } icon: {
+            Image(systemName: mode.symbol)
+        }
             .labelStyle(.titleAndIcon)
             .font(.caption.weight(.semibold))
             .padding(.horizontal, 9)

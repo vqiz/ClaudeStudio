@@ -512,3 +512,8 @@
   Settings), Extras (MCP/Extensions/Hooks) in neue Tools-Sektion verschoben (nichts entfernt). Am ECHTEN
   RootView verifiziert: 8/8 Einträge + Navigation (CLAUDESTUDIO_SIDEBAR-Seam → Co-Pilot/OS-View/Archive
   Detail-Titel stimmt). ui_batch21.py. 341/360.
+[SESSION 1] [2026-06-24] [BUILD-97/UI-22] [PASSING] +1 Trust-Modus-Indikator (F031): TrustMode.indicatorEmoji
+  (⚡full/🟢trusted/🟡ask/🔴locked) + specLabel als 1:1-Mapping der App-Modi (locked=readOnly, ask=guarded,
+  trusted=autonomous, full=unleashed); echter TrustModeBadge zeigt das Symbol. Verifiziert: ask 🟡 gelb,
+  locked 🔴 rot, trusted 🟢 grün + Spec-Labels (Pixel + OCR). Nicht-brechend (Core-Mapping unverändert).
+  Seam trust-ask/locked/trusted/full. ui_batch22.py. 342/360.

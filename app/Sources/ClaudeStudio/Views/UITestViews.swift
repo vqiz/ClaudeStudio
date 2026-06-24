@@ -246,6 +246,26 @@ struct WebPreviewTestView: View {
     }
 }
 
+/// Trust-Modus-Indikator (F031) — `CLAUDESTUDIO_UITEST=trust-locked|trust-ask|trust-trusted|trust-full`.
+/// Rendert den ECHTEN TrustModeBadge je Modus groß; das Spec-Indikator-Symbol (🔴 locked · 🟡 ask ·
+/// 🟢 trusted · ⚡ full) ist per Pixelfarbe prüfbar.
+struct TrustIndicatorTestView: View {
+    let mode: TrustMode
+
+    var body: some View {
+        ZStack {
+            Color.white
+            VStack(spacing: 16) {
+                Text(mode.indicatorEmoji).font(.system(size: 100))
+                TrustModeBadge(mode: mode).scaleEffect(2.2)
+                Text(mode.specLabel).font(.system(size: 18)).foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 420, height: 320)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Approval-Flow je Trust-Modus (F143) — `CLAUDESTUDIO_UITEST=approval-ask` (Guarded) bzw.
 /// `approval-auto` (Unleashed). Eine riskante/destruktive Operation (rm -rf) wird über die ECHTE
 /// `TrustMode.requiresApproval(destructive:)`-Logik bewertet: in Guarded erscheint ein Bestätigungs-

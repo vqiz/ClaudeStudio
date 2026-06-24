@@ -79,6 +79,28 @@ enum TrustMode: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
+    /// Das Indikator-Symbol des Trust-Modus (F031): ⚡ full · 🟢 trusted · 🟡 ask · 🔴 locked.
+    /// Die App-Modi bilden 1:1 auf die Spec-Stufen ab (locked=readOnly, ask=guarded,
+    /// trusted=autonomous, full=unleashed).
+    var indicatorEmoji: String {
+        switch self {
+        case .readOnly: return "🔴"
+        case .guarded: return "🟡"
+        case .autonomous: return "🟢"
+        case .unleashed: return "⚡"
+        }
+    }
+
+    /// Die Spec-Bezeichnung der Trust-Stufe (F031): locked/ask/trusted/full.
+    var specLabel: String {
+        switch self {
+        case .readOnly: return "locked"
+        case .guarded: return "ask"
+        case .autonomous: return "trusted"
+        case .unleashed: return "full"
+        }
+    }
+
     /// Ob eine Operation der gegebenen Risikostufe in diesem Modus eine menschliche Bestätigung
     /// erfordert (F143-Approval-Flow). Entspricht der dokumentierten Modus-Semantik (`blurb`):
     /// Read-Only fragt bei JEDER Operation, Guarded nur bei riskanten/destruktiven, Autonomous/

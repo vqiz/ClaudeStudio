@@ -68,6 +68,14 @@ struct ClaudeStudioApp: App {
                 WebPreviewTestView()
             } else if uiTestMode == "filepreview" {
                 FilePreviewTestView()
+            } else if uiTestMode == "trust-locked" {
+                TrustIndicatorTestView(mode: .readOnly)
+            } else if uiTestMode == "trust-ask" {
+                TrustIndicatorTestView(mode: .guarded)
+            } else if uiTestMode == "trust-trusted" {
+                TrustIndicatorTestView(mode: .autonomous)
+            } else if uiTestMode == "trust-full" {
+                TrustIndicatorTestView(mode: .unleashed)
             } else if uiTestMode == "approval-ask" {
                 ApprovalFlowTestView(mode: .guarded)
             } else if uiTestMode == "approval-auto" {

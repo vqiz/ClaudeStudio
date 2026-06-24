@@ -1,0 +1,22 @@
+{
+  "ask": {
+    "yellow": 1830,
+    "red": 0,
+    "green": 0
+  },
+  "locked": {
+    "yellow": 39,
+    "red": 1814,
+    "green": 39
+  },
+  "trusted": {
+    "yellow": 48,
+    "red": 37,
+    "green": 1953
+  },
+  "screens": [
+    "test-harness/evidence/F031-ask.png",
+    "test-harness/evidence/F031-locked.png",
+    "test-harness/evidence/F031-trusted.png"
+  ]
+}
