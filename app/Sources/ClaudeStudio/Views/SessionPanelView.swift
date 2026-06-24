@@ -1,10 +1,19 @@
 import SwiftUI
+import ClaudeStudioKit
 
 /// The live session panel: a streaming transcript with collapsible tool calls,
 /// a header showing model + trust mode + status, and a footer cost counter.
 struct SessionPanelView: View {
     @Environment(AppState.self) private var appState
     @State private var prompt = ""
+    /// Installierte Skills des aktiven Projekts als Slash-Befehle (für die
+    /// Autovervollständigung). Wird beim Erscheinen / Projektwechsel geladen.
+    @State private var skillCommands: [SlashCommand] = []
+    /// Hervorgehobene Zeile im Slash-Menü (Tastatur-Navigation).
+    @State private var slashSelection = 0
+    /// Nutzer hat das Menü per Esc geschlossen — bleibt zu, bis sich der Text ändert.
+    @State private var slashDismissed = false
+    @FocusState private var promptFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -65,24 +74,107 @@ struct SessionPanelView: View {
             }
 
             Divider()
-            HStack(spacing: 8) {
-                TextField("Ask Claude to do something…", text: $prompt, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(1...4)
-                    .onSubmit(runLiveSession)
-                Button(action: runLiveSession) {
-                    Image(systemName: "arrow.up.circle.fill").font(.title2)
+            VStack(alignment: .leading, spacing: 8) {
+                // Slash-Befehl-Autovervollständigung: erscheint, sobald die Zeile
+                // mit „/" beginnt, und schwebt direkt über dem Eingabefeld.
+                if showSlashMenu {
+                    SlashCommandMenu(commands: slashMatches, selection: slashSelection, onPick: accept)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
-                .buttonStyle(.plain)
-                .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
-                          || appState.core.runningSessionId != nil)
+                HStack(spacing: 8) {
+                    TextField("Ask Claude to do something…  (tippe / für Befehle)", text: $prompt, axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...4)
+                        .focused($promptFocused)
+                        .onSubmit(runLiveSession)
+                        .onKeyPress(.downArrow) { moveSelection(1) }
+                        .onKeyPress(.upArrow) { moveSelection(-1) }
+                        .onKeyPress(.tab) { acceptHighlighted() }
+                        .onKeyPress(.return) { acceptHighlighted() }
+                        .onKeyPress(.escape) { dismissSlash() }
+                    Button(action: runLiveSession) {
+                        Image(systemName: "arrow.up.circle.fill").font(.title2)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(prompt.trimmingCharacters(in: .whitespaces).isEmpty
+                              || appState.core.runningSessionId != nil)
+                }
             }
             .padding(12)
             .background(.bar)
+            .animation(.easeOut(duration: 0.12), value: showSlashMenu)
+            .onChange(of: prompt) { _, _ in
+                // Bei jeder Texteingabe Auswahl zurücksetzen und ein zuvor per Esc
+                // geschlossenes Menü wieder freigeben.
+                slashSelection = 0
+                slashDismissed = false
+            }
+            .task(id: appState.selectedProject?.path) { await loadSkillCommands() }
+        }
+    }
+
+    // MARK: Slash-Befehl-Autovervollständigung
+
+    /// Eingebaute Befehle + installierte Skills, dedupliziert.
+    private var allCommands: [SlashCommand] { SlashCommand.merged(skills: skillCommands) }
+
+    /// Die zum aktuell getippten Token passenden Befehle (leer, wenn die Zeile
+    /// kein Slash-Befehl ist).
+    private var slashMatches: [SlashCommand] {
+        guard let query = SlashCommand.query(in: prompt) else { return [] }
+        return SlashCommand.matches(allCommands, query: query)
+    }
+
+    /// Ob das Popup gerade sichtbar sein soll.
+    private var showSlashMenu: Bool {
+        promptFocused && !slashDismissed && !slashMatches.isEmpty
+    }
+
+    /// Den gewählten Befehl in die Zeile einsetzen (`/token ` mit Cursor danach).
+    private func accept(_ command: SlashCommand) {
+        prompt = command.insertion
+        slashSelection = 0
+        promptFocused = true
+    }
+
+    /// Den hervorgehobenen Befehl per Tastatur (Return/Tab) übernehmen.
+    private func acceptHighlighted() -> KeyPress.Result {
+        guard showSlashMenu, slashMatches.indices.contains(slashSelection) else { return .ignored }
+        accept(slashMatches[slashSelection])
+        return .handled
+    }
+
+    /// Auswahl im offenen Menü verschieben (mit Umlauf).
+    private func moveSelection(_ delta: Int) -> KeyPress.Result {
+        guard showSlashMenu else { return .ignored }
+        let count = slashMatches.count
+        slashSelection = (slashSelection + delta + count) % count
+        return .handled
+    }
+
+    /// Menü per Esc schließen, ohne den getippten Text zu verlieren.
+    private func dismissSlash() -> KeyPress.Result {
+        guard showSlashMenu else { return .ignored }
+        slashDismissed = true
+        return .handled
+    }
+
+    /// Skills des aktiven Projekts laden und als Slash-Befehle abbilden.
+    private func loadSkillCommands() async {
+        let skills = await appState.core.skills(cwd: appState.selectedProject?.path)
+        skillCommands = skills.map { skill in
+            SlashCommand(
+                token: skill.command,
+                title: skill.name,
+                subtitle: skill.description.isEmpty ? "Skill ausführen" : skill.description,
+                kind: .skill,
+                glyph: "sparkles")
         }
     }
 
     private func runLiveSession() {
+        // Bei offenem Slash-Menü übernimmt Return den Befehl statt zu senden.
+        guard !showSlashMenu else { return }
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, appState.core.runningSessionId == nil else { return }
         prompt = ""

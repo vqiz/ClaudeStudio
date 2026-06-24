@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import ClaudeStudioKit
 
 /// Tab-State-Erhalt über Tab-Wechsel (F029). Die Tab-Inhalte werden über eine `switch`-Anweisung
 /// gerendert (wie im echten ProjectWorkspaceView) — d. h. die Tab-View wird beim Wechsel NEU erzeugt.
@@ -987,6 +988,74 @@ struct ProjectTabsStripView: View {
         }
         .frame(width: 920, height: 220, alignment: .topLeading)
         .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+}
+
+/// Slash-Befehl-Autovervollständigung im Chat-Composer — `CLAUDESTUDIO_UITEST=slash`.
+/// Tippt der Nutzer im Chat eine Zeile, die mit „/" beginnt, erscheint dieses
+/// Popup mit den passenden Befehlen (eingebaute CLI-Befehle + installierte
+/// Skills). Der getippte Text kommt aus `CLAUDESTUDIO_SLASH_QUERY` (Default „/"),
+/// z. B. „/co" filtert auf /compact, /cost & /code-review. Nutzt den ECHTEN
+/// Matcher `SlashCommand.matches` und das ECHTE `SlashCommandMenu` aus dem Composer.
+struct SlashAutocompleteTestView: View {
+    private var typed: String { ProcessInfo.processInfo.environment["CLAUDESTUDIO_SLASH_QUERY"] ?? "/" }
+
+    /// Beispiel-Skills, damit das Menü Builtins UND Skills zeigt (wie im echten
+    /// Projekt mit installierten `~/.claude/commands/`-Skills).
+    private let skills: [SlashCommand] = [
+        SlashCommand(token: "graphify", title: "graphify",
+                     subtitle: "Beliebigen Input in einen Wissensgraphen umwandeln", kind: .skill, glyph: "sparkles"),
+        SlashCommand(token: "commit", title: "commit",
+                     subtitle: "Änderungen committen mit aussagekräftiger Message", kind: .skill, glyph: "sparkles"),
+        SlashCommand(token: "code-review", title: "code-review",
+                     subtitle: "Diff auf Bugs & Vereinfachungen prüfen", kind: .skill, glyph: "sparkles"),
+    ]
+
+    private var matches: [SlashCommand] {
+        let all = SlashCommand.merged(skills: skills)
+        guard let query = SlashCommand.query(in: typed) else { return [] }
+        return SlashCommand.matches(all, query: query)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Label("Live Session", systemImage: "sparkles").font(.headline)
+                    Spacer()
+                }
+                Text("Der Core spawnt die Claude-CLI und streamt das Ergebnis hierher.")
+                    .font(.callout).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                if !matches.isEmpty {
+                    SlashCommandMenu(commands: matches, selection: 0, onPick: { _ in })
+                }
+                HStack(spacing: 8) {
+                    // Eingabefeld-Attrappe mit dem getippten Befehl.
+                    HStack(spacing: 1) {
+                        Text(typed)
+                            .font(.body)
+                            .foregroundStyle(.primary)
+                        Rectangle().fill(Color.accentColor).frame(width: 2, height: 16)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 7)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(DS.hairline))
+                    Image(systemName: "arrow.up.circle.fill").font(.title2).foregroundStyle(.tertiary)
+                }
+            }
+            .padding(12)
+            .background(.bar)
+        }
+        .frame(width: 660, height: 470, alignment: .top)
         .preferredColorScheme(.light)
     }
 }
