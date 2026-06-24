@@ -58,3 +58,4 @@ node_modules/
 dist/
 tmp/
 test-harness/lib/ttsprobe
+test-harness/lib/whisper-models/

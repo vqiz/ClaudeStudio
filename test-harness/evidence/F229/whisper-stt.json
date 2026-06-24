@@ -1,0 +1,8 @@
+{
+  "reference": "the security review found three issues in the payment module",
+  "transcript": "The security review found three issues in the payment modular.",
+  "word_overlap": 0.89,
+  "engine": "whisper.cpp",
+  "offline": true,
+  "model": "ggml-base.en.bin"
+}

@@ -523,3 +523,7 @@
   Overview als persistenter Kopf erhalten, projekt-MCP in den Settings-Tab gefaltet (nichts entfernt). Seam
   project-workspace rendert das Workspace für ein benanntes Projekt. Verifiziert: 8/8 Tabs + Titel 'data-
   pipeline'. ui_batch23.py. 344/360.
+[SESSION 1] [2026-06-24] [BUILD-99] [PASSING] +1 Offline-STT via Whisper.cpp (F229): brew install whisper-cpp
+  → whisper-cli + GGML-Modell (ggml-base.en, gitignored, vom Probe geladen). stt.transcribe ruft whisper-cli
+  mit lokalem Modell auf; verifiziert: ein per `say` erzeugtes 16-kHz-WAV wird offline transkribiert (89%
+  Wort-Übereinstimmung, kein Netz/Mikrofon). test-harness/probes/batch78.py. 345/360.

@@ -111,7 +111,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
-        | "tts.synthesize" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "tts.synthesize" | "stt.transcribe" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
@@ -1200,6 +1200,7 @@ impl Router {
             "integrations.github_sync" => self.integrations_github_sync(p),
             "embedding.embed" => self.embedding_embed(p),
             "tts.synthesize" => self.tts_synthesize(p),
+            "stt.transcribe" => self.stt_transcribe(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2526,6 +2527,33 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// Offline-STT via Whisper.cpp (F229): transkribiert eine lokale Audiodatei (16-kHz-WAV) komplett
+    /// auf dem Gerät — ohne Netzwerk — über das `whisper-cli`-Binary + ein lokales GGML-Modell.
+    /// Liefert den Transkript-Text. `whisper_bin`/`model` sind konfigurierbar.
+    fn stt_transcribe(&self, p: &Value) -> HandlerResult {
+        let audio = req_str(p, "audio")?;
+        let model = req_str(p, "model")?;
+        let bin = p.get("whisper_bin").and_then(Value::as_str).unwrap_or("whisper-cli");
+        let out = std::process::Command::new(bin)
+            .args(["-m", model, "-f", audio, "-nt", "--language", "en"])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("whisper-cli nicht startbar: {e}")))?;
+        if !out.status.success() {
+            return Err(IpcFailure::internal(format!(
+                "whisper-cli fehlgeschlagen: {}",
+                String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+            )));
+        }
+        let transcript = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if transcript.is_empty() {
+            return Err(IpcFailure::internal("leeres Transkript"));
+        }
+        Ok(json!({
+            "ok": true, "transcript": transcript, "engine": "whisper.cpp",
+            "model": model, "offline": true
+        }))
     }
 
     /// Online-TTS via ElevenLabs (F231): streamt den Antworttext an den ElevenLabs-Endpoint
