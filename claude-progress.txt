@@ -316,3 +316,7 @@
   F251 mcp.call_sequence (neuer MCP-stdio-Client: initialize+initialized, id-robustes Lesen, Mehrfach-
   Aufruf in EINER Session) verbindet sich mit dem echten @playwright/mcp-Server -> browser_navigate +
   browser_take_screenshot -> echtes PNG 1280x720 (14833 B) gespeichert. test-harness/probes/llm_batch10.py. 303/360.
+[SESSION 1] [2026-06-24] [BUILD-61 / BROWSER-AGENT] [PASSING] +1 Computer-Use/Browser-Agent (echter claude
+  + Playwright-MCP): F348 agents.browser_task gibt dem echten claude den Playwright-MCP-Server (--mcp-config)
+  + lässt ihn autonom ein Formular auf localhost ausfüllen + absenden -> Server empfing echte Daten
+  (name=Max Mustermann, email=max@example.com). test-harness/probes/llm_batch11.py. 304/360.

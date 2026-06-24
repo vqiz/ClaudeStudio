@@ -1,0 +1,7 @@
+{
+  "submission": {
+    "name": "Max Mustermann",
+    "email": "max@example.com"
+  },
+  "agent_log_tail": "Erledigt. ✅\n\nAblauf:\n1. Zu `http://127.0.0.1:50880/` navigiert (Seite \"Anmeldung\").\n2. Namensfeld mit **Max Mustermann** und E-Mail-Feld mit **max@example.com** ausgefüllt.\n3. **Absenden** geklickt → die Seite wechselte zu `/submit`.\n\nBestätigt: Die Zielseite zeigt die Überschrift **\"Danke, abgeschi"
+}

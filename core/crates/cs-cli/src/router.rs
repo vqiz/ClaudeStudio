@@ -99,7 +99,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "teams.run_flow"
-        | "mcp.call_tool" => AGENT_HANDLER_TIMEOUT,
+        | "mcp.call_tool" | "agents.browser_task" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -279,6 +279,40 @@ impl Router {
             "cost_usd": v.get("total_cost_usd").cloned().unwrap_or(json!(0)),
             "duration_ms": v.get("duration_ms").cloned().unwrap_or(json!(0)),
         }))
+    }
+
+    /// Computer-Use / Browser-Agent (F348): der echte `claude` erhält den Playwright-MCP-Server
+    /// (via `--mcp-config`) und erledigt eine UI-Aufgabe autonom im echten Browser (navigieren,
+    /// Felder ausfüllen, absenden). Liefert das Agenten-Log.
+    fn agents_browser_task(&self, p: &Value) -> HandlerResult {
+        let task = req_str(p, "task")?;
+        let cwd = p.get("cwd").and_then(Value::as_str).map(String::from)
+            .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
+        let binary = std::env::var("CLAUDESTUDIO_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+        let config = json!({
+            "mcpServers": { "playwright": {
+                "command": "npx",
+                "args": ["-y", "@playwright/mcp@latest", "--headless", "--isolated"]
+            }}
+        });
+        let config_path = Path::new(&cwd).join(".mcp-playwright.json");
+        std::fs::write(&config_path, config.to_string()).map_err(|e| e.to_string())?;
+        let out = std::process::Command::new(&binary)
+            .args([
+                "--print", "--output-format", "text",
+                "--mcp-config", &config_path.to_string_lossy(),
+                "--permission-mode", "bypassPermissions",
+                &task,
+            ])
+            .current_dir(&cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("claude konnte nicht gestartet werden: {e}")))?;
+        let log = String::from_utf8_lossy(&out.stdout).to_string();
+        let tail: String = {
+            let chars: Vec<char> = log.chars().collect();
+            chars[chars.len().saturating_sub(400)..].iter().collect()
+        };
+        Ok(json!({ "ok": out.status.success(), "agent_log_tail": tail }))
     }
 
     /// Framework-Migrations-Assistent (F341): der echte `claude` migriert eine React-Klassen-
@@ -793,6 +827,7 @@ impl Router {
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
+            "agents.browser_task" => self.agents_browser_task(p),
             "tasks.test_run" => self.tasks_test_run(p),
             "skills.test" => self.skills_test(p),
             "prompts.optimize" => self.prompts_optimize(p),
