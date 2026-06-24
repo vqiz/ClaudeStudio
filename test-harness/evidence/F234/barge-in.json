@@ -1,0 +1,13 @@
+{
+  "tts_pid": 39269,
+  "state_while_playing": "SN",
+  "interrupted_after_s": 0.61,
+  "state_after_barge_in": "Z",
+  "barge": {
+    "interrupted": true,
+    "new_command": "Stopp, etwas anderes",
+    "ok": true,
+    "tts_pid": 39269,
+    "was_playing": true
+  }
+}

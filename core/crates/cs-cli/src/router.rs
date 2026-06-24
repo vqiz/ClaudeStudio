@@ -1224,6 +1224,8 @@ impl Router {
             "voice.run_command" => self.voice_run_command(p),
             "voice.detect_wakeword" => self.voice_detect_wakeword(p),
             "voice.pipeline" => self.voice_pipeline(p),
+            "voice.tts_play" => self.voice_tts_play(p),
+            "voice.barge_in" => self.voice_barge_in(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2649,6 +2651,39 @@ impl Router {
             }
         }
         Ok(json!({ "ok": false, "transcript": transcript, "action": "unknown" }))
+    }
+
+    /// Startet eine TTS-Ausgabe als eigenen Prozess (`say`) und liefert dessen PID — Grundlage für
+    /// Barge-In (F234). Wartet NICHT auf das Ende (die Ausgabe läuft weiter); kann per
+    /// `voice.barge_in` sofort unterbrochen werden.
+    fn voice_tts_play(&self, p: &Value) -> HandlerResult {
+        let text = req_str(p, "text")?;
+        let bin = p.get("say_bin").and_then(Value::as_str).unwrap_or("say");
+        let child = std::process::Command::new(bin)
+            .arg(text)
+            .spawn()
+            .map_err(|e| IpcFailure::internal(format!("say nicht startbar: {e}")))?;
+        let pid = child.id();
+        // Child droppen, ohne zu warten — `std::process::Child` killt beim Drop NICHT,
+        // die TTS-Ausgabe läuft also weiter, bis sie endet oder per Barge-In beendet wird.
+        std::mem::drop(child);
+        Ok(json!({ "ok": true, "tts_pid": pid, "playing": true }))
+    }
+
+    /// Barge-In (F234): ein neues Kommando unterbricht die laufende TTS-Ausgabe SOFORT, indem der
+    /// TTS-Prozess terminiert wird. Optional wird das neue Kommando danach verarbeitet.
+    fn voice_barge_in(&self, p: &Value) -> HandlerResult {
+        let pid = p.get("tts_pid").and_then(Value::as_u64)
+            .ok_or_else(|| IpcFailure::invalid("missing 'tts_pid'"))? as u32;
+        let was_playing = std::process::Command::new("kill")
+            .args(["-0", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+        let interrupted = std::process::Command::new("kill")
+            .args(["-TERM", &pid.to_string()]).status().map(|s| s.success()).unwrap_or(false);
+        Ok(json!({
+            "ok": true, "interrupted": interrupted, "tts_pid": pid,
+            "was_playing": was_playing,
+            "new_command": p.get("new_command").cloned().unwrap_or(Value::Null)
+        }))
     }
 
     /// Lokale Wakeword-Erkennung via openwakeword (F227): führt das vortrainierte Modell über die

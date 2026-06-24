@@ -556,3 +556,7 @@
   session.event-Frames INKREMENTELL. Verifiziert: 6 Tokens über 1,29s eingetroffen (Ankunfts-Zeitstempel +
   Pausen) → vollständiger Text, NICHT erst am Ende. Fix: kein voriger assistant_text im STREAM-Modus (dessen
   Modell-Load würde die Deltas batchen). test-harness/probes/batch83.py. 353/360.
+[SESSION 1] [2026-06-24] [BUILD-106] [PASSING] +1 Barge-In (F234): voice.tts_play startet eine lange `say`-
+  Ausgabe als Prozess (läuft weiter, kein Wait); voice.barge_in terminiert sie sofort (SIGTERM) mitten in der
+  Wiedergabe. Verifiziert: TTS-Prozess spielt (Zustand SN), nach 0,61s per Barge-In beendet (Prozess tot, lange
+  vor natürlichem Ende). test-harness/probes/batch84.py. 354/360.
