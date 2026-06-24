@@ -481,3 +481,8 @@
   loadFileURL) und Markdown (eigene md→HTML-Konvertierung: H1/H2/Liste/**fett**). FilePreviewTestView.
   Verifiziert: Bild (Text+Farbe), SVG (blau+Text), Markdown (H1 'Markdown Preview' + H2 + Liste). Seam
   filepreview. ui_batch19.py. 338/360.
+[SESSION 1] [2026-06-24] [BUILD-94] [PASSING] +1 Slash-Befehle (F142): session.slash_command dispatcht die
+  6 Panel-Slash-Befehle zu ECHTEN Operationen — /cost+/status lesen echte Session-Daten (cost_usd 0.018),
+  /mcp listet die echten eingebauten MCP-Tools (4), /resume baut die echte claude-Resume-Invocation,
+  /compact+/simplify lassen den echten claude zusammenfassen bzw. Code vereinfachen. Jeder Befehl liefert
+  ein echtes Resultat. test-harness/probes/batch77.py. 339/360.

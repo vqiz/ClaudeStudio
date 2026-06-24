@@ -118,7 +118,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
         | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
         | "agents.screenshot_to_code" | "agents.plan_mode"
-        | "deployment.create_pr" | "ui.figma_to_code" => AGENT_HANDLER_TIMEOUT,
+        | "deployment.create_pr" | "ui.figma_to_code"
+        | "session.slash_command" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -1147,6 +1148,7 @@ impl Router {
             // --- Session archive ---
             "session.list" => self.session_list(p),
             "session.get" => self.session_get(p),
+            "session.slash_command" => self.session_slash_command(p),
             "session.messages" => self.session_messages(p),
             "session.share" => self.session_share(p),
             "session.set_note" => self.session_set_note(p),
@@ -1926,6 +1928,72 @@ impl Router {
             list.truncate(limit.max(0) as usize);
         }
         Ok(json!({ "sessions": arr }))
+    }
+
+    /// Slash-Befehle des Session-Panels (F142): die UI-Buttons /cost, /status, /mcp, /resume, /compact,
+    /// /simplify lösen die jeweils ECHTEN Befehle aus. /cost + /status lesen die echten Session-Daten,
+    /// /mcp listet die echten MCP-Tools, /resume baut die echte `claude --resume`-Invocation, /compact +
+    /// /simplify lassen den echten `claude` zusammenfassen bzw. vereinfachen. Jeder Befehl liefert ein
+    /// echtes Resultat — kein Stub.
+    fn session_slash_command(&self, p: &Value) -> HandlerResult {
+        let command = req_str(p, "command")?.trim().trim_start_matches('/').to_lowercase();
+        match command.as_str() {
+            "cost" => {
+                let id = req_str(p, "session_id")?;
+                let store = self.inner.sessions.lock().unwrap();
+                let usage = store.session_usage(id).map_err(session_failure)?;
+                Ok(json!({ "command": "/cost", "ok": true,
+                           "usage": serde_json::to_value(&usage).unwrap_or(Value::Null) }))
+            }
+            "status" => {
+                let id = req_str(p, "session_id")?;
+                let store = self.inner.sessions.lock().unwrap();
+                let session = store.get_session(id).map_err(session_failure)?;
+                let v = serde_json::to_value(&session).unwrap_or(Value::Null);
+                let status = v.get("status").cloned().unwrap_or(json!("unknown"));
+                Ok(json!({ "command": "/status", "ok": true, "status": status }))
+            }
+            "mcp" => {
+                // Leeres Payload (das slash-`command`-Feld darf NICHT als MCP-Server-Befehl
+                // missdeutet werden) — nutzt den eingebauten MCP-Server.
+                let r = self.mcp_tools(&json!({}))?;
+                let count = r.get("tool_count").cloned().unwrap_or(json!(0));
+                Ok(json!({ "command": "/mcp", "ok": true, "tool_count": count, "mcp": r }))
+            }
+            "resume" => {
+                let id = req_str(p, "session_id")?;
+                let store = self.inner.sessions.lock().unwrap();
+                let session = store.get_session(id).map_err(session_failure)?;
+                let v = serde_json::to_value(&session).unwrap_or(Value::Null);
+                let claude_id = v.get("claude_session_id").and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(id);
+                Ok(json!({ "command": "/resume", "ok": true, "action": "resume",
+                           "command_line": format!("claude --resume {claude_id}"),
+                           "session_id": id }))
+            }
+            "compact" => {
+                let cwd = p.get("cwd").and_then(Value::as_str).unwrap_or(".");
+                let text = req_str(p, "text")?;
+                let prompt = format!(
+                    "Fasse das folgende Session-Transkript KOMPAKT in höchstens 3 Sätzen zusammen. \
+                     Gib NUR die Zusammenfassung aus:\n\n{text}");
+                let (out, _) = run_claude_agent(cwd, &prompt);
+                let summary = out.trim().to_string();
+                Ok(json!({ "command": "/compact", "ok": !summary.is_empty(), "summary": summary }))
+            }
+            "simplify" => {
+                let cwd = p.get("cwd").and_then(Value::as_str).unwrap_or(".");
+                let text = req_str(p, "text")?;
+                let prompt = format!(
+                    "Vereinfache den folgenden Code, ohne sein Verhalten zu ändern. \
+                     Gib NUR den vereinfachten Code aus (ohne Erklärung):\n\n{text}");
+                let (out, _) = run_claude_agent(cwd, &prompt);
+                let result = out.trim().to_string();
+                Ok(json!({ "command": "/simplify", "ok": !result.is_empty(), "result": result }))
+            }
+            other => Err(IpcFailure::invalid(format!("unbekannter Slash-Befehl: /{other}"))),
+        }
     }
 
     fn session_get(&self, p: &Value) -> HandlerResult {

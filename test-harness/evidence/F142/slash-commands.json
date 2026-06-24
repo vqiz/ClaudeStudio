@@ -1,0 +1,14 @@
+{
+  "cost": {
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "cost_usd": 0.018,
+    "input_tokens": 1200,
+    "output_tokens": 340
+  },
+  "status": "unknown",
+  "mcp_tool_count": 4,
+  "resume": "claude --resume 271f6a06-039f-480b-ac90-ecf64fdd68d0",
+  "compact_summary": "Habe die IPC-Schicht auf length-prefixed MessagePack umgestellt und einen Reconnect-Loop ergänzt; Tests sind grün.",
+  "simplify_result": "The simplification:\n\n```javascript\nfunction add(a, b) { return a + b; }\n```"
+}
