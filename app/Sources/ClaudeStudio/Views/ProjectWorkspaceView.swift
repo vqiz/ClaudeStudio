@@ -93,6 +93,7 @@ private struct ProjectHeaderBar: View {
 
 /// Files-Tab (F028): listet die echten Dateien des Projektverzeichnisses.
 private struct ProjectFilesTab: View {
+    @Environment(AppState.self) private var appState
     let project: Project
     private var entries: [String] {
         (try? FileManager.default.contentsOfDirectory(atPath: project.path))?.sorted() ?? []
@@ -100,6 +101,18 @@ private struct ProjectFilesTab: View {
     var body: some View {
         List(entries, id: \.self) { name in
             Label(name, systemImage: name.contains(".") ? "doc" : "folder")
+                // F054: Rechtsklickmenü mit Schnell-Aktionen, jede löst die echte Operation aus.
+                .contextMenu {
+                    ForEach(QuickAction.allCases) { action in
+                        Button {
+                            let file = (project.path as NSString).appendingPathComponent(name)
+                            let sid = appState.activeSession?.id.uuidString ?? ""
+                            Task { _ = await appState.core.performQuickAction(action, file: file, sessionId: sid) }
+                        } label: {
+                            Label(action.label, systemImage: action.systemImage)
+                        }
+                    }
+                }
         }
         .overlay { if entries.isEmpty { ContentUnavailableView("Keine Dateien", systemImage: "folder") } }
     }

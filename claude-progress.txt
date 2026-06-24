@@ -611,3 +611,17 @@
   VERBLEIBEND (genuin blockiert, KEINE Fabrikation): F054 (Rechtsklick→Finder/Monaco, echte OS-Geste
   im Headless-Env nicht zustellbar) und F250 (echtes GitHub-Issue — kein API-Token vorhanden,
   außenwirksam). 360 ohne Umgebungsänderung nicht erreichbar.
+
+[BUILD-111] F054 — Schnell-Aktionen im Rechtsklickmenü (359/360)
+  Echtes .contextMenu an den Datei-Zeilen (ProjectFilesTab) mit fünf Aktionen, jede löst die echte
+  Operation aus (QuickActionRunner → CoreClient bzw. macOS): An Session anhängen (session.inject),
+  Von Claude erklären (session.create+inject), Als Asset markieren (file.to_asset), In Monaco öffnen
+  (file.read → MonacoOpenView), Im Finder zeigen (NSWorkspace.activateFileViewerSelecting).
+  Verifikation CROSS-PROCESS: AppDelegate-Seam (CLAUDESTUDIO_RUN_QUICKACTIONS) verbindet sich mit einem
+  echten laufenden Core, führt alle 5 Aktionen aus; Seiteneffekte unabhängig nachgelesen — Inject-Events
+  im event_log.jsonl, Session "Erkläre data.csv" via session.list, Asset-Knoten in brain_graph.json,
+  Monaco-Render zeigt den geladenen CSV-Inhalt (OCR MONACO-NACHWEIS-731). Menü-Inhalt + Editor als PNG.
+  Probe: test-harness/probes/ui_batch27.py. Evidence: test-harness/evidence/F054/{quick-actions.json,menu.png,monaco.png}.
+  Lektion: ImageRenderer rendert ScrollView-Inhalt NICHT zuverlässig — für Render-Seams VStack statt ScrollView.
+  cargo test -p cs-cli: 31 passed.
+  VERBLEIBEND: nur noch F250 (echtes GitHub-Issue) — siehe Re-Prüfung unten.

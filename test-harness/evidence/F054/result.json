@@ -1,0 +1,51 @@
+{
+  "results" : [
+    {
+      "action" : "attachToSession",
+      "detail" : {
+        "session_id" : "a04f8c0d-a737-4037-a3e4-f58e31a01dd1"
+      },
+      "label" : "An Session anhängen",
+      "ok" : true,
+      "op" : "session.inject"
+    },
+    {
+      "action" : "explain",
+      "detail" : {
+        "session_id" : "c956300f-2d80-427a-8512-79933e665ecd",
+        "title" : "Erkläre data.csv"
+      },
+      "label" : "Von Claude erklären",
+      "ok" : true,
+      "op" : "session.create+inject"
+    },
+    {
+      "action" : "markAsset",
+      "detail" : {
+        "label" : "data.csv",
+        "node_id" : "n-1782306023049-0"
+      },
+      "label" : "Als Asset markieren",
+      "ok" : true,
+      "op" : "file.to_asset"
+    },
+    {
+      "action" : "openInMonaco",
+      "detail" : {
+        "bytes" : "70"
+      },
+      "label" : "In Monaco öffnen",
+      "ok" : true,
+      "op" : "file.read→monaco"
+    },
+    {
+      "action" : "revealInFinder",
+      "detail" : {
+        "url" : "file:\/\/\/var\/folders\/lr\/fzn6lr_10c1czg55tkfhy7p40000gn\/T\/cs-probe-home-asa9as68\/data.csv"
+      },
+      "label" : "Im Finder zeigen",
+      "ok" : true,
+      "op" : "NSWorkspace.activateFileViewerSelecting"
+    }
+  ]
+}

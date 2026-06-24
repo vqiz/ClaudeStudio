@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ClaudeStudioKit
 
 /// The Claude Studio macOS application entry point.
 ///
@@ -25,9 +26,21 @@ struct ClaudeStudioApp: App {
         return 1200
     }
 
+    /// True, wenn die App über einen Headless-Render-/Ausführungs-Seam (AppDelegate) gestartet wurde.
+    /// Dann KEIN RootView rendern (dessen `.task` würde sonst einen zweiten Core starten) — der
+    /// AppDelegate erledigt das Rendern bzw. die Ausführung und beendet den Prozess via `exit(0)`.
+    private var headlessSeamActive: Bool {
+        let env = ProcessInfo.processInfo.environment
+        return env["CLAUDESTUDIO_RENDER_OVERLAY"] != nil
+            || env["CLAUDESTUDIO_RENDER_TABRETENTION"] != nil
+            || env["CLAUDESTUDIO_RUN_QUICKACTIONS"] != nil
+    }
+
     var body: some Scene {
         WindowGroup {
-            if uiTestMode == "gallery" {
+            if headlessSeamActive {
+                Color.clear
+            } else if uiTestMode == "gallery" {
                 DesignGalleryView()
                     .environment(appState)
             } else if uiTestMode == "chart" {
@@ -179,8 +192,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/3-A.png")
             exit(0)
         }
+        // F054-Seam: die fünf Schnell-Aktionen des Rechtsklickmenüs gegen einen echten Core ausführen
+        // (genau der Code-Pfad, den das Kontextmenü nutzt — die Rechtsklick-Geste ist ersetzt), den
+        // Menü-Inhalt und den im Monaco-Editor geöffneten Dateiinhalt rendern, Ergebnisse als JSON ablegen.
+        if let dir = ProcessInfo.processInfo.environment["CLAUDESTUDIO_RUN_QUICKACTIONS"] {
+            let sock = ProcessInfo.processInfo.environment["CLAUDESTUDIO_QA_SOCK"] ?? ""
+            let file = ProcessInfo.processInfo.environment["CLAUDESTUDIO_QA_FILE"] ?? ""
+            let sid = ProcessInfo.processInfo.environment["CLAUDESTUDIO_QA_SESSION"] ?? ""
+            Task { @MainActor in
+                await self.runQuickActionsSeam(dir: dir, sock: sock, file: file, sessionId: sid)
+                exit(0)
+            }
+            return
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Führt alle Schnell-Aktionen (F054) gegen den Core unter `sock` aus und legt Belege in `dir` ab:
+    /// `result.json` (real ausgelöste Operationen je Aktion), `menu.png` (Menü-Inhalt) und `monaco.png`
+    /// (die via „In Monaco öffnen“ geladene Datei).
+    @MainActor
+    private func runQuickActionsSeam(dir: String, sock: String, file: String, sessionId: String) async {
+        let client = CoreClient(socketPath: sock)
+        var results: [[String: Any]] = []
+        var monacoContent = ""
+        do {
+            try await client.connect()
+            let runner = QuickActionRunner(client: client)
+            for action in QuickAction.allCases {
+                let r = await runner.perform(action, file: file, sessionId: sessionId)
+                results.append(["action": action.rawValue, "label": action.label,
+                                "ok": r.ok, "op": r.op, "detail": r.detail])
+                if action == .openInMonaco,
+                   let resp = try? await client.call("file.read", .map(["path": .string(file)])) {
+                    monacoContent = resp.payload?["content"]?.stringValue ?? ""
+                }
+            }
+            await client.disconnect()
+        } catch {
+            results.append(["error": "\(error)"])
+        }
+        renderViewToPNG(AnyView(QuickActionMenuView()), to: "\(dir)/menu.png")
+        let fname = (file as NSString).lastPathComponent
+        renderViewToPNG(AnyView(MonacoOpenView(filename: fname, content: monacoContent)), to: "\(dir)/monaco.png")
+        if let json = try? JSONSerialization.data(withJSONObject: ["results": results],
+                                                  options: [.prettyPrinted, .sortedKeys]) {
+            try? json.write(to: URL(fileURLWithPath: "\(dir)/result.json"))
+        }
     }
 
     @MainActor

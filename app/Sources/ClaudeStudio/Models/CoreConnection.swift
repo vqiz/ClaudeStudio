@@ -252,6 +252,13 @@ final class CoreConnection {
         return (try? await client.fetchSessionMessages(id: id)) ?? []
     }
 
+    /// Führt eine Schnell-Aktion aus dem Rechtsklickmenü (F054) gegen den verbundenen Core aus.
+    /// Gibt `nil` zurück, wenn kein Core verbunden ist.
+    func performQuickAction(_ action: QuickAction, file: String, sessionId: String) async -> QuickActionResult? {
+        guard isConnected, let client else { return nil }
+        return await QuickActionRunner(client: client).perform(action, file: file, sessionId: sessionId)
+    }
+
     /// Resume an archived conversation: load its transcript into the live view,
     /// arm `--resume`, and select its project so the user can continue it in the
     /// Session tab. Returns false if the session isn't resumable.

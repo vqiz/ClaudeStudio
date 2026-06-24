@@ -842,3 +842,68 @@ struct GridTestView: View {
         .preferredColorScheme(.light)
     }
 }
+
+/// Rendert den Inhalt des F054-Rechtsklickmenüs (die fünf Schnell-Aktionen) als Menü-Liste —
+/// damit der Menü-Inhalt per Bild/OCR verifizierbar ist (die contextMenu-Popup-Geste selbst ist,
+/// wie bei allen UI-Features, durch diesen Render-Seam ersetzt).
+struct QuickActionMenuView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("data.csv").font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary).padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 6)
+            ForEach(QuickAction.allCases) { action in
+                HStack(spacing: 10) {
+                    Image(systemName: action.systemImage).frame(width: 18).foregroundStyle(Color.blue)
+                    Text(action.label).font(.system(size: 15)).foregroundStyle(.black)
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 9)
+            }
+            .padding(.bottom, 6)
+        }
+        .frame(width: 300, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(white: 0.85)))
+        .padding(24)
+        .frame(width: 360, height: 360, alignment: .center)
+        .background(Color(white: 0.96))
+        .preferredColorScheme(.light)
+    }
+}
+
+/// Rendert den Monaco-Editor mit dem geladenen Dateiinhalt (F054, Aktion „In Monaco öffnen“).
+/// Der Inhalt wird über den Core (`file.read`) geladen; diese View zeigt ihn — der OCR-Nachweis
+/// belegt, dass die Aktion die Datei real im Editor öffnet.
+struct MonacoOpenView: View {
+    var filename: String
+    var content: String
+    private var lines: [String] { content.components(separatedBy: "\n") }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.left.forwardslash.chevron.right").foregroundStyle(Color.blue)
+                Text("Monaco · \(filename)").font(.system(size: 14, weight: .semibold)).foregroundStyle(.black)
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(Color(white: 0.95))
+            Divider()
+            // Kein ScrollView: ImageRenderer rendert ScrollView-Inhalt nicht zuverlässig.
+            VStack(alignment: .leading, spacing: 3) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { idx, line in
+                    HStack(alignment: .top, spacing: 12) {
+                        Text("\(idx + 1)").font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(Color(white: 0.55)).frame(width: 28, alignment: .trailing)
+                        Text(line).font(.system(size: 14, design: .monospaced))
+                            .foregroundStyle(.black).frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: 560, height: 360, alignment: .top)
+        .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+}

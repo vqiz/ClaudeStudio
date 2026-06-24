@@ -1,0 +1,60 @@
+{
+  "operations": {
+    "attachToSession": {
+      "ok": true,
+      "op": "session.inject",
+      "detail": {
+        "session_id": "a04f8c0d-a737-4037-a3e4-f58e31a01dd1"
+      }
+    },
+    "explain": {
+      "ok": true,
+      "op": "session.create+inject",
+      "detail": {
+        "session_id": "c956300f-2d80-427a-8512-79933e665ecd",
+        "title": "Erkläre data.csv"
+      }
+    },
+    "markAsset": {
+      "ok": true,
+      "op": "file.to_asset",
+      "detail": {
+        "label": "data.csv",
+        "node_id": "n-1782306023049-0"
+      }
+    },
+    "openInMonaco": {
+      "ok": true,
+      "op": "file.read→monaco",
+      "detail": {
+        "bytes": "70"
+      }
+    },
+    "revealInFinder": {
+      "ok": true,
+      "op": "NSWorkspace.activateFileViewerSelecting",
+      "detail": {
+        "url": "file:///var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-probe-home-asa9as68/data.csv"
+      }
+    }
+  },
+  "side_effects": {
+    "inject_event_logged": true,
+    "explain_session_title": "Erkläre data.csv",
+    "asset_node": {
+      "created_at": 1782306023049,
+      "id": "n-1782306023049-0",
+      "label": "data.csv",
+      "props": {
+        "path": "/var/folders/lr/fzn6lr_10c1czg55tkfhy7p40000gn/T/cs-probe-home-asa9as68/data.csv"
+      },
+      "type": "asset"
+    },
+    "monaco_ocr": "</> Monaco - data.csv spalte_alpha, spalte_beta MONACO-NACHWEIS-731, wert-zwei zeile3, zeile3b ",
+    "menu_ocr": "data csv an session anha ngen von claude erklaren yy als asset markieren in monaco offnen im finder zeigen"
+  },
+  "screens": [
+    "test-harness/evidence/F054/menu.png",
+    "test-harness/evidence/F054/monaco.png"
+  ]
+}
