@@ -560,3 +560,7 @@
   Ausgabe als Prozess (läuft weiter, kein Wait); voice.barge_in terminiert sie sofort (SIGTERM) mitten in der
   Wiedergabe. Verifiziert: TTS-Prozess spielt (Zustand SN), nach 0,61s per Barge-In beendet (Prozess tot, lange
   vor natürlichem Ende). test-harness/probes/batch84.py. 354/360.
+[SESSION 1] [2026-06-24] [BUILD-107] [PASSING] +1 Voice-Latenz <1,5s (F237): Warm-Laufzeit-Latenz der echten
+  Pipeline-Stufen gemessen (vorgewärmte Modelle wie im Live-Betrieb): openwakeword-Inferenz 0,1s + Whisper.cpp-
+  STT eines kurzen Kommandos 0,19s + Start der say-Antwort 0,006s = 0,298s Gesamt < 1,5s. test-harness/probes/
+  batch85.py. 355/360.

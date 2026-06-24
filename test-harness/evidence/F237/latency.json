@@ -1,0 +1,7 @@
+{
+  "ww_score": 0.998,
+  "t_wakeword_s": 0.1,
+  "t_stt_s": 0.192,
+  "t_answer_start_s": 0.006,
+  "total_latency_s": 0.298
+}
