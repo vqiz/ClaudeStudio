@@ -98,7 +98,8 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
-        | "prompts.optimize" | "compliance.check" | "teams.run_flow" => AGENT_HANDLER_TIMEOUT,
+        | "prompts.optimize" | "compliance.check" | "teams.run_flow"
+        | "mcp.call_tool" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -868,6 +869,7 @@ impl Router {
             "plugins.marketplace_list" => self.plugins_marketplace_list(),
             "plugins.marketplace_add" => self.plugins_marketplace_add(p),
             "mcp.list" => self.mcp_list(p),
+            "mcp.call_sequence" => self.mcp_call_sequence(p),
             "mcp.list_all" => self.mcp_list_all(p),
             "mcp.upsert" => self.mcp_upsert(p),
             "mcp.remove" => self.mcp_remove(p),
@@ -5069,6 +5071,77 @@ impl Router {
             }));
         }
         Ok(json!({ "tasks": tasks }))
+    }
+
+    /// Echter MCP-Client mit Mehrfach-Aufruf in EINER Session (F251): spawnt einen MCP-Server
+    /// (`command`-Array) über stdio (newline-delimited JSON-RPC), führt den Handshake
+    /// (initialize + notifications/initialized) aus und ruft die Tools (`calls: [{tool, arguments}]`)
+    /// nacheinander in derselben Session auf (Browser-State bleibt erhalten). Liest robust per id.
+    /// So steuert ClaudeStudio den echten Playwright-MCP-Server (navigate -> screenshot).
+    fn mcp_call_sequence(&self, p: &Value) -> HandlerResult {
+        use std::io::{BufRead, BufReader, Write};
+        let cmd: Vec<String> = p
+            .get("command")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(|s| s.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        if cmd.is_empty() {
+            return Err(IpcFailure::invalid("missing 'command'"));
+        }
+        let calls = p.get("calls").and_then(Value::as_array).cloned().unwrap_or_default();
+        let mut child = std::process::Command::new(&cmd[0])
+            .args(&cmd[1..])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| IpcFailure::internal(format!("MCP-Server-Start fehlgeschlagen: {e}")))?;
+        let mut stdin = child.stdin.take().unwrap();
+        let mut reader = BufReader::new(child.stdout.take().unwrap());
+
+        fn read_response(reader: &mut impl BufRead, want: i64) -> Value {
+            for _ in 0..2000 {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 {
+                    break;
+                }
+                if let Ok(m) = serde_json::from_str::<Value>(line.trim()) {
+                    if m.get("id").and_then(Value::as_i64) == Some(want) {
+                        return m;
+                    }
+                }
+            }
+            Value::Null
+        }
+
+        let _ = writeln!(stdin, "{}", json!({
+            "jsonrpc":"2.0","id":1,"method":"initialize",
+            "params":{"protocolVersion":"2024-11-05","capabilities":{},
+                      "clientInfo":{"name":"claudestudio","version":"1"}}}));
+        let _ = stdin.flush();
+        let init = read_response(&mut reader, 1);
+        let _ = writeln!(stdin, "{}", json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+        let _ = stdin.flush();
+
+        let mut results = Vec::new();
+        let mut id = 10i64;
+        for call in &calls {
+            let tool = call.get("tool").and_then(Value::as_str).unwrap_or("");
+            let args = call.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let _ = writeln!(stdin, "{}", json!({
+                "jsonrpc":"2.0","id":id,"method":"tools/call",
+                "params":{"name":tool,"arguments":args}}));
+            let _ = stdin.flush();
+            let resp = read_response(&mut reader, id);
+            results.push(json!({ "tool": tool, "result": resp.get("result").cloned().unwrap_or(Value::Null) }));
+            id += 1;
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        Ok(json!({
+            "server": init.get("result").and_then(|r| r.get("serverInfo")).cloned().unwrap_or(Value::Null),
+            "results": results,
+        }))
     }
 
     /// List configured MCP servers. Reads the project file `<cwd>/.mcp.json`

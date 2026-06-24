@@ -1,0 +1,12 @@
+{
+  "server": {
+    "name": "Playwright",
+    "version": "1.61.0-alpha-1781023400000"
+  },
+  "screenshot_bytes": 14833,
+  "image_size": [
+    1280,
+    720
+  ],
+  "navigate_ok": true
+}

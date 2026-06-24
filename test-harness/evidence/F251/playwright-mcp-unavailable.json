@@ -1,0 +1,5 @@
+{
+  "playwright_mcp_server_in_list": null,
+  "core_has_tools_call_ipc": false,
+  "reason_blocked": "Erfordert einen Playwright-MCP-Server, einen echten Browser und einen MCP-tools/call-Pfad. Es ist kein Playwright-Server konfiguriert und der Core besitzt keine IPC-Methode zum Ausfuehren eines MCP-Tools (kein tools/call). Browser-Steuerung + Screenshot sind eine GUI/Browser-Use-Anforderung."
+}

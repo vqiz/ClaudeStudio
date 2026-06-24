@@ -312,3 +312,7 @@
   F324 testing.e2e_record erzeugt aus einer Klick-Sequenz eine echte Playwright-Spec (page.goto/click/
   expect_text) + führt sie HEADLESS gegen einen localhost-Server aus -> grün. Netzwerk vorhanden,
   playwright+chromium installierbar. test-harness/probes/llm_batch9.py. 302/360.
+[SESSION 1] [2026-06-24] [BUILD-60 / MCP] [PASSING] +1 Echtes Playwright-MCP (echter MCP-Client + chromium):
+  F251 mcp.call_sequence (neuer MCP-stdio-Client: initialize+initialized, id-robustes Lesen, Mehrfach-
+  Aufruf in EINER Session) verbindet sich mit dem echten @playwright/mcp-Server -> browser_navigate +
+  browser_take_screenshot -> echtes PNG 1280x720 (14833 B) gespeichert. test-harness/probes/llm_batch10.py. 303/360.
