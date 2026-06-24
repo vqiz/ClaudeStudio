@@ -379,3 +379,8 @@
   Vektor + Semantik (verwandt 0.694 > unverwandt 0.437). F167 provider=auto fällt bei totem nomic_url
   transparent auf OpenAI text-embedding-3-small (1536-dim, OpenAI-Antwortformat) zurück (fallback=true).
   nomic_url/openai_url konfigurierbar; OpenAI-Endpoint Format-Substitut. test-harness/probes/batch73.py. 321/360.
+[SESSION 1] [2026-06-24] [BUILD-77] [PASSING] +1 MCP-Plugin-Manager (F255): mcp_plugin.install/update/
+  uninstall/list verwaltet MCP-Bundles via lokal/npm/URL (echtes npm install, offline via lokalem Pfad),
+  Registry in state_dir/mcp_plugins.json. Transport wird je Bundle automatisch erkannt: command-Manifest
+  ⇒ stdio, url-Manifest/URL-Quelle ⇒ remote. Verifiziert: npm-Bundle install→sichtbar, deinstall→weg,
+  Update ok, Transport je Bundle korrekt (stdio×2, remote×2). test-harness/probes/batch74.py. 322/360.

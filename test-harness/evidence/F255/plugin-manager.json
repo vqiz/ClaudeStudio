@@ -1,0 +1,25 @@
+{
+  "install_log_npm": [
+    "npm install rc=0",
+    "installed npm package 'my-mcp-plugin'",
+    "detected transport: stdio"
+  ],
+  "transports": {
+    "local-stdio": "stdio",
+    "my-mcp-plugin": "stdio",
+    "remote-bundle": "remote",
+    "local-remote": "remote"
+  },
+  "after_install": [
+    "local-remote",
+    "local-stdio",
+    "my-mcp-plugin",
+    "remote-bundle"
+  ],
+  "after_uninstall": [
+    "local-remote",
+    "local-stdio",
+    "remote-bundle"
+  ],
+  "update_ok": true
+}

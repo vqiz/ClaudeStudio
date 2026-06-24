@@ -1218,6 +1218,10 @@ impl Router {
             "plugins.set_enabled" => self.plugins_set_enabled(p),
             "plugins.marketplace_list" => self.plugins_marketplace_list(),
             "plugins.marketplace_add" => self.plugins_marketplace_add(p),
+            "mcp_plugin.install" => self.mcp_plugin_install(p),
+            "mcp_plugin.update" => self.mcp_plugin_update(p),
+            "mcp_plugin.uninstall" => self.mcp_plugin_uninstall(p),
+            "mcp_plugin.list" => self.mcp_plugin_list(),
             "mcp.list" => self.mcp_list(p),
             "mcp.call_sequence" => self.mcp_call_sequence(p),
             "mcp.list_all" => self.mcp_list_all(p),
@@ -6406,6 +6410,156 @@ impl Router {
             .ok_or_else(|| IpcFailure::invalid("missing 'source'"))?;
         let out = run_claude(&["plugin", "marketplace", "add", source])?;
         Ok(json!({ "ok": true, "output": out.trim() }))
+    }
+
+    // MARK: MCP-Plugin-Manager (F255) — verwaltet MCP-Server-Bundles (NICHT die claude-Plugins).
+
+    fn mcp_plugin_registry_path(&self) -> PathBuf {
+        self.inner.state_dir.join("mcp_plugins.json")
+    }
+
+    fn mcp_plugin_read_registry(&self) -> Vec<Value> {
+        std::fs::read_to_string(self.mcp_plugin_registry_path())
+            .ok()
+            .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
+            .unwrap_or_default()
+    }
+
+    fn mcp_plugin_write_registry(&self, reg: &[Value]) -> std::result::Result<(), IpcFailure> {
+        std::fs::write(self.mcp_plugin_registry_path(),
+                       serde_json::to_string(reg).unwrap_or_else(|_| "[]".into()))
+            .map_err(|e| IpcFailure::internal(e.to_string()))
+    }
+
+    /// Installiert ein MCP-Plugin-Bundle (F255) via `kind` ∈ {url, local, npm} (oder automatisch
+    /// aus der `source` erkannt) und erkennt den Transport (stdio vs remote) automatisch aus dem
+    /// Bundle-Manifest: ein `url`/`endpoint`-Feld ⇒ remote, ein `command`-Feld ⇒ stdio. URL-Bundles
+    /// sind immer remote. Das Manifest stammt bei `local` aus `<dir>/mcp.json`, bei `npm` aus dem
+    /// `mcp`-Feld der installierten `package.json` (echtes `npm install`, offline via lokalem Pfad).
+    fn mcp_plugin_install(&self, p: &Value) -> HandlerResult {
+        let source = req_str(p, "source")?.to_string();
+        let kind = p.get("kind").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| {
+            if source.starts_with("http://") || source.starts_with("https://") {
+                "url".into()
+            } else if Path::new(&source).exists() {
+                "local".into()
+            } else {
+                "npm".into()
+            }
+        });
+        let plugins_dir = self.inner.state_dir.join("mcp_plugins");
+        std::fs::create_dir_all(&plugins_dir).ok();
+
+        let mut log: Vec<String> = Vec::new();
+        let (name, manifest) = match kind.as_str() {
+            "url" => {
+                let n = p.get("name").and_then(Value::as_str).unwrap_or("remote-bundle").to_string();
+                log.push(format!("remote endpoint registered: {source}"));
+                (n, json!({ "url": source }))
+            }
+            "local" => {
+                let mf_path = Path::new(&source).join("mcp.json");
+                let raw = std::fs::read_to_string(&mf_path).map_err(|e| {
+                    IpcFailure::invalid(format!("kein mcp.json im lokalen Bundle: {e}"))
+                })?;
+                let mf: Value = serde_json::from_str(&raw)
+                    .map_err(|e| IpcFailure::invalid(format!("ungültiges mcp.json: {e}")))?;
+                let n = p.get("name").and_then(Value::as_str)
+                    .or_else(|| mf.get("name").and_then(Value::as_str))
+                    .unwrap_or("local-bundle").to_string();
+                log.push(format!("local manifest read from {}", mf_path.display()));
+                (n, mf)
+            }
+            "npm" | _ => {
+                let dest = plugins_dir.join("npm");
+                std::fs::create_dir_all(&dest).ok();
+                let out = std::process::Command::new("npm")
+                    .args(["install", "--no-audit", "--no-fund", "--loglevel", "error",
+                           "--prefix", &dest.to_string_lossy(), &source])
+                    .output()
+                    .map_err(|e| IpcFailure::internal(format!("npm nicht gestartet: {e}")))?;
+                log.push(format!("npm install rc={}", out.status.code().unwrap_or(-1)));
+                if !out.status.success() {
+                    return Err(IpcFailure::internal(format!(
+                        "npm install fehlgeschlagen: {}",
+                        String::from_utf8_lossy(&out.stderr)
+                    )));
+                }
+                // Die installierte package.json finden (einziges node_modules-Paket).
+                let nm = dest.join("node_modules");
+                let pkg_dir = std::fs::read_dir(&nm).ok().and_then(|rd| {
+                    rd.filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .find(|p| p.is_dir() && p.join("package.json").exists()
+                                  && !p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(false))
+                });
+                let pkg_dir = pkg_dir.ok_or_else(|| IpcFailure::internal("kein npm-Paket installiert"))?;
+                let raw = std::fs::read_to_string(pkg_dir.join("package.json"))
+                    .map_err(|e| IpcFailure::internal(e.to_string()))?;
+                let pkg: Value = serde_json::from_str(&raw).unwrap_or(json!({}));
+                let n = pkg.get("name").and_then(Value::as_str).unwrap_or("npm-bundle").to_string();
+                // Transport-Manifest aus dem `mcp`-Feld der package.json.
+                let mf = pkg.get("mcp").cloned().unwrap_or(json!({}));
+                log.push(format!("installed npm package '{n}'"));
+                (n, mf)
+            }
+        };
+
+        // Transport automatisch erkennen.
+        let transport = if kind == "url"
+            || manifest.get("url").is_some()
+            || manifest.get("endpoint").is_some()
+        {
+            "remote"
+        } else if manifest.get("command").is_some() {
+            "stdio"
+        } else {
+            "stdio" // command-basierte Default-Annahme für lokale/npm-Bundles
+        };
+        log.push(format!("detected transport: {transport}"));
+
+        let entry = json!({
+            "name": name, "source": source, "kind": kind,
+            "transport": transport, "manifest": manifest,
+            "version": manifest.get("version").cloned().unwrap_or(json!("1.0.0")),
+        });
+        let mut reg = self.mcp_plugin_read_registry();
+        reg.retain(|e| e.get("name").and_then(Value::as_str) != Some(name.as_str()));
+        reg.push(entry.clone());
+        self.mcp_plugin_write_registry(&reg)?;
+
+        Ok(json!({ "ok": true, "name": name, "kind": kind, "transport": transport,
+                   "log": log, "installed": entry }))
+    }
+
+    /// Aktualisiert ein installiertes Bundle (F255): re-installiert aus der gemerkten Quelle.
+    fn mcp_plugin_update(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let reg = self.mcp_plugin_read_registry();
+        let existing = reg.iter()
+            .find(|e| e.get("name").and_then(Value::as_str) == Some(name))
+            .ok_or_else(|| IpcFailure::not_found(format!("Bundle nicht installiert: {name}")))?;
+        let source = existing.get("source").and_then(Value::as_str).unwrap_or("").to_string();
+        let kind = existing.get("kind").and_then(Value::as_str).unwrap_or("npm").to_string();
+        let r = self.mcp_plugin_install(&json!({ "source": source, "kind": kind, "name": name }))?;
+        Ok(json!({ "ok": true, "updated": name, "transport": r.get("transport") }))
+    }
+
+    /// Deinstalliert ein Bundle (F255): entfernt es aus der Registry.
+    fn mcp_plugin_uninstall(&self, p: &Value) -> HandlerResult {
+        let name = req_str(p, "name")?;
+        let mut reg = self.mcp_plugin_read_registry();
+        let before = reg.len();
+        reg.retain(|e| e.get("name").and_then(Value::as_str) != Some(name));
+        let removed = reg.len() < before;
+        self.mcp_plugin_write_registry(&reg)?;
+        Ok(json!({ "ok": removed, "name": name, "removed": removed }))
+    }
+
+    /// Listet installierte Bundles mit erkanntem Transport (F255).
+    fn mcp_plugin_list(&self) -> HandlerResult {
+        let reg = self.mcp_plugin_read_registry();
+        Ok(json!({ "plugins": reg, "count": reg.len() }))
     }
 }
 

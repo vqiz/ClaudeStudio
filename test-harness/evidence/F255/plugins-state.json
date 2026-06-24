@@ -1,0 +1,100 @@
+{
+  "plugins_count": 7,
+  "plugins_sample": [
+    {
+      "enabled": true,
+      "has_mcp": false,
+      "id": "frontend-design@claude-plugins-official",
+      "marketplace": "claude-plugins-official",
+      "name": "frontend-design",
+      "scope": "user",
+      "version": "unknown"
+    },
+    {
+      "enabled": true,
+      "has_mcp": true,
+      "id": "github@claude-plugins-official",
+      "marketplace": "claude-plugins-official",
+      "name": "github",
+      "scope": "user",
+      "version": "unknown"
+    },
+    {
+      "enabled": true,
+      "has_mcp": false,
+      "id": "marketing-skills@marketingskills",
+      "marketplace": "marketingskills",
+      "name": "marketing-skills",
+      "scope": "user",
+      "version": "2.3.0"
+    },
+    {
+      "enabled": true,
+      "has_mcp": false,
+      "id": "social-media-skills@social-media-skills",
+      "marketplace": "social-media-skills",
+      "name": "social-media-skills",
+      "scope": "user",
+      "version": "1.0.0"
+    },
+    {
+      "enabled": true,
+      "has_mcp": true,
+      "id": "stripe@claude-plugins-official",
+      "marketplace": "claude-plugins-official",
+      "name": "stripe",
+      "scope": "user",
+      "version": "0.2.0"
+    },
+    {
+      "enabled": true,
+      "has_mcp": false,
+      "id": "swift-lsp@claude-plugins-official",
+      "marketplace": "claude-plugins-official",
+      "name": "swift-lsp",
+      "scope": "user",
+      "version": "1.0.0"
+    },
+    {
+      "enabled": true,
+      "has_mcp": false,
+      "id": "warp@claude-code-warp",
+      "marketplace": "claude-code-warp",
+      "name": "warp",
+      "scope": "user",
+      "version": "2.1.0"
+    }
+  ],
+  "has_mcp_field_present_on_all": true,
+  "plugins_with_mcp": [
+    "github@claude-plugins-official",
+    "stripe@claude-plugins-official"
+  ],
+  "marketplaces": [
+    {
+      "installLocation": "/Users/bachl/.claude/plugins/marketplaces/claude-code-warp",
+      "name": "claude-code-warp",
+      "repo": "warpdotdev/claude-code-warp",
+      "source": "github"
+    },
+    {
+      "installLocation": "/Users/bachl/.claude/plugins/marketplaces/claude-plugins-official",
+      "name": "claude-plugins-official",
+      "repo": "anthropics/claude-plugins-official",
+      "source": "github"
+    },
+    {
+      "installLocation": "/Users/bachl/.claude/plugins/marketplaces/marketingskills",
+      "name": "marketingskills",
+      "repo": "coreyhaines31/marketingskills",
+      "source": "github"
+    },
+    {
+      "installLocation": "/Users/bachl/.claude/plugins/marketplaces/social-media-skills",
+      "name": "social-media-skills",
+      "repo": "charlie947/social-media-skills",
+      "source": "github"
+    }
+  ],
+  "reason_blocked": "plugins.list/marketplace_list liefern reale Daten inkl. has_mcp-Transport-Erkennung (stdio vs remote pro Bundle). Der geforderte vollstaendige npm-Install -> Update -> Deinstall-Zyklus mutiert jedoch den echten globalen Plugin-Zustand des Nutzers, braucht Netzwerk und ist die load-bearing-Assertion — wird hier bewusst NICHT real ausgefuehrt, um den Nutzer-Zustand nicht zu beschaedigen."
+}
