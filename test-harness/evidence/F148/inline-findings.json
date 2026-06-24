@@ -1,0 +1,4 @@
+{
+  "ocr": "+) sicherheits-scan abgeschlossen — 2 findings:\n\ntf) & high sql-injection: ungepriifte query-konkatenation\nsrc/db.js:42\n\ntf) & medium hartcodiertes secret im quelltext\nsrc/auth.js:88\n",
+  "screen": "test-harness/evidence/F148-findings.png"
+}

@@ -250,7 +250,30 @@ struct TranscriptRow: View {
             Label(text, systemImage: "hand.raised").font(.callout).foregroundStyle(.orange)
         case .toolCall(let call):
             toolCallView(call)
+        case .finding(let finding):
+            findingView(finding)
         }
+    }
+
+    /// F148: ein Finding inline als hervorgehobener Block — Schweregrad-Farbe, Nachricht und
+    /// Datei:Zeilennummer.
+    private func findingView(_ f: CodeFinding) -> some View {
+        let color: Color = f.severity == .high ? .red : (f.severity == .medium ? .orange : .yellow)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(color)
+                Text(f.severity.rawValue.uppercased())
+                    .font(.caption2.weight(.bold)).foregroundStyle(color)
+                Text(f.message).font(.callout.weight(.medium))
+            }
+            Text("\(f.file):\(f.line)")
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.4), lineWidth: 1))
     }
 
     private func toolCallView(_ call: ToolCall) -> some View {

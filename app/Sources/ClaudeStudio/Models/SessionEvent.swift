@@ -17,6 +17,8 @@ struct SessionEvent: Identifiable, Hashable, Sendable {
         case planStep(String)
         case permissionRequest(String)
         case status(String)
+        /// Ein Security-/Lint-Finding (F149/F148), inline im Output mit Datei + Zeilennummer.
+        case finding(CodeFinding)
     }
 
     let id: UUID
@@ -40,6 +42,28 @@ struct SessionEvent: Identifiable, Hashable, Sendable {
         self.timestamp = timestamp
         self.costDelta = costDelta
         self.tokenDelta = tokenDelta
+    }
+}
+
+/// Ein im Output gefundenes Problem (F148): ein Security-/Lint-Finding mit Dateibezug und
+/// Zeilennummer, das inline als hervorgehobener Block dargestellt wird. Entspricht dem Shape
+/// der `compliance.check`-Findings des Core (file + line + severity + message).
+struct CodeFinding: Identifiable, Hashable, Sendable {
+    enum Severity: String, Sendable, Hashable {
+        case high, medium, low
+    }
+    let id: UUID
+    var file: String
+    var line: Int
+    var severity: Severity
+    var message: String
+
+    init(id: UUID = UUID(), file: String, line: Int, severity: Severity, message: String) {
+        self.id = id
+        self.file = file
+        self.line = line
+        self.severity = severity
+        self.message = message
     }
 }
 

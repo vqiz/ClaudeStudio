@@ -433,3 +433,7 @@
   + formattedOutput (JSON pretty-print) erweitert; toolCallView zeigt stdout und Exit-Code GETRENNT (Badge)
   und JSON eingerückt statt Rohtext. ToolOutputTestView: Bash → stdout+exit 0, Read → formatiertes JSON.
   Seam tooloutput. ui_batch12.py. 330/360.
+[SESSION 1] [2026-06-24] [BUILD-86/UI-13] [PASSING] +1 Inline-Findings (F148): neue CodeFinding-Struct +
+  SessionEvent.Kind .finding; TranscriptRow.findingView rendert hervorgehobene Inline-Blöcke (Schweregrad-
+  Farbe, Nachricht, Datei:Zeilennummer). FindingsInlineTestView: HIGH src/db.js:42 (SQL-Injection) + MEDIUM
+  src/auth.js:88. Seam findings. ui_batch13.py. 331/360.

@@ -114,6 +114,38 @@ struct KPITestView: View {
     }
 }
 
+/// Inline-Findings (F148) — `CLAUDESTUDIO_UITEST=findings`. Rendert die ECHTEN TranscriptRow-Karten
+/// mit `.finding`-Events: jedes Finding erscheint als hervorgehobener Inline-Block mit Schweregrad,
+/// Nachricht und Datei:Zeilennummer (z. B. ein Security-Finding). Per OCR nachgewiesen.
+struct FindingsInlineTestView: View {
+    private var events: [SessionEvent] {
+        [
+            SessionEvent(role: .assistant, kind: .message("Sicherheits-Scan abgeschlossen — 2 Findings:")),
+            SessionEvent(role: .tool, kind: .finding(CodeFinding(
+                file: "src/db.js", line: 42, severity: .high,
+                message: "SQL-Injection: ungeprüfte Query-Konkatenation"))),
+            SessionEvent(role: .tool, kind: .finding(CodeFinding(
+                file: "src/auth.js", line: 88, severity: .medium,
+                message: "Hartcodiertes Secret im Quelltext"))),
+        ]
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(events) { e in
+                    TranscriptRow(event: e)
+                }
+            }
+            .padding(20)
+            .frame(width: 560, alignment: .leading)
+        }
+        .frame(width: 600, height: 420, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Strukturierter Tool-Output (F149) — `CLAUDESTUDIO_UITEST=tooloutput`. Rendert die ECHTEN
 /// TranscriptRow-Karten (aufgeklappt) für (a) eine Shell-Ausführung, deren stdout und Exit-Code
 /// GETRENNT angezeigt werden, und (b) ein JSON-Resultat, das eingerückt (geparst) statt als
