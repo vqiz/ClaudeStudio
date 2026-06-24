@@ -551,3 +551,8 @@
   session.pause sendet SIGSTOP (Prozess Zustand T, am Leben — NICHT beendet), session.resume SIGCONT.
   session.inject wirft während der Pause eine Nachricht in die Warteschlange + Event-Log. Verifiziert mit
   echtem ps-Zustand (TN→SN) + Event-Log. test-harness/probes/batch82.py. 352/360.
+[SESSION 1] [2026-06-24] [BUILD-105] [PASSING] +1 Live-Output zeichenweise (F136): Stub-STREAM-Modus emittiert
+  content_block_delta-Token (Python, ungepuffert) mit 0,25s-Pausen; der Core forwardet sie als assistant_delta-
+  session.event-Frames INKREMENTELL. Verifiziert: 6 Tokens über 1,29s eingetroffen (Ankunfts-Zeitstempel +
+  Pausen) → vollständiger Text, NICHT erst am Ende. Fix: kein voriger assistant_text im STREAM-Modus (dessen
+  Modell-Load würde die Deltas batchen). test-harness/probes/batch83.py. 353/360.

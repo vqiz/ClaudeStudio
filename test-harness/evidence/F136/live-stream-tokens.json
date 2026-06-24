@@ -1,0 +1,46 @@
+{
+  "token_count": 6,
+  "full_text": "Der DELETE-Endpoint wurde hinzugefuegt.",
+  "arrivals_s": [
+    1.809,
+    2.07,
+    2.329,
+    2.589,
+    2.849,
+    3.1
+  ],
+  "gaps_s": [
+    0.261,
+    0.259,
+    0.26,
+    0.26,
+    0.251
+  ],
+  "span_s": 1.291,
+  "ipc_deltas": [
+    {
+      "t": 1.809,
+      "text": "Der "
+    },
+    {
+      "t": 2.07,
+      "text": "DELETE"
+    },
+    {
+      "t": 2.329,
+      "text": "-Endpoint "
+    },
+    {
+      "t": 2.589,
+      "text": "wurde "
+    },
+    {
+      "t": 2.849,
+      "text": "hinzugefuegt"
+    },
+    {
+      "t": 3.1,
+      "text": "."
+    }
+  ]
+}
