@@ -132,30 +132,7 @@ struct SessionPanelView: View {
     }
 
     private func costFooter(_ session: AgentSession) -> some View {
-        let cost = session.cost
-        return VStack(spacing: 6) {
-            ProgressView(value: cost.budgetFraction) {
-                HStack {
-                    Text("Budget")
-                    Spacer()
-                    Text("\(cost.formattedCost) / \(Format.usd(cost.budgetUSD))")
-                        .foregroundStyle(cost.isOverBudget ? .red : .secondary)
-                }
-                .font(.caption)
-            }
-            .tint(cost.isOverBudget ? .red : .accentColor)
-
-            HStack {
-                Label(cost.formattedTokens, systemImage: "number")
-                Spacer()
-                Label("Live", systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(.green)
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .background(.bar)
+        SessionCostFooter(cost: session.cost)
     }
 
     private func statusPill(_ status: AgentSession.Status) -> some View {
@@ -198,6 +175,40 @@ private struct LiveSessionRow: View {
         case "error": return .red
         default: return .secondary
         }
+    }
+}
+
+/// Der Live-Kosten-Footer (F144): zeigt den laufenden USD-Counter (akkumulierte Kosten /
+/// Budget), die Token-Zahl und einen Live-Indikator. Der `CostTracker` summiert die Kosten
+/// JEDER Modell-Antwort (Event), daher steigt der Counter mit jeder Antwort. Eine einzige
+/// Quelle der Wahrheit, die SessionPanelView und der UITest nutzen.
+struct SessionCostFooter: View {
+    let cost: CostTracker
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ProgressView(value: cost.budgetFraction) {
+                HStack {
+                    Text("Budget")
+                    Spacer()
+                    Text("\(cost.formattedCost) / \(Format.usd(cost.budgetUSD))")
+                        .foregroundStyle(cost.isOverBudget ? .red : .secondary)
+                }
+                .font(.caption)
+            }
+            .tint(cost.isOverBudget ? .red : .accentColor)
+
+            HStack {
+                Label(cost.formattedTokens, systemImage: "number")
+                Spacer()
+                Label("Live", systemImage: "dot.radiowaves.left.and.right")
+                    .foregroundStyle(.green)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(.bar)
     }
 }
 

@@ -58,6 +58,10 @@ struct ClaudeStudioApp: App {
                 DefinitionsSectionTestView(expanded: true)
             } else if uiTestMode == "defs-collapsed" {
                 DefinitionsSectionTestView(expanded: false)
+            } else if uiTestMode == "cost-step1" {
+                CostCounterTestView(responses: 2)
+            } else if uiTestMode == "cost-step2" {
+                CostCounterTestView(responses: 6)
             } else if uiTestMode == "panel-collapsed" {
                 SessionPanelToolCardsTestView(expanded: false)
             } else if uiTestMode == "panel-expanded" {

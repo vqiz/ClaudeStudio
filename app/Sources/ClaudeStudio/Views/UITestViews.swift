@@ -114,6 +114,44 @@ struct KPITestView: View {
     }
 }
 
+/// Live-Kosten-Counter (F144) — `CLAUDESTUDIO_UITEST=cost-step1` bzw. `cost-step2`. Seedet eine
+/// AgentSession mit unterschiedlich vielen Antwort-Events; der ECHTE CostTracker summiert die
+/// Kosten jeder Antwort, sodass der USD-Counter zwischen den Schritten steigt. Gerendert wird der
+/// ECHTE SessionCostFooter; der große USD-Wert oben ist derselbe cost.formattedCost (OCR-lesbar).
+struct CostCounterTestView: View {
+    let responses: Int
+
+    private var session: AgentSession {
+        // Jede „Modell-Antwort" trägt 0,012 USD bei — der CostTracker summiert über die Events.
+        let events = (0..<responses).map { i in
+            SessionEvent(role: .assistant, kind: .message("Antwort \(i + 1)"),
+                         costDelta: 0.012, tokenDelta: 180)
+        }
+        return AgentSession(title: "Demo", projectName: "todo-api", events: events, budgetUSD: 5.0)
+    }
+
+    var body: some View {
+        let s = session
+        return ZStack {
+            Color.white
+            VStack(spacing: 20) {
+                VStack(spacing: 4) {
+                    Text("Kosten nach \(responses) Antworten")
+                        .font(.system(size: 15)).foregroundStyle(.secondary)
+                    Text(s.cost.formattedCost)
+                        .font(.system(size: 44, weight: .bold)).monospacedDigit()
+                        .foregroundStyle(.black)
+                }
+                SessionCostFooter(cost: s.cost)
+                    .frame(width: 360)
+            }
+            .padding(28)
+        }
+        .frame(width: 460, height: 320)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Session-Panel mit auf-/zuklappbaren Tool-Call-Karten (F137) — `CLAUDESTUDIO_UITEST=panel-collapsed`
 /// bzw. `panel-expanded`. Rendert die ECHTEN `TranscriptRow`-Karten (DisclosureGroup + Status-Badge)
 /// mit geseedeten Tool-Calls (Edit, Bash). Zugeklappt zeigt jede Karte nur Name + Status; aufgeklappt

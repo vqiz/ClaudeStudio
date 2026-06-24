@@ -425,3 +425,7 @@
   TranscriptRow/DisclosureGroup-Karten (Tool-Name + Status-Badge ok/running/failed) mit geseedeten Tool-
   Calls (Edit, Bash). Zugeklappt nur Name+Status, aufgeklappt Input+Output. TranscriptRow internal gemacht
   + initiallyExpanded-Param. Seam panel-collapsed/panel-expanded. ui_batch10.py. 328/360.
+[SESSION 1] [2026-06-24] [BUILD-84/UI-11] [PASSING] +1 Live-Kosten-Counter (F144): SessionCostFooter als
+  eigene View extrahiert (SessionPanelView nutzt sie weiter). Der echte CostTracker summiert 0,012 USD je
+  Antwort-Event; CostCounterTestView zeigt $0.024 (2 Antworten) → $0.072 (6 Antworten) — Counter steigt
+  nach jeder Modell-Antwort. Seam cost-step1/cost-step2. ui_batch11.py. 329/360.
