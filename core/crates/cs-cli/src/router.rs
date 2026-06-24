@@ -126,7 +126,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
-        | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
+        | "mcp.call_tool" | "mcp.call_sequence" | "agents.browser_task" | "copilot.run_action"
         | "agents.screenshot_to_code" | "agents.plan_mode"
         | "deployment.create_pr" | "ui.figma_to_code"
         | "session.slash_command" => AGENT_HANDLER_TIMEOUT,

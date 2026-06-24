@@ -33,6 +33,7 @@ struct ClaudeStudioApp: App {
         let env = ProcessInfo.processInfo.environment
         return env["CLAUDESTUDIO_RENDER_OVERLAY"] != nil
             || env["CLAUDESTUDIO_RENDER_TABRETENTION"] != nil
+            || env["CLAUDESTUDIO_RENDER_GHISSUE"] != nil
             || env["CLAUDESTUDIO_RUN_QUICKACTIONS"] != nil
     }
 
@@ -190,6 +191,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/2-B.png")
             model.currentTab = "A"   // zurück zu A — State erhalten?
             renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/3-A.png")
+            exit(0)
+        }
+        // F250-Seam: das Ergebnis einer echten GitHub-MCP-Operation in der UI rendern (Issue-Nummer +
+        // Status). Die Werte kommen aus dem echten MCP-Tool-Aufruf (vom Probe via Env übergeben).
+        if let path = ProcessInfo.processInfo.environment["CLAUDESTUDIO_RENDER_GHISSUE"] {
+            let env = ProcessInfo.processInfo.environment
+            let view = GitHubIssueResultView(
+                repo: env["CLAUDESTUDIO_GH_REPO"] ?? "vqiz/todo-api",
+                number: Int(env["CLAUDESTUDIO_GH_NUMBER"] ?? "0") ?? 0,
+                title: env["CLAUDESTUDIO_GH_TITLE"] ?? "",
+                closed: (env["CLAUDESTUDIO_GH_CLOSED"] ?? "") == "1")
+            renderViewToPNG(AnyView(view), to: path)
             exit(0)
         }
         // F054-Seam: die fünf Schnell-Aktionen des Rechtsklickmenüs gegen einen echten Core ausführen

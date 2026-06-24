@@ -1,0 +1,35 @@
+{
+  "mcp_server": {
+    "name": "github-mcp-fixture",
+    "version": "1.0.0"
+  },
+  "created_issue": {
+    "number": 1,
+    "title": "Tests reparieren (todo-api)",
+    "body": "Angelegt über ClaudeStudio GitHub-MCP.",
+    "state": "open",
+    "html_url": "https://github.com/vqiz/todo-api/issues/1"
+  },
+  "closed_result": {
+    "number": 1,
+    "title": "Tests reparieren (todo-api)",
+    "body": "Angelegt über ClaudeStudio GitHub-MCP.",
+    "state": "closed",
+    "html_url": "https://github.com/vqiz/todo-api/issues/1"
+  },
+  "live_state": {
+    "number": 1,
+    "title": "Tests reparieren (todo-api)",
+    "body": "Angelegt über ClaudeStudio GitHub-MCP.",
+    "state": "closed",
+    "html_url": "https://github.com/vqiz/todo-api/issues/1"
+  },
+  "state_transition": [
+    "open",
+    "closed"
+  ],
+  "auth_required_status": 401,
+  "ui_ocr": "rs) github-issue ber mcp vqiz/todo-api issue #1 tests reparieren (todo-api) status: geschlossen ",
+  "screen": "test-harness/evidence/F250/issue-ui.png",
+  "hinweis": "github.com erfordert einen hier nicht vorhandenen API-Token und wäre außenwirksam; Ende-zu-Ende über den echten MCP-Client des Cores + echten GitHub-MCP-Server gegen einen lokalen GitHub-REST-Substituten verifiziert (api_base-Muster wie im Produktiv-Code)."
+}

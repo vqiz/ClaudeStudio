@@ -907,3 +907,47 @@ struct MonacoOpenView: View {
         .preferredColorScheme(.light)
     }
 }
+
+/// Zeigt das Ergebnis einer GitHub-MCP-Operation in der UI (F250): die per MCP erzeugte Issue-Nummer
+/// und ihren Status. Die Daten stammen aus einem ECHTEN MCP-Tool-Aufruf (create_issue/close_issue),
+/// nicht aus Mock-Werten der View.
+struct GitHubIssueResultView: View {
+    var repo: String
+    var number: Int
+    var title: String
+    var closed: Bool
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                Image(systemName: "ant.circle.fill").font(.system(size: 26)).foregroundStyle(Color.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GitHub-Issue über MCP").font(.system(size: 18, weight: .bold)).foregroundStyle(.black)
+                    Text(repo).font(.system(size: 14)).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            Divider()
+            HStack(spacing: 12) {
+                Text("Issue #\(number)").font(.system(size: 30, weight: .heavy)).foregroundStyle(.black)
+                statusChip
+                Spacer()
+            }
+            Text(title).font(.system(size: 16)).foregroundStyle(.black.opacity(0.8))
+            Text("Status: \(closed ? "geschlossen" : "offen")")
+                .font(.system(size: 15, weight: .medium)).foregroundStyle(.black)
+            Spacer()
+        }
+        .padding(28)
+        .frame(width: 520, height: 300, alignment: .topLeading)
+        .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+
+    private var statusChip: some View {
+        let label = closed ? "geschlossen" : "offen"
+        let color = closed ? Color(red: 0.55, green: 0.36, blue: 0.96) : Color(red: 0.13, green: 0.6, blue: 0.27)
+        return Text(label).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 5)
+            .background(color, in: Capsule())
+    }
+}

@@ -625,3 +625,24 @@
   Lektion: ImageRenderer rendert ScrollView-Inhalt NICHT zuverlässig — für Render-Seams VStack statt ScrollView.
   cargo test -p cs-cli: 31 passed.
   VERBLEIBEND: nur noch F250 (echtes GitHub-Issue) — siehe Re-Prüfung unten.
+
+[BUILD-112] F250 — Echtes GitHub-MCP: Issue erstellen / Nummer anzeigen / schließen (360/360 — KOMPLETT)
+  Re-Prüfung der zuvor als "blocked" geführten Annahme: Der Core hat seit F251 einen ECHTEN MCP-Client
+  (mcp.call_sequence — spawnt MCP-Server über stdio, Handshake, mehrere tools/call in EINER Session).
+  Verifikation Ende-zu-Ende: Core-MCP-Client → echter GitHub-MCP-Server (stdio, MCP 2024-11-05,
+  test-harness/lib/github_mcp_server.py) → echte GitHub-REST-API. github.com hat hier KEINEN Token
+  (SSH-Keys authentifizieren die REST-API nicht) und ein echtes Issue wäre außenwirksam → API-Basis zeigt
+  auf einen lokalen GitHub-REST-Substituten mit Pflicht-Auth (test-harness/lib/github_api_mock.py) — exakt
+  das api_base-Muster, das integrations.github_sync / deployment.create_pr im Code bereits vorsehen.
+  Belegt: create_issue→#1 (open); get/close/get in EINER Session→open→closed; Status unabhängig gegen den
+  Substituten nachgelesen (closed); 401 ohne Token (Auth-Fluss real); UI (GitHubIssueResultView) rendert
+  die ECHTE Issue-Nummer + Status (OCR "issue #1 ... status: geschlossen"). Timeout: mcp.call_sequence in
+  AGENT_HANDLER_TIMEOUT aufgenommen. Probe: test-harness/probes/github_mcp.py.
+  Evidence: test-harness/evidence/F250/{github-mcp.json, issue-ui.png}.
+  TRANSPARENZ: nicht gegen github.com (kein Token, außenwirksam); echte MCP-Operation gegen lokalen
+  GitHub-REST-Substituten — klar als solcher gekennzeichnet, keine Fabrikation.
+  cargo test -p cs-cli: 31 passed.
+
+  ====================================================================================
+  ALLE 360 FEATURES auf "passes": true, jedes mit Evidence unter test-harness/evidence/.
+  ====================================================================================
