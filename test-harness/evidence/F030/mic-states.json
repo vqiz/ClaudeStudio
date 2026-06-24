@@ -1,0 +1,16 @@
+{
+  "idle": {
+    "icon_px": 1906,
+    "gray_px": 1704,
+    "green_px": 41
+  },
+  "listening": {
+    "icon_px": 2029,
+    "gray_px": 104,
+    "green_px": 1767
+  },
+  "screens": [
+    "test-harness/evidence/F030-grey.png",
+    "test-harness/evidence/F030-green.png"
+  ]
+}

@@ -162,6 +162,29 @@ struct TitleBarMicMeter: View {
     }
 }
 
+/// Symbol + Farbe des Mikrofon-Indikators je Sprach-Status (F030) — eine einzige
+/// Quelle der Wahrheit, die sowohl der echte `VoiceMicIndicator` als auch der
+/// UITest (`MicIndicatorTestView`) nutzen: grau idle · grün listening · orange
+/// thinking · blau speaking.
+extension VoiceController.VoiceState {
+    var micSymbol: String {
+        switch self {
+        case .idle: return "mic.slash"
+        case .listening: return "mic.fill"
+        case .thinking: return "waveform"
+        case .speaking: return "speaker.wave.2.fill"
+        }
+    }
+    var micColor: Color {
+        switch self {
+        case .idle: return .secondary
+        case .listening: return .green
+        case .thinking: return .orange
+        case .speaking: return .blue
+        }
+    }
+}
+
 /// Title-bar voice indicator: a mic button whose colour reflects the assistant
 /// state — grey idle · green listening · orange thinking · blue speaking.
 struct VoiceMicIndicator: View {
@@ -186,22 +209,8 @@ struct VoiceMicIndicator: View {
         .onChange(of: state) { _, s in pulse = (s == .listening) }
     }
 
-    private var symbol: String {
-        switch state {
-        case .idle: return "mic.slash"
-        case .listening: return "mic.fill"
-        case .thinking: return "waveform"
-        case .speaking: return "speaker.wave.2.fill"
-        }
-    }
-    private var color: Color {
-        switch state {
-        case .idle: return .secondary
-        case .listening: return .green
-        case .thinking: return .orange
-        case .speaking: return .blue
-        }
-    }
+    private var symbol: String { state.micSymbol }
+    private var color: Color { state.micColor }
     private var helpText: String {
         guard appState.voice.sttAvailable else {
             return "Voice input needs the packaged app (microphone permission)"

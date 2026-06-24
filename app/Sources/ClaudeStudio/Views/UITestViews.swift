@@ -114,6 +114,26 @@ struct KPITestView: View {
     }
 }
 
+/// Mikrofon-Indikator-Test (F030) — `CLAUDESTUDIO_UITEST=mic-idle` bzw. `mic-listening`.
+/// Rendert das ECHTE Symbol+Farbe-Mapping (`VoiceController.VoiceState.micSymbol/.micColor`,
+/// dieselbe Quelle wie der `VoiceMicIndicator` der Titelleiste): inaktiv ⇒ graues `mic.slash`,
+/// aktiv/aufnehmend ⇒ grünes `mic.fill`. Per Pixelfarbe prüfbar (grau vs. grün).
+struct MicIndicatorTestView: View {
+    let state: VoiceController.VoiceState
+
+    var body: some View {
+        ZStack {
+            Color.white
+            Image(systemName: state.micSymbol)
+                .symbolRenderingMode(.monochrome)
+                .font(.system(size: 120, weight: .bold))
+                .foregroundStyle(state.micColor)
+        }
+        .frame(width: 320, height: 320)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Theme-Persistenz-Test (F024) — `CLAUDESTUDIO_UITEST=theme`. Ist `CLAUDESTUDIO_THEME`
 /// gesetzt (light/dark/system), wird die Auswahl über das ECHTE `AppTheme.save()`
 /// (UserDefaults) persistiert — das simuliert den Umschalt-Toggle. Anschließend rendert

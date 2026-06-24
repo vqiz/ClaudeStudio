@@ -46,6 +46,10 @@ struct ClaudeStudioApp: App {
                 DensityTableTestView(density: .geraeumig)
             } else if uiTestMode == "theme" {
                 ThemeTestView()
+            } else if uiTestMode == "mic-idle" {
+                MicIndicatorTestView(state: .idle)
+            } else if uiTestMode == "mic-listening" {
+                MicIndicatorTestView(state: .listening)
             } else {
                 RootView()
                     .environment(appState)

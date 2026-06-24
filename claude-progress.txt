@@ -384,3 +384,7 @@
   Registry in state_dir/mcp_plugins.json. Transport wird je Bundle automatisch erkannt: command-Manifest
   ⇒ stdio, url-Manifest/URL-Quelle ⇒ remote. Verifiziert: npm-Bundle install→sichtbar, deinstall→weg,
   Update ok, Transport je Bundle korrekt (stdio×2, remote×2). test-harness/probes/batch74.py. 322/360.
+[SESSION 1] [2026-06-24] [BUILD-78/UI-6] [PASSING] +1 Mic-Indikator-States (F030): VoiceController.VoiceState
+  .micSymbol/.micColor als EINZIGE Quelle der Wahrheit extrahiert (VoiceMicIndicator nutzt sie weiter);
+  MicIndicatorTestView rendert die States. Inaktiv = graues mic.slash (1704px grau), aktiv = grünes
+  mic.fill (1767px grün) — per Pixelfarbe verifiziert. Seam mic-idle/mic-listening. ui_batch6.py. 323/360.
