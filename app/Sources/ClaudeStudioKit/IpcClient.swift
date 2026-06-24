@@ -45,16 +45,37 @@ public actor IpcClient {
     private let inboundContinuation: AsyncStream<Inbound>.Continuation
 
     /// Broadcast stream of inbound `event`/`request` envelopes (supervisor ticks,
-    /// session deltas, etc.). Consumers `for await` over `events`; it finishes
-    /// when the connection is torn down. Bounded so a slow or absent consumer
-    /// cannot grow memory without limit.
+    /// session deltas, etc.).
+    ///
+    /// ## Consumer contract
+    /// - **Single consumer.** This is one `AsyncStream`, not a broadcast fan-out:
+    ///   exactly one task should `for await` over it. A second iterator would
+    ///   steal elements from the first.
+    /// - **Subscribe before driving work.** Start iterating `events` *before*
+    ///   the run that produces them, and keep the loop hot — the buffer is
+    ///   bounded (`bufferingNewest(\(Self.eventBufferCapacity))`), so if the
+    ///   consumer stalls, the **oldest** buffered events are dropped (and
+    ///   counted — see ``droppedEventCount``) rather than growing memory without
+    ///   bound or back-pressuring the read thread.
+    /// - **Single-shot lifetime.** The stream `finish()`es when the connection is
+    ///   torn down and **cannot be resubscribed** on the same `IpcClient`
+    ///   instance; a reconnect needs a fresh client (tracked alongside A11).
     public let events: AsyncStream<IpcEnvelope>
+
+    /// Capacity of the bounded `events` buffer. Oldest events are dropped when a
+    /// consumer can't keep up.
+    public static let eventBufferCapacity = 256
+
+    /// How many `events` were dropped because the bounded buffer was full (the
+    /// consumer fell behind or was absent). Surfaced so callers can meter the
+    /// stream's health rather than silently losing updates.
+    private(set) public var droppedEventCount: Int = 0
     private let eventContinuation: AsyncStream<IpcEnvelope>.Continuation
 
     public init(socketPath: String = IpcProtocol.defaultSocketPath) {
         self.socketPath = socketPath
         var eventCont: AsyncStream<IpcEnvelope>.Continuation!
-        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(256)) { eventCont = $0 }
+        self.events = AsyncStream(bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)) { eventCont = $0 }
         self.eventContinuation = eventCont
         var inboundCont: AsyncStream<Inbound>.Continuation!
         self.inbound = AsyncStream(bufferingPolicy: .unbounded) { inboundCont = $0 }
@@ -323,11 +344,24 @@ public actor IpcClient {
                 continuation.resume(throwing: IpcError.remote(code: code, message: message))
             }
         case .event:
-            eventContinuation.yield(envelope)
+            yieldEvent(envelope)
         case .request:
             // The app is a client; inbound requests from the core are surfaced
             // as events so higher layers can choose to answer them.
-            eventContinuation.yield(envelope)
+            yieldEvent(envelope)
+        }
+    }
+
+    /// Push an envelope onto the bounded `events` stream, metering any drop so a
+    /// stalled/absent consumer doesn't lose updates silently (A18).
+    private func yieldEvent(_ envelope: IpcEnvelope) {
+        switch eventContinuation.yield(envelope) {
+        case .dropped:
+            droppedEventCount += 1
+        case .enqueued, .terminated:
+            break
+        @unknown default:
+            break
         }
     }
 

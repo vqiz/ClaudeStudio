@@ -16,7 +16,8 @@ struct OSView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.brandIndigo.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.gGreen.opacity(0.12), in: RoundedRectangle(cornerRadius: DS.rSm))
+        .overlay(RoundedRectangle(cornerRadius: DS.rSm).strokeBorder(Color.gGreen.opacity(0.3), lineWidth: 1))
     }
 
     var body: some View {
@@ -27,6 +28,8 @@ struct OSView: View {
                                subtitle: appState.coreConnected
                                ? "\(appState.core.sessions.count) sessions · live from core"
                                : "Mission control for every running agent")
+
+                    scorecards
 
                     if appState.coreConnected {
                         if appState.core.runningSessionId != nil {
@@ -63,6 +66,40 @@ struct OSView: View {
             } else {
                 EventStream(events: appState.busEvents)
                     .frame(height: 240)
+            }
+        }
+        .dashboardCanvas()
+    }
+
+    /// A Google-style KPI scorecard row summarising mission-control state.
+    @ViewBuilder
+    private var scorecards: some View {
+        if appState.coreConnected {
+            let sessions = appState.core.sessions
+            let running = appState.core.runningSessionId != nil ? 1 : 0
+            let projects = Set(sessions.map(\.cwd)).count
+            MetricGrid {
+                MetricCard(label: "Sessions", value: "\(sessions.count)",
+                           symbol: "bolt.fill", tint: .gBlue)
+                MetricCard(label: "Running now", value: "\(running)",
+                           symbol: "play.circle.fill", tint: running > 0 ? .gGreen : .secondary,
+                           footnote: running > 0 ? "live" : "idle")
+                MetricCard(label: "Projects", value: "\(projects)",
+                           symbol: "folder.fill", tint: .gYellow)
+                MetricCard(label: "Events", value: "\(appState.core.recentEvents.count)",
+                           symbol: "dot.radiowaves.left.and.right", tint: .gPurple,
+                           footnote: "on the bus")
+            }
+        } else {
+            let active = appState.sessions.filter { $0.id == appState.activeSession?.id }.count
+            MetricGrid {
+                MetricCard(label: "Sessions", value: "\(appState.sessions.count)",
+                           symbol: "bolt.fill", tint: .gBlue)
+                MetricCard(label: "Active", value: "\(active)",
+                           symbol: "play.circle.fill", tint: active > 0 ? .gGreen : .secondary)
+                MetricCard(label: "Events", value: "\(appState.busEvents.count)",
+                           symbol: "dot.radiowaves.left.and.right", tint: .gPurple,
+                           footnote: "on the bus")
             }
         }
     }
@@ -133,9 +170,8 @@ private struct LiveSessionCard: View {
                     .font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .dsCard()
     }
 }
 
@@ -161,12 +197,11 @@ private struct SessionCard: View {
             }
             .foregroundStyle(.secondary)
         }
-        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background.secondary, in: RoundedRectangle(cornerRadius: 12))
+        .dsCard()
         .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(isActive ? Color.accentColor : Color.clear, lineWidth: 2)
+            RoundedRectangle(cornerRadius: DS.rMd, style: .continuous)
+                .strokeBorder(isActive ? Color.gBlue : Color.clear, lineWidth: 2)
         )
     }
 }

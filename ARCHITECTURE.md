@@ -76,10 +76,10 @@ The core is a Cargo workspace. Each crate has a single, well-bounded responsibil
 | **cs-sessions** | Lifecycle of Claude Code sessions: spawn, PTY, transcript capture, archive, resume. | `tokio`, `portable-pty`, `cs-claude`, `cs-vector` |
 | **cs-vector** | Embeddings + Qdrant client; semantic memory write/read; SQLite FTS5 archive. | `qdrant-client`, `rusqlite`, embeddings backend |
 | **cs-git** | Worktrees, branches, diffs, commits, deploy hooks. | `git2`, `cs-types` |
-| **cs-agentic-os** | The Supervisor, Event-Bus, scheduler/priority queue, A2A routing, continuous-monitor agents, rule engine. | `tokio`, `cs-claude`, `cs-vector` |
+| **cs-agentic-os** | The Event-Bus, priority queue, and a Supervisor with A2A (agent-to-agent) message routing. *Planned:* continuous-monitor agents and the no-code rule engine (see [Planned subsystems](#planned-subsystems)). | `tokio`, `cs-claude`, `cs-vector` |
 | **cs-claude** | Wraps the Claude Code CLI / agent SDK: invocation, model routing, fallback chains, plan mode, permissions. | `tokio`, `cs-config` |
 | **cs-mcp** | MCP server lifecycle, discovery, tool catalog, plugin registry. | `tokio`, `cs-types` |
-| **cs-hooks** | Hook registry and execution (PreToolUse, PostToolUse, etc.); the secret scanner and prompt-injection guard hook into here. | `tokio`, `cs-config` |
+| **cs-hooks** | Hook registry and matching (PreToolUse, PostToolUse, etc.): matchers, actions, and a `HookEngine` that selects the hooks applicable to a context. *Planned:* the built-in secret scanner and prompt-injection guard that will run as hooks here (see [Planned subsystems](#planned-subsystems)). | `tokio`, `cs-config` |
 | **cs-otel** | OpenTelemetry export, cost/token telemetry, traces and metrics. | `opentelemetry`, `tracing` |
 | **cs-ssh** | Remote core/host execution over SSH for running sessions on another machine. | `russh`, `cs-ipc` |
 | **cs-cli** | Headless binary exposing core capabilities for scripting/CI. | all of the above |
@@ -108,6 +108,19 @@ flowchart TD
 ```
 
 > **Status note.** `cs-types`, `cs-ipc`, `cs-config`, `cs-sessions`, `cs-claude`, and `cs-git` are foundational and targeted for the first milestone. `cs-agentic-os`, `cs-vector`, `cs-mcp`, `cs-hooks`, `cs-otel`, and `cs-ssh` are layered in across later phases (see `docs/roadmap.md`). Treat anything marked *planned* there as forward-looking.
+
+### Planned subsystems
+
+The following are described in this document as part of the target architecture but are **not yet implemented**. They are listed here explicitly so the rest of the document can read as the intended end state without implying these guards/agents are active today.
+
+| Subsystem | Crate | Current state | Planned |
+| --- | --- | --- | --- |
+| Continuous-monitor agents | `cs-agentic-os` | Not implemented. The crate provides the `EventBus`, `PriorityQueue`, `Task`, and a `Supervisor` with A2A message routing only. | Long-lived agents that watch the event bus and act on triggers. |
+| No-code rule engine | `cs-agentic-os` | Not implemented (referenced in module docs only). | A `when <event> then <actions>` engine powering the rules UI. |
+| Secret scanner | `cs-hooks` | **Not implemented.** Only hook matching/selection exists today. | A built-in hook that blocks/redacts secrets in tool I/O. |
+| Prompt-injection guard | `cs-hooks` | **Not implemented.** | A built-in hook that inspects untrusted content for injection before it reaches the model. |
+
+> Security implication: until the two `cs-hooks` guards land, the only active core-side protections are trust modes and permission gates. Do not assume secret-scanning or injection-defense is in force.
 
 ---
 
@@ -228,7 +241,7 @@ The default budget below is illustrative for a ~200K-token context window and is
 ## 7. Cross-cutting concerns
 
 - **Telemetry** (`cs-otel`) — every turn emits spans (tokens in/out, model, latency, cost) exported via OpenTelemetry and surfaced in the Cost/Telemetry view.
-- **Security** (`cs-hooks`) — trust modes, permission gates, the secret scanner, and the prompt-injection guard are enforced in the core, not the UI, so they hold even for headless/CLI and remote runs. See `docs/security.md`.
+- **Security** (`cs-hooks`) — trust modes and permission gates are enforced in the core, not the UI, so they hold even for headless/CLI and remote runs. The secret scanner and prompt-injection guard are **planned** (see [Planned subsystems](#planned-subsystems)); they are *not* implemented yet, so do not rely on them as active defenses today. See `docs/security.md`.
 - **Remote** (`cs-ssh`) — a core instance can drive a session on another host; the local App talks to the local core, which proxies to the remote core over SSH.
 
 ---

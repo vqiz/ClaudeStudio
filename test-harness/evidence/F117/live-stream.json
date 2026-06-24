@@ -1,5 +1,5 @@
 {
-  "session_id": "7b21d2de-f586-4319-95a0-470899d90978",
+  "session_id": "7c3add73-3c6c-4e0f-8256-e21254e131cf",
   "event_kinds": [
     "claude_session",
     "assistant_text",
@@ -8,5 +8,5 @@
     "result"
   ],
   "text_events": 3,
-  "stream_span_s": 3.56
+  "stream_span_s": 4.09
 }

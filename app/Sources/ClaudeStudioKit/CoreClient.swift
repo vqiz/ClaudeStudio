@@ -30,17 +30,27 @@ public struct CoreConfig: Sendable, Equatable {
         self.vectorCollection = vectorCollection
     }
 
-    /// Decode from the `config.get` payload. Returns `nil` if the required
-    /// `trust_mode` / `default_model` fields are missing or mistyped.
+    /// Decode from the `config.get` payload. Returns `nil` if **any** field the
+    /// core is contractually required to send is missing or mistyped —
+    /// `trust_mode`, `default_model`, `daily_budget_usd`, and
+    /// `context_token_budget`.
+    ///
+    /// The numeric fields are required (not defaulted to 0) on purpose: a
+    /// silently-substituted `0` here would be written straight back to the core
+    /// on the next `config.set`, clobbering the user's real daily budget / token
+    /// budget (the A17 round-trip overwrite bug). Failing the decode instead
+    /// surfaces the protocol mismatch loudly rather than corrupting settings.
     public init?(payload: MsgPackValue) {
         guard let trust = payload["trust_mode"]?.stringValue,
-              let model = payload["default_model"]?.stringValue else {
+              let model = payload["default_model"]?.stringValue,
+              let dailyBudget = payload["daily_budget_usd"]?.doubleValue,
+              let tokenBudget = payload["context_token_budget"]?.intValue else {
             return nil
         }
         self.trustMode = trust
         self.defaultModel = model
-        self.dailyBudgetUSD = payload["daily_budget_usd"]?.doubleValue ?? 0
-        self.contextTokenBudget = Int(payload["context_token_budget"]?.intValue ?? 0)
+        self.dailyBudgetUSD = dailyBudget
+        self.contextTokenBudget = Int(tokenBudget)
         self.voiceEnabled = payload["voice"]?["enabled"]?.boolValue ?? false
         self.vectorCollection = payload["vector"]?["collection"]?.stringValue
     }
