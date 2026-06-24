@@ -1,0 +1,11 @@
+{
+  "rendered": {
+    "header": true,
+    "card": true,
+    "button": true,
+    "accent": true
+  },
+  "texts_present": true,
+  "frame_excerpt": "{\"name\": \"Dashboard\", \"type\": \"FRAME\", \"children\": [{\"name\": \"Header\", \"type\": \"FRAME\", \"fills\": [{\"color\": \"#1A73E8\"}], \"children\": [{\"name\": \"Title\", \"type\": \"TEXT\", \"characters\": \"Mein Dashboard\", \"fills\": [{\"color\": \"#FFFFFF\"}]}]}, {\"name\": \"Card\", \"type\": \"FRAME\", \"fills\": [{\"color\": \"#FFFFFF\"}",
+  "html_excerpt": "<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Mein Dashboard</title>\n  <style>\n    * {\n      margin: 0;\n      padding: 0;\n      box-sizing: border-box;\n    }\n    body {\n      font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;\n      background: #F1F3F4;\n      color: #202124;\n      padding: 24px;\n    }\n    .dashboard {\n      max-width: 480px;\n      margin: 0 auto;\n      display: flex;\n      flex-direction: column;\n      gap: 16px;\n    }\n    header {\n      background: "
+}

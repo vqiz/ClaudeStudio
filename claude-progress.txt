@@ -350,3 +350,8 @@
   erhebt die echten Commits + den echten Diff eines Feature-Branches, lässt den echten claude daraus
   Titel + Markdown-Beschreibung generieren und legt per echtem HTTP-POST an {api_base}/repos/:repo/pulls
   einen PR an (GitHub-API als lokaler Substitut, gh-Auth extern). test-harness/probes/batch70.py. 313/360.
+[SESSION 1] [2026-06-24] [BUILD-71] [PASSING] +1 Figma-to-Code: F337 ui.figma_to_code liest ein
+  Figma-Frame über einen echten MCP-Server (initialize + tools/call) und lässt den echten claude daraus
+  Komponenten-Code (HTML/CSS) erzeugen; im Browser übernimmt die Komponente Layout, Texte ('Mein
+  Dashboard'/'Umsatz heute'/'Aktualisieren') und Akzentfarbe #1A73E8. Figma-MCP als lokaler stdio-
+  Substitut, Token extern. test-harness/probes/batch71.py. 314/360.

@@ -102,7 +102,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "prompts.optimize" | "compliance.check" | "compliance.report_pdf" | "teams.run_flow"
         | "mcp.call_tool" | "agents.browser_task" | "copilot.run_action"
         | "agents.screenshot_to_code" | "agents.plan_mode"
-        | "deployment.create_pr" => AGENT_HANDLER_TIMEOUT,
+        | "deployment.create_pr" | "ui.figma_to_code" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -304,6 +304,56 @@ impl Router {
             chars[chars.len().saturating_sub(200)..].iter().collect()
         };
         Ok(json!({ "ok": exit == 0, "html": html, "agent_log_tail": tail }))
+    }
+
+    /// Figma-to-Code (F337): liest ein Figma-Frame über einen echten MCP-Server (tools/call) und
+    /// lässt den echten `claude` daraus Komponenten-Code (HTML/CSS) erzeugen, der Layout, Texte und
+    /// Farben des Frames übernimmt. `command`/`args` konfigurieren den MCP-Server (echter Figma-MCP
+    /// im Betrieb, lokaler MCP-Substitut im Test — Figma-Token bleibt extern); `frame_tool` ist der
+    /// Tool-Name (Default `get_frame`), `arguments` dessen Parameter (z. B. file_key/node_id).
+    fn ui_figma_to_code(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let frame_tool = p.get("frame_tool").and_then(Value::as_str).unwrap_or("get_frame");
+
+        // 1) Frame über echten MCP-Server abfragen (initialize + tools/call).
+        let (cmd, mcp_args) = self.mcp_command(p)?;
+        let init = json!({ "jsonrpc":"2.0","id":1,"method":"initialize","params":{ "protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cs-figma","version":"1"} } });
+        let call = json!({ "jsonrpc":"2.0","id":2,"method":"tools/call","params":{ "name": frame_tool, "arguments": p.get("arguments").cloned().unwrap_or(json!({})) } });
+        let resps = self.mcp_jsonrpc(&cmd, &mcp_args, &[init, call])?;
+        let result = resps.iter()
+            .filter(|r| r.get("id").and_then(Value::as_i64) == Some(2))
+            .find_map(|r| r.get("result").cloned())
+            .unwrap_or(Value::Null);
+        // Frame-JSON aus dem MCP-Content (text-Parts) zusammensetzen.
+        let frame_text: String = result.get("content").and_then(Value::as_array)
+            .map(|parts| parts.iter()
+                .filter_map(|c| c.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>().join("\n"))
+            .unwrap_or_default();
+        if frame_text.trim().is_empty() {
+            return Err(IpcFailure::internal(format!(
+                "Figma-MCP lieferte kein Frame: {result}"
+            )));
+        }
+
+        // 2) Komponenten-Code vom echten claude erzeugen.
+        let prompt = format!(
+            "Hier ist ein Figma-Frame als JSON (Knoten mit name, type, characters/Text, fills/Farben, \
+             Layout/Größen):\n\n{frame_text}\n\n\
+             Erzeuge eine eigenständige Datei `index.html` (HTML + eingebettetes CSS), die diese \
+             Komponente reproduziert: übernimm das Layout, ALLE sichtbaren Texte wörtlich und die \
+             angegebenen Farben (als Hintergrund-/Textfarben). Verwende ein semantisches `<header>`, \
+             einen Container mit class=\"card\" und ein `<button>`. Schreibe die Datei wirklich mit \
+             dem Write-Tool — gib keinen sonstigen Text aus."
+        );
+        let (log, exit) = run_claude_agent(cwd, &prompt);
+        let html = std::fs::read_to_string(Path::new(cwd).join("index.html")).unwrap_or_default();
+        let tail: String = {
+            let chars: Vec<char> = log.chars().collect();
+            chars[chars.len().saturating_sub(200)..].iter().collect()
+        };
+        Ok(json!({ "ok": exit == 0 && !html.trim().is_empty(),
+                   "frame": frame_text, "html": html, "agent_log_tail": tail }))
     }
 
     /// Computer-Use / Browser-Agent (F348): der echte `claude` erhält den Playwright-MCP-Server
@@ -1068,6 +1118,7 @@ impl Router {
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
             "agents.browser_task" => self.agents_browser_task(p),
             "agents.screenshot_to_code" => self.agents_screenshot_to_code(p),
+            "ui.figma_to_code" => self.ui_figma_to_code(p),
             "tasks.test_run" => self.tasks_test_run(p),
             "skills.test" => self.skills_test(p),
             "prompts.optimize" => self.prompts_optimize(p),
