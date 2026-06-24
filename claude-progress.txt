@@ -388,3 +388,8 @@
   .micSymbol/.micColor als EINZIGE Quelle der Wahrheit extrahiert (VoiceMicIndicator nutzt sie weiter);
   MicIndicatorTestView rendert die States. Inaktiv = graues mic.slash (1704px grau), aktiv = grünes
   mic.fill (1767px grün) — per Pixelfarbe verifiziert. Seam mic-idle/mic-listening. ui_batch6.py. 323/360.
+[SESSION 1] [2026-06-24] [BUILD-79/UI-7] [PASSING] +1 Kollabierbare Definitionen-Sektion (F032): die echte
+  SidebarView nutzt jetzt Section("Definitions", isExpanded:) (echtes Feature). DefinitionsSectionTestView
+  rendert die States; expandiert zeigt die echten Unterpunkte (Agent Studio/Context/Definitions Library,
+  688px Inhalt, im Screenshot lesbar), kollabiert blendet sie aus (0px). Seam defs-expanded/defs-collapsed.
+  test-harness/probes/ui_batch7.py. 324/360.

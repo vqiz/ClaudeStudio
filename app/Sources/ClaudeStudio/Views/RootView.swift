@@ -244,6 +244,8 @@ struct TrustModeBadge: View {
 /// The sidebar: a workspace section and a Definitions section.
 struct SidebarView: View {
     @Binding var selection: SidebarItem?
+    // F032: die Definitionen-Sektion am unteren Sidebar-Rand ist kollabierbar.
+    @State private var definitionsExpanded = true
 
     var body: some View {
         List(selection: $selection) {
@@ -252,7 +254,7 @@ struct SidebarView: View {
                     Label(item.title, systemImage: item.symbol).tag(item)
                 }
             }
-            Section("Definitions") {
+            Section("Definitions", isExpanded: $definitionsExpanded) {
                 ForEach(SidebarItem.definitions) { item in
                     Label(item.title, systemImage: item.symbol).tag(item)
                 }

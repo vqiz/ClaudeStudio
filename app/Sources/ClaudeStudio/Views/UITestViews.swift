@@ -114,6 +114,28 @@ struct KPITestView: View {
     }
 }
 
+/// Kollabierbare Definitionen-Sektion (F032) — `CLAUDESTUDIO_UITEST=defs-expanded` bzw.
+/// `defs-collapsed`. Rendert dieselbe kollabierbare Sidebar-`Section(isExpanded:)` mit den
+/// ECHTEN `SidebarItem.definitions` (Agent Studio, Context, Definitions Library) wie die
+/// echte `SidebarView`. Im expandierten State sind die Unterpunkte sichtbar, im kollabierten
+/// ausgeblendet — per OCR prüfbar.
+struct DefinitionsSectionTestView: View {
+    let expanded: Bool
+
+    var body: some View {
+        List {
+            Section("Definitions", isExpanded: .constant(expanded)) {
+                ForEach(SidebarItem.definitions) { item in
+                    Label(item.title, systemImage: item.symbol)
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .frame(width: 280, height: 420)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Mikrofon-Indikator-Test (F030) — `CLAUDESTUDIO_UITEST=mic-idle` bzw. `mic-listening`.
 /// Rendert das ECHTE Symbol+Farbe-Mapping (`VoiceController.VoiceState.micSymbol/.micColor`,
 /// dieselbe Quelle wie der `VoiceMicIndicator` der Titelleiste): inaktiv ⇒ graues `mic.slash`,

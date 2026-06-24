@@ -50,6 +50,10 @@ struct ClaudeStudioApp: App {
                 MicIndicatorTestView(state: .idle)
             } else if uiTestMode == "mic-listening" {
                 MicIndicatorTestView(state: .listening)
+            } else if uiTestMode == "defs-expanded" {
+                DefinitionsSectionTestView(expanded: true)
+            } else if uiTestMode == "defs-collapsed" {
+                DefinitionsSectionTestView(expanded: false)
             } else {
                 RootView()
                     .environment(appState)
