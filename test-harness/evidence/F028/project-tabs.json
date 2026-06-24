@@ -1,0 +1,16 @@
+{
+  "project_title_ok": true,
+  "tabs_found": [
+    "agents",
+    "sessions",
+    "files",
+    "git",
+    "tasks",
+    "context",
+    "code",
+    "settings"
+  ],
+  "head_ocr": "tte led eel\n/var/folders/ir/fzn6ir_10ciczg55tkfhy7p40000gn/t/cs-datapipe-z69xy7rd\n",
+  "tabs_ocr": "fe? data-pipeline\n/var/folders/ir/fzn6ir_10ciczg55tkfhy7p40000gn/t/cs-datapipe-z69xy7rd\n| agents — sessions files § git === tasks © context code __ settings\n{@ model effort\n",
+  "screen": "test-harness/evidence/F028-F043-workspace.png"
+}

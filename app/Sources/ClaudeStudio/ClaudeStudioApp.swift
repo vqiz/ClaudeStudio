@@ -64,6 +64,12 @@ struct ClaudeStudioApp: App {
                 SessionSplitTestView()
             } else if uiTestMode == "context" {
                 ContextBarTestView()
+            } else if uiTestMode == "project-workspace" {
+                ProjectWorkspaceView(project: Project(
+                    name: ProcessInfo.processInfo.environment["CLAUDESTUDIO_PROJECT_NAME"] ?? "data-pipeline",
+                    path: ProcessInfo.processInfo.environment["CLAUDESTUDIO_PROJECT_PATH"] ?? "/tmp"))
+                    .environment(appState)
+                    .frame(width: 1100, height: 720)
             } else if uiTestMode == "webpreview" {
                 WebPreviewTestView()
             } else if uiTestMode == "filepreview" {

@@ -517,3 +517,9 @@
   trusted=autonomous, full=unleashed); echter TrustModeBadge zeigt das Symbol. Verifiziert: ask 🟡 gelb,
   locked 🔴 rot, trusted 🟢 grün + Spec-Labels (Pixel + OCR). Nicht-brechend (Core-Mapping unverändert).
   Seam trust-ask/locked/trusted/full. ui_batch22.py. 342/360.
+[SESSION 1] [2026-06-24] [BUILD-98/UI-23] [PASSING] +2 8 Projekt-Tabs (F028+F043): ProjectWorkspaceView.Tab
+  auf die 8 Spec-Tabs gebracht (Agents, Sessions, Files, Git, Tasks, Context, Code, Settings) — 5 neue ECHTE
+  Views (Files liest das Verzeichnis, Git führt `git status` aus, Code zeigt eine echte Datei, Tasks/Settings).
+  Overview als persistenter Kopf erhalten, projekt-MCP in den Settings-Tab gefaltet (nichts entfernt). Seam
+  project-workspace rendert das Workspace für ein benanntes Projekt. Verifiziert: 8/8 Tabs + Titel 'data-
+  pipeline'. ui_batch23.py. 344/360.

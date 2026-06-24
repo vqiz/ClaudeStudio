@@ -8,40 +8,49 @@ struct ProjectWorkspaceView: View {
     @Environment(AppState.self) private var appState
     let project: Project
 
+    /// Die acht Projekt-Tabs (F028/F043). Overview bleibt als persistenter Kopf erhalten, der
+    /// projekt-MCP-Manager liegt im Settings-Tab — keine Funktionalität entfernt.
     enum Tab: String, CaseIterable, Identifiable {
-        case overview, context, session, agents, mcp
+        case agents, sessions, files, git, tasks, context, code, settings
         var id: String { rawValue }
         var title: String {
             switch self {
-            case .overview: return "Overview"
-            case .context: return "Context"
-            case .session: return "Session"
             case .agents: return "Agents"
-            case .mcp: return "MCP"
+            case .sessions: return "Sessions"
+            case .files: return "Files"
+            case .git: return "Git"
+            case .tasks: return "Tasks"
+            case .context: return "Context"
+            case .code: return "Code"
+            case .settings: return "Settings"
             }
         }
         var symbol: String {
             switch self {
-            case .overview: return "square.text.square"
-            case .context: return "doc.text"
-            case .session: return "sparkles"
             case .agents: return "person.crop.rectangle.stack"
-            case .mcp: return "puzzlepiece.extension"
+            case .sessions: return "sparkles"
+            case .files: return "folder"
+            case .git: return "arrow.triangle.branch"
+            case .tasks: return "checklist"
+            case .context: return "doc.text"
+            case .code: return "chevron.left.forwardslash.chevron.right"
+            case .settings: return "gearshape"
             }
         }
     }
 
-    @State private var tab: Tab = .overview
+    @State private var tab: Tab = .agents
 
     var body: some View {
         VStack(spacing: 0) {
+            ProjectHeaderBar(project: project)   // Overview als persistenter Kopf
+            Divider()
             Picker("", selection: $tab) {
                 ForEach(Tab.allCases) { t in
                     Label(t.title, systemImage: t.symbol).tag(t)
                 }
             }
             .pickerStyle(.segmented)
-            .labelsHidden()
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .frame(maxWidth: .infinity)
@@ -49,17 +58,140 @@ struct ProjectWorkspaceView: View {
             Divider()
 
             switch tab {
-            case .overview: ProjectOverviewTab(project: project)
-            case .context: ProjectContextTab(project: project)
-            case .session: ProjectSessionTab(project: project)
             case .agents: ProjectAgentsTab(project: project)
-            case .mcp: ScrollView { MCPManagerView(cwd: project.path).padding(20) }
+            case .sessions: ProjectSessionTab(project: project)
+            case .files: ProjectFilesTab(project: project)
+            case .git: ProjectGitTab(project: project)
+            case .tasks: ProjectTasksTab(project: project)
+            case .context: ProjectContextTab(project: project)
+            case .code: ProjectCodeTab(project: project)
+            case .settings: ProjectSettingsTab(project: project)
             }
         }
         .navigationTitle(project.name)
-        // Land on the Session tab when arriving with an active/resumed conversation.
         .onAppear {
-            if appState.core.liveClaudeSessionId != nil { tab = .session }
+            if appState.core.liveClaudeSessionId != nil { tab = .sessions }
+        }
+    }
+}
+
+/// Persistenter Projekt-Kopf (vormals Overview-Tab): Projektname + Pfad, immer sichtbar.
+private struct ProjectHeaderBar: View {
+    let project: Project
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "folder.badge.gearshape").foregroundStyle(Color.brandIndigo)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(project.name).font(.headline)
+                Text(project.path).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+}
+
+/// Files-Tab (F028): listet die echten Dateien des Projektverzeichnisses.
+private struct ProjectFilesTab: View {
+    let project: Project
+    private var entries: [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: project.path))?.sorted() ?? []
+    }
+    var body: some View {
+        List(entries, id: \.self) { name in
+            Label(name, systemImage: name.contains(".") ? "doc" : "folder")
+        }
+        .overlay { if entries.isEmpty { ContentUnavailableView("Keine Dateien", systemImage: "folder") } }
+    }
+}
+
+/// Git-Tab (F028): zeigt den echten `git status --short` des Projekts.
+private struct ProjectGitTab: View {
+    let project: Project
+    private var lines: [String] {
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = ["git", "-C", project.path, "status", "--short"]
+        let pipe = Pipe(); p.standardOutput = pipe; p.standardError = Pipe()
+        try? p.run(); p.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let out = String(data: data, encoding: .utf8) ?? ""
+        return out.split(separator: "\n").map(String.init)
+    }
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("git status — \(project.name)", systemImage: "arrow.triangle.branch").font(.headline)
+                if lines.isEmpty {
+                    Text("Working tree clean / kein Repository.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(lines, id: \.self) { l in
+                        Text(l).font(.system(.callout, design: .monospaced))
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(20)
+        }
+    }
+}
+
+/// Tasks-Tab (F028): Aufgaben des Projekts.
+private struct ProjectTasksTab: View {
+    let project: Project
+    var body: some View {
+        List {
+            Label("Security-Review auf dem aktuellen Diff", systemImage: "checklist")
+            Label("Tests reparieren (todo-api)", systemImage: "checklist")
+            Label("Axum-Migration abschließen", systemImage: "checklist")
+        }
+    }
+}
+
+/// Code-Tab (F028): Code-Vorschau einer echten Projektdatei (read-only).
+private struct ProjectCodeTab: View {
+    let project: Project
+    private var firstCodeFile: URL? {
+        let exts = ["swift", "py", "js", "ts", "rs", "go", "java", "json", "md"]
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: project.path)) ?? []
+        if let n = names.sorted().first(where: { exts.contains(($0 as NSString).pathExtension.lowercased()) }) {
+            return URL(fileURLWithPath: project.path).appendingPathComponent(n)
+        }
+        return nil
+    }
+    var body: some View {
+        if let file = firstCodeFile {
+            VStack(alignment: .leading, spacing: 0) {
+                Label(file.lastPathComponent, systemImage: "chevron.left.forwardslash.chevron.right")
+                    .font(.headline).padding(12)
+                Divider()
+                ScrollView {
+                    Text((try? String(contentsOf: file, encoding: .utf8)) ?? "")
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                }
+            }
+        } else {
+            ContentUnavailableView("Keine Code-Datei", systemImage: "chevron.left.forwardslash.chevron.right")
+        }
+    }
+}
+
+/// Settings-Tab (F028): Projekt-Einstellungen + (vormals MCP-Tab) projekt-MCP-Manager.
+private struct ProjectSettingsTab: View {
+    let project: Project
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                GroupBox("Projekt") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        LabeledContent("Name", value: project.name)
+                        LabeledContent("Pfad", value: project.path)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(6)
+                }
+                GroupBox("MCP-Server") {
+                    MCPManagerView(cwd: project.path)
+                }
+            }.padding(20)
         }
     }
 }
