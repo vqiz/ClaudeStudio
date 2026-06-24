@@ -1,0 +1,38 @@
+{
+  "measured": {
+    "idle": {
+      "gray": 1693,
+      "green": 0,
+      "orange": 0,
+      "blue": 0,
+      "icon": 1852
+    },
+    "listening": {
+      "gray": 104,
+      "green": 1767,
+      "orange": 0,
+      "blue": 0,
+      "icon": 2029
+    },
+    "thinking": {
+      "gray": 116,
+      "green": 41,
+      "orange": 1430,
+      "blue": 0,
+      "icon": 1701
+    },
+    "speaking": {
+      "gray": 104,
+      "green": 0,
+      "orange": 0,
+      "blue": 1946,
+      "icon": 2208
+    }
+  },
+  "screens": [
+    "test-harness/evidence/F235-idle.png",
+    "test-harness/evidence/F235-listening.png",
+    "test-harness/evidence/F235-thinking.png",
+    "test-harness/evidence/F235-speaking.png"
+  ]
+}

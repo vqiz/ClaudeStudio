@@ -409,3 +409,7 @@
   - file-explorer F054/F057 (Rechtsklick/Hover), project-hub F043 (Card-Klick), design-system F023 (Drag&Drop).
   - F250 (echtes GitHub-Issue: braucht GitHub-Token — SSH-Keys authentifizieren die REST-API nicht).
   - F359 (eingebettete WebView/Live-Reload).
+[SESSION 1] [2026-06-24] [BUILD-80/UI-8] [PASSING] +1 Voice-Status-Icon-Farben (F235): MicIndicatorTestView
+  in allen vier Zuständen über das echte VoiceController.VoiceState.micColor-Mapping — idle grau, listening
+  grün, thinking orange, speaking blau, je per Pixelfarbe verifiziert. Seams mic-thinking/mic-speaking (idle/
+  listening aus F030). KEIN Mikrofon nötig (reines Status-Rendering). ui_batch8.py. 325/360.
