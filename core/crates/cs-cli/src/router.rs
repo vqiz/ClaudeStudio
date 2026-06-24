@@ -98,7 +98,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
-        | "prompts.optimize" | "compliance.check" => AGENT_HANDLER_TIMEOUT,
+        | "prompts.optimize" | "compliance.check" | "teams.run_flow" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -835,6 +835,7 @@ impl Router {
             "teams.review_and_merge" => self.teams_review_and_merge(p),
             "teams.escalate" => self.teams_escalate(p),
             "teams.stop" => self.teams_stop(p),
+            "teams.run_flow" => self.teams_run_flow(p),
             "tasks.render" => Ok(tasks_render_payload(p)),
             "migration.generate" => Ok(migration_generate_payload(p)),
             "apiportal.render" => Ok(apiportal_render_payload(p)),
@@ -3170,6 +3171,58 @@ impl Router {
 
     /// A failed worker escalates to the orchestrator via the A2A bus; the
     /// orchestrator returns a reassign-or-fail decision (F128).
+    /// Kompletter Team-Flow (F126): legt einen Worktree an, lässt den echten `claude` die Aufgabe
+    /// dort vollständig implementieren, committet die Worker-Änderungen und merged den Branch nach
+    /// main. Liefert Merge-Status, main-Log und geänderte Dateien — der End-to-End-Beweis.
+    fn teams_run_flow(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let task = req_str(p, "task")?;
+        let stamp = now_millis();
+        let wt = format!("{cwd}-team-{stamp}");
+        let branch = format!("team/wt-{stamp}");
+        let git = |args: &[&str]| -> (bool, String) {
+            match std::process::Command::new("git").args(args).output() {
+                Ok(o) => (
+                    o.status.success(),
+                    format!("{}{}", String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr)),
+                ),
+                Err(e) => (false, e.to_string()),
+            }
+        };
+        let (ok_add, add_out) = git(&["-C", cwd, "worktree", "add", &wt, "-b", &branch]);
+        if !ok_add {
+            return Err(IpcFailure::internal(format!("worktree add fehlgeschlagen: {add_out}")));
+        }
+        let prompt = format!(
+            "Implementiere die folgende Entwicklungsaufgabe VOLLSTÄNDIG in DIESEM Projektverzeichnis: \
+             \"{task}\". Schreibe den nötigen Produktions-Quellcode (z.B. Middleware, Routen) mit deinen \
+             Tools, sodass die Funktion echt vorhanden ist. Committe NICHT selbst — lass die Änderungen \
+             im Working Tree."
+        );
+        let (agent_log, _) = run_claude_agent(&wt, &prompt);
+        git(&["-C", &wt, "add", "-A"]);
+        let (committed, _) = git(&[
+            "-C", &wt, "-c", "user.name=TeamWorker", "-c", "user.email=team@cs.test",
+            "commit", "-m", &format!("team: {task}"),
+        ]);
+        let (merged, merge_out) = git(&[
+            "-C", cwd, "-c", "user.name=Orchestrator", "-c", "user.email=orch@cs.test",
+            "merge", "--no-ff", "-m", "merge team work", &branch,
+        ]);
+        let (_, main_log) = git(&["-C", cwd, "log", "--oneline", "-6"]);
+        let (_, changed) = git(&["-C", cwd, "diff", "--name-only", "HEAD~1", "HEAD"]);
+        let tail: String = {
+            let chars: Vec<char> = agent_log.chars().collect();
+            chars[chars.len().saturating_sub(300)..].iter().collect()
+        };
+        Ok(json!({
+            "worktree": wt, "branch": branch, "committed": committed, "merged": merged,
+            "merge_output": merge_out.trim(), "main_log": main_log.trim(),
+            "files_changed": changed.lines().map(str::to_string).collect::<Vec<_>>(),
+            "agent_log_tail": tail,
+        }))
+    }
+
     /// Zentraler Team-Stop (F130): beendet alle laufenden Worker-Sessions des
     /// Teams in einem Aufruf, indem für jede ihr Cancel-Signal gefeuert wird
     /// (killt den jeweiligen claude-Subprozess).

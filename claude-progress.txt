@@ -299,3 +299,7 @@
   (Projekt mit Klartext-Logging personenbez. Daten -> Finding mit Datei+Zeile server.js:4); F202
   Reverse-Charge-Check (Rechnungslogik mit fixen 19% -> fehlende EU-B2B-Reverse-Charge korrekt erkannt).
   compliance.check liefert jetzt auch Zeilennummern. test-harness/probes/llm_batch6.py. 299/360.
+[SESSION 1] [2026-06-24] [BUILD-57 / LLM-7] [PASSING] +1 Kompletter Team-Flow (echter claude + git):
+  F126 teams.run_flow: Worktree -> echter claude implementiert 'Token-Auth zu todo-api' (erzeugt auth.js,
+  ändert index.js) -> committet -> Merge nach main. Main enthält echten Auth-Code (Authorization/Bearer),
+  git log zeigt 'merge team work'. test-harness/probes/llm_batch7.py. 300/360.
