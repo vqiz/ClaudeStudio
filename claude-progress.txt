@@ -370,3 +370,7 @@
   (Anlegen/Ändern/Löschen, auch in Unterordnern, per Terminal außerhalb der App) werden erkannt und per
   Poll ausgelesen — verifiziert mit echten FS-Änderungen (create+modify+remove, 15 Events). notify@6 zu
   cs-cli hinzugefügt. test-harness/probes/batch72.py. 318/360.
+[SESSION 1] [2026-06-24] [BUILD-75/UI-5] [PASSING] +1 Light/Dark + Persistenz (F024): ThemeTestView nutzt
+  das ECHTE AppTheme.save()/.load() (UserDefaults) + .themedChrome() (Fensterhintergrund + colorScheme).
+  Nachweis per Helligkeit: Light lum=253 → Dark lum=36; nach App-NEUSTART ohne erneutes Setzen weiterhin
+  lum=36 (Auswahl persistiert). Seam CLAUDESTUDIO_UITEST=theme + CLAUDESTUDIO_THEME. ui_batch5.py. 319/360.

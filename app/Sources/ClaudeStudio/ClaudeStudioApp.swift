@@ -44,6 +44,8 @@ struct ClaudeStudioApp: App {
                 DensityTableTestView(density: .kompakt)
             } else if uiTestMode == "density-geraeumig" {
                 DensityTableTestView(density: .geraeumig)
+            } else if uiTestMode == "theme" {
+                ThemeTestView()
             } else {
                 RootView()
                     .environment(appState)

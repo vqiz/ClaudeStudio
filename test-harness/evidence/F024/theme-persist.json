@@ -1,0 +1,11 @@
+{
+  "luminance": {
+    "light": 253.1,
+    "dark": 36.0,
+    "after_restart": 36.0
+  },
+  "screens": [
+    "test-harness/evidence/F024-dark.png",
+    "test-harness/evidence/F024-after-restart.png"
+  ]
+}

@@ -114,6 +114,44 @@ struct KPITestView: View {
     }
 }
 
+/// Theme-Persistenz-Test (F024) — `CLAUDESTUDIO_UITEST=theme`. Ist `CLAUDESTUDIO_THEME`
+/// gesetzt (light/dark/system), wird die Auswahl über das ECHTE `AppTheme.save()`
+/// (UserDefaults) persistiert — das simuliert den Umschalt-Toggle. Anschließend rendert
+/// die View die Auswahl aus dem ECHTEN `AppTheme.load()` mit dem ECHTEN `.themedChrome()`
+/// (Fensterhintergrund + colorScheme). Ohne `CLAUDESTUDIO_THEME` (= App-Neustart) wird die
+/// zuvor persistierte Auswahl geladen — so ist Dark-Mode + Persistenz über Neustart per
+/// Fensterhintergrund-Helligkeit nachweisbar.
+struct ThemeTestView: View {
+    private let theme: AppTheme
+
+    init() {
+        if let raw = ProcessInfo.processInfo.environment["CLAUDESTUDIO_THEME"],
+           let chosen = AppTheme(rawValue: raw) {
+            chosen.save()
+            UserDefaults.standard.synchronize()  // vor SIGTERM durabel auf Platte schreiben
+        }
+        self.theme = AppTheme.load()
+    }
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Text("ClaudeStudio")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(.primary)
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .frame(width: 320, height: 90)
+                .overlay(Text("Dashboard-Karte").foregroundStyle(.primary))
+                .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
+            Text("Theme: \(theme.label)")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: 600, height: 380)
+        .themedChrome(theme)
+    }
+}
+
 /// Eine Session-Zeile für die Tabellen-Tests (F018/F019).
 struct SessionRowData: Identifiable {
     let id = UUID()
