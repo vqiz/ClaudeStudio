@@ -1,0 +1,16 @@
+{
+  "ocr": "& active context 2.400 tokens\nss eee eee d\n{§ srefindex.js 1.200 tok\n(8 readme.md 800 tok\n2 projekt-notizen 300 tok\n© bash 60 tok\n© read 40 tok\n",
+  "blocks_seen": [
+    "index.js",
+    "readme",
+    "bash",
+    "read",
+    "notizen"
+  ],
+  "tokens_seen": [
+    "1200",
+    "800",
+    "300"
+  ],
+  "screen": "test-harness/evidence/F145-context.png"
+}

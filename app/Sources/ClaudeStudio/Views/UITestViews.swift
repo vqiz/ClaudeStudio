@@ -114,6 +114,30 @@ struct KPITestView: View {
     }
 }
 
+/// Active-Context-Bar (F145) — `CLAUDESTUDIO_UITEST=context`. Rendert den ECHTEN ContextBar mit
+/// geseedeten Kontext-Blöcken (Dateien + Tools + Memory) und ihren Token-Anteilen. Per OCR
+/// nachgewiesen (Blocknamen + Token-Zahlen + Gesamtsumme).
+struct ContextBarTestView: View {
+    private let blocks: [ContextBlock] = [
+        ContextBlock(kind: .file, name: "src/index.js", tokens: 1200),
+        ContextBlock(kind: .file, name: "README.md", tokens: 800),
+        ContextBlock(kind: .memory, name: "Projekt-Notizen", tokens: 300),
+        ContextBlock(kind: .tool, name: "Bash", tokens: 60),
+        ContextBlock(kind: .tool, name: "Read", tokens: 40),
+    ]
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            ContextBar(blocks: blocks)
+                .frame(width: 460)
+                .padding(.top, 16)
+        }
+        .frame(width: 520, height: 320, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Split-View Session + bearbeitete Datei (F146) — `CLAUDESTUDIO_UITEST=split`. Rendert den ECHTEN
 /// SessionSplitView: links die Session (Transkript inkl. Edit-Tool-Call), rechts die abgeleitete
 /// bearbeitete Datei (src/index.js) read-only. Per OCR beider Spalten nachgewiesen.

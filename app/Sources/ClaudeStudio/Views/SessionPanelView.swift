@@ -178,6 +178,66 @@ private struct LiveSessionRow: View {
     }
 }
 
+/// Ein geladener Kontext-Block (F145): eine Datei, ein Tool oder ein Memory-Eintrag, der aktuell
+/// im Kontext der Session liegt, mit seinem Token-Anteil.
+struct ContextBlock: Identifiable, Hashable, Sendable {
+    enum Kind: String, Sendable, Hashable { case file, tool, memory }
+    let id: UUID
+    var kind: Kind
+    var name: String
+    var tokens: Int
+
+    init(id: UUID = UUID(), kind: Kind, name: String, tokens: Int) {
+        self.id = id; self.kind = kind; self.name = name; self.tokens = tokens
+    }
+}
+
+/// Active-Context-Bar (F145): zeigt die aktuell geladenen Kontext-Blöcke (Dateien/Tools/Memory) mit
+/// ihrem jeweiligen Token-Anteil — als proportionaler Balken plus Liste mit Token-Zahlen.
+struct ContextBar: View {
+    let blocks: [ContextBlock]
+
+    private var total: Int { max(blocks.reduce(0) { $0 + $1.tokens }, 1) }
+    private func color(_ k: ContextBlock.Kind) -> Color {
+        switch k { case .file: .blue; case .tool: .green; case .memory: .purple }
+    }
+    private func icon(_ k: ContextBlock.Kind) -> String {
+        switch k { case .file: "doc.text"; case .tool: "wrench.and.screwdriver"; case .memory: "brain" }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Active Context", systemImage: "square.stack.3d.up.fill").font(.headline)
+                Spacer()
+                Text("\(total) tokens").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            GeometryReader { geo in
+                HStack(spacing: 2) {
+                    ForEach(blocks) { b in
+                        Rectangle().fill(color(b.kind))
+                            .frame(width: geo.size.width * CGFloat(b.tokens) / CGFloat(total))
+                    }
+                }
+            }
+            .frame(height: 14)
+            .clipShape(Capsule())
+            VStack(alignment: .leading, spacing: 5) {
+                ForEach(blocks) { b in
+                    HStack(spacing: 6) {
+                        Image(systemName: icon(b.kind)).foregroundStyle(color(b.kind))
+                        Text(b.name)
+                        Spacer()
+                        Text("\(b.tokens) tok").foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    .font(.caption)
+                }
+            }
+        }
+        .padding(14)
+    }
+}
+
 /// Split-View (F146): links die Session-Transkript-Spalte, rechts die gerade vom Agent bearbeitete
 /// Datei in einer READ-ONLY-Ansicht. Die „bearbeitete Datei" wird aus dem letzten Edit/Write-Tool-Call
 /// der Session abgeleitet. Ein echter `HSplitView` mit verschiebbarem Trenner.
