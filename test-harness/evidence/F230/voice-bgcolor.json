@@ -1,0 +1,7 @@
+{
+  "transcript": "Ändere die Hintergrundfarbe auf Blau",
+  "action": "set_background_color",
+  "color": "blue",
+  "blue_fraction": 1.0,
+  "screen": "test-harness/evidence/F230-applied.png"
+}

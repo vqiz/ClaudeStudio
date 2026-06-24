@@ -111,7 +111,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
         | "testing.responsive_check" | "testing.measure_color" | "embedding.embed"
-        | "tts.synthesize" | "stt.transcribe" | "stt.transcribe_online"
+        | "tts.synthesize" | "stt.transcribe" | "stt.transcribe_online" | "voice.run_command"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
@@ -1203,6 +1203,7 @@ impl Router {
             "tts.synthesize" => self.tts_synthesize(p),
             "stt.transcribe" => self.stt_transcribe(p),
             "stt.transcribe_online" => self.stt_transcribe_online(p),
+            "voice.run_command" => self.voice_run_command(p),
             "files.watch_start" => self.files_watch_start(p),
             "files.watch_poll" => self.files_watch_poll(p),
             "files.watch_stop" => self.files_watch_stop(p),
@@ -2529,6 +2530,55 @@ impl Router {
             out.push(task);
         }
         Ok(json!({ "tasks": out, "log": log }))
+    }
+
+    /// Gesprochener Befehl → Aktion (F230/F238): transkribiert ein lokales Audio mit Whisper.cpp und
+    /// leitet daraus eine konkrete Aktion ab. Erkannt werden u. a. "ändere die Hintergrundfarbe auf
+    /// <Farbe>" (→ set_background_color) und "starte (den/die) <Task>" (→ start_task). Liefert
+    /// Transkript + erkannte Aktion samt Parametern.
+    fn voice_run_command(&self, p: &Value) -> HandlerResult {
+        let audio = req_str(p, "audio")?;
+        let model = req_str(p, "model")?;
+        let bin = p.get("whisper_bin").and_then(Value::as_str).unwrap_or("whisper-cli");
+        let lang = p.get("language").and_then(Value::as_str).unwrap_or("de");
+        let out = std::process::Command::new(bin)
+            .args(["-m", model, "-f", audio, "-nt", "--language", lang])
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("whisper-cli nicht startbar: {e}")))?;
+        let transcript = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        let lc = transcript.to_lowercase();
+
+        // Intent: Hintergrundfarbe ändern.
+        let colors = [
+            ("blau", "blue"), ("blue", "blue"), ("rot", "red"), ("red", "red"),
+            ("grün", "green"), ("gruen", "green"), ("green", "green"),
+            ("gelb", "yellow"), ("yellow", "yellow"), ("schwarz", "black"), ("weiß", "white"),
+        ];
+        if (lc.contains("hintergrund") || lc.contains("background")) && lc.contains("farbe")
+            || lc.contains("background color")
+        {
+            if let Some((_, en)) = colors.iter().find(|(de, _)| lc.contains(de)) {
+                return Ok(json!({
+                    "ok": true, "transcript": transcript,
+                    "action": "set_background_color", "color": en, "executed": true
+                }));
+            }
+        }
+        // Intent: Task starten.
+        for kw in ["starte ", "start ", "führe ", "fuehre ", "run "] {
+            if let Some(idx) = lc.find(kw) {
+                let rest = transcript[idx + kw.len()..].trim()
+                    .trim_start_matches("den ").trim_start_matches("die ")
+                    .trim_start_matches("the ").trim_end_matches('.').trim();
+                if !rest.is_empty() {
+                    return Ok(json!({
+                        "ok": true, "transcript": transcript,
+                        "action": "start_task", "task": rest, "executed": true
+                    }));
+                }
+            }
+        }
+        Ok(json!({ "ok": false, "transcript": transcript, "action": "unknown" }))
     }
 
     /// Offline-STT via Whisper.cpp (F229): transkribiert eine lokale Audiodatei (16-kHz-WAV) komplett

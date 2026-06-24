@@ -246,6 +246,33 @@ struct WebPreviewTestView: View {
     }
 }
 
+/// Per Sprachbefehl gesetzte Hintergrundfarbe (F230) — `CLAUDESTUDIO_UITEST=bgcolor`, Farbe aus
+/// `CLAUDESTUDIO_BGCOLOR` (vom voice.run_command erkannten Wert). Wendet die Farbe sichtbar als
+/// Fensterhintergrund an — der „visuell angewendete" Teil des Sprachbefehls.
+struct BackgroundColorTestView: View {
+    private var name: String { ProcessInfo.processInfo.environment["CLAUDESTUDIO_BGCOLOR"] ?? "white" }
+    private var color: Color {
+        switch name {
+        case "blue": return .blue
+        case "red": return .red
+        case "green": return .green
+        case "yellow": return .yellow
+        case "black": return .black
+        default: return .white
+        }
+    }
+    var body: some View {
+        ZStack {
+            color
+            Text("Hintergrund: \(name)")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundStyle(name == "white" || name == "yellow" ? .black : .white)
+        }
+        .frame(minWidth: 600, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
+        .ignoresSafeArea()
+    }
+}
+
 /// Trust-Modus-Indikator (F031) — `CLAUDESTUDIO_UITEST=trust-locked|trust-ask|trust-trusted|trust-full`.
 /// Rendert den ECHTEN TrustModeBadge je Modus groß; das Spec-Indikator-Symbol (🔴 locked · 🟡 ask ·
 /// 🟢 trusted · ⚡ full) ist per Pixelfarbe prüfbar.

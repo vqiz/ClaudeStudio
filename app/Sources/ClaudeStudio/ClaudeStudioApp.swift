@@ -74,6 +74,8 @@ struct ClaudeStudioApp: App {
                 WebPreviewTestView()
             } else if uiTestMode == "filepreview" {
                 FilePreviewTestView()
+            } else if uiTestMode == "bgcolor" {
+                BackgroundColorTestView()
             } else if uiTestMode == "trust-locked" {
                 TrustIndicatorTestView(mode: .readOnly)
             } else if uiTestMode == "trust-ask" {
