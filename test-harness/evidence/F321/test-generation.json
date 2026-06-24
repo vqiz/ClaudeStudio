@@ -1,0 +1,6 @@
+{
+  "test_file": "math.test.mjs",
+  "tests_green": true,
+  "math_coverage_percent": 100.0,
+  "agent_log_tail": "d grün.\n\n**Was ich gemacht habe:**\n\n- `math.mjs` enthält drei exportierte Funktionen: `add`, `sub`, `mul`.\n- Neue Datei `math.test.mjs` im selben Verzeichnis angelegt — mit `node:test`, `node:assert/strict` und ESM-Import aus `./math.mjs`.\n- Jede Funktion ist mit mehreren Testfällen abgedeckt (posit"
+}

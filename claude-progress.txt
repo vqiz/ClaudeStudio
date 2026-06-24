@@ -274,3 +274,8 @@
   Hochpunkt Tag6 (y=298) sichtbar über Tiefpunkt (y=549); F021 responsives LazyVGrid (adaptive 260)
   mit 9 Karten -> 4 Spalten bei 1200px > 2 bei 600px. Neue Test-Views ChartTestView/GridTestView +
   CLAUDESTUDIO_UITEST=chart|grid-Seam (+UITEST_WIDTH). test-harness/probes/ui_batch2.py. 290/360.
+[SESSION 1] [2026-06-24] [BUILD-51 / LLM-1] [PASSING] +1 ECHTER claude-Agent (Durchbruch: live claude
+  ~/.local/bin/claude funktioniert!): F321 testing.generate_tests lässt den echten claude autonom (Write/
+  Bash, bypass-Permissions) Unit-Tests für math.mjs schreiben + ausführen -> Tests grün, Coverage 100%.
+  Neuer AGENT_HANDLER_TIMEOUT (420s) + run_claude_agent-Helfer. Core läuft mit echtem HOME (claude-Auth).
+  test-harness/probes/llm_batch1.py. 291/360. Eröffnet F316/F120/F341/F199-202 erneut.

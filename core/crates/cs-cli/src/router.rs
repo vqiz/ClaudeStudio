@@ -68,6 +68,13 @@ const HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// is cancellation-safe (see [`deadline_for`]).
 const LONG_HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Deadline for handlers that drive a *real* `claude` agent run (test generation,
+/// auto-fix loops, framework migration, task decomposition, compliance analysis).
+/// An autonomous LLM run that writes files + runs commands can take a few minutes;
+/// these handlers run the agent to completion in a child process (cancellation-safe
+/// since the child owns its own work).
+const AGENT_HANDLER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(420);
+
 /// The server-side deadline for a given method.
 ///
 /// CANCELLATION SAFETY: when the deadline fires, the handler future is *dropped*.
@@ -88,6 +95,9 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span"
         | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        // Real `claude` agent runs (LLM + autonomous file edits / shell).
+        "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
+        | "refactoring.migrate_component" => AGENT_HANDLER_TIMEOUT,
         _ => HANDLER_TIMEOUT,
     }
 }
@@ -238,6 +248,43 @@ impl Router {
                         "queued_tasks": queue.len(),
                         "recent_events": events.len() },
         }))
+    }
+
+    /// Test-Generierungs-Agent (F321): lässt den echten `claude` autonom Unit-Tests für die
+    /// Zieldatei schreiben (Write/Bash/Read-Tools, bypass-Permissions) und ausführen. Gibt die
+    /// erzeugten Testdateien + das Agenten-Log zurück; der Probe verifiziert grün + Coverage.
+    fn testing_generate_tests(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let target = req_str(p, "target")?;
+        let prompt = format!(
+            "Schreibe gründliche Unit-Tests für ALLE exportierten Funktionen in der Datei `{target}` \
+             in eine NEUE Node-Testdatei mit Endung `.test.mjs` im selben Verzeichnis (verwende \
+             `node:test` und `node:assert`, ESM-Imports aus `./{target}`). Decke jede Funktion mit \
+             mindestens einem Testfall ab. Führe anschließend `node --test` aus und stelle sicher, \
+             dass alle Tests grün sind. Nutze deine Tools, um die Datei wirklich zu schreiben und \
+             den Test wirklich auszuführen."
+        );
+        let (log, exit) = run_claude_agent(cwd, &prompt);
+        let mut test_files = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(cwd) {
+            for e in rd.flatten() {
+                let n = e.file_name().to_string_lossy().to_string();
+                let nl = n.to_lowercase();
+                if (nl.contains("test") || nl.contains("spec"))
+                    && (nl.ends_with(".mjs") || nl.ends_with(".js") || nl.ends_with(".ts"))
+                {
+                    test_files.push(n);
+                }
+            }
+        }
+        test_files.sort();
+        let tail: String = {
+            let chars: Vec<char> = log.chars().collect();
+            let start = chars.len().saturating_sub(500);
+            chars[start..].iter().collect()
+        };
+        Ok(json!({ "ok": exit == 0, "exit": exit, "target": target,
+                   "test_files": test_files, "agent_log_tail": tail }))
     }
 
     /// Misst die echte Test-Abdeckung (F204/F322): führt optional ein Coverage-Kommando
@@ -493,6 +540,7 @@ impl Router {
             "os.mission_control" => self.os_mission_control(),
             "worktree.status" => self.worktree_status(p),
             "coverage.measure" => self.coverage_measure(p),
+            "testing.generate_tests" => self.testing_generate_tests(p),
 
             // --- Live session control ---
             "session.stop" => self.session_stop(p),
@@ -6611,6 +6659,27 @@ fn curl_json(method: &str, url: &str, body: Option<&str>) -> Value {
         .ok()
         .and_then(|o| serde_json::from_slice(&o.stdout).ok())
         .unwrap_or_else(|| json!({}))
+}
+
+/// Führt einen autonomen `claude`-Agentenlauf im Verzeichnis `cwd` aus: `--print`,
+/// volle Werkzeuge (Write/Edit/Bash/Read/Glob/Grep) und übersprungene Permissions, damit
+/// der Agent Dateien wirklich schreibt und Befehle ausführt. Liefert (stdout, exit-code).
+/// Das Binary kommt aus `CLAUDESTUDIO_CLAUDE_BIN` (sonst `claude`).
+fn run_claude_agent(cwd: &str, prompt: &str) -> (String, i32) {
+    let binary = std::env::var("CLAUDESTUDIO_CLAUDE_BIN").unwrap_or_else(|_| "claude".to_string());
+    match std::process::Command::new(&binary)
+        .args([
+            "--print", "--output-format", "text",
+            "--allowedTools", "Write,Edit,Bash,Read,Glob,Grep",
+            "--permission-mode", "bypassPermissions",
+            prompt,
+        ])
+        .current_dir(cwd)
+        .output()
+    {
+        Ok(o) => (String::from_utf8_lossy(&o.stdout).to_string(), o.status.code().unwrap_or(-1)),
+        Err(e) => (format!("claude konnte nicht gestartet werden: {e}"), -1),
+    }
 }
 
 /// POSTet `body` an `url` und liefert nur den HTTP-Statuscode (für slack_command).
