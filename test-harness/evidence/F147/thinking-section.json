@@ -1,0 +1,10 @@
+{
+  "collapsed_ocr": "i+) > & extended thinking\n12:24:38\n",
+  "expanded_ocr": "i+) v € extended thinking\nder nutzer will einen delete-endpoint. ich prife zuerst die bestehende\nroute-struktur in index.js, dann fige ich app.delete('/todos/:id') hinzu\nund filtere das array nach id. anschliebend schreibe ich einen test, der\neinen 204-status ",
+  "collapsed_dark_px": 9,
+  "expanded_dark_px": 694,
+  "screens": [
+    "test-harness/evidence/F147-collapsed.png",
+    "test-harness/evidence/F147-expanded.png"
+  ]
+}

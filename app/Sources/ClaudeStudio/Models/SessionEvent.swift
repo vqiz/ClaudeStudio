@@ -19,6 +19,8 @@ struct SessionEvent: Identifiable, Hashable, Sendable {
         case status(String)
         /// Ein Security-/Lint-Finding (F149/F148), inline im Output mit Datei + Zeilennummer.
         case finding(CodeFinding)
+        /// Extended-Thinking (F147): der Denkprozess, dargestellt als kollabierbare Sektion.
+        case thinking(String)
     }
 
     let id: UUID

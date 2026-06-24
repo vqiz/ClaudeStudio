@@ -252,7 +252,29 @@ struct TranscriptRow: View {
             toolCallView(call)
         case .finding(let finding):
             findingView(finding)
+        case .thinking(let text):
+            thinkingView(text)
         }
+    }
+
+    /// F147: Extended-Thinking als kollabierbare Sektion — ein Disclosure-Button blendet den
+    /// Denkprozess ein/aus. Standardmäßig zugeklappt.
+    private func thinkingView(_ text: String) -> some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            Text(text)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .padding(.top, 4)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "brain")
+                Text("Extended Thinking").font(.callout.weight(.semibold))
+            }
+            .foregroundStyle(.purple)
+        }
+        .padding(8)
+        .background(.purple.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// F148: ein Finding inline als hervorgehobener Block — Schweregrad-Farbe, Nachricht und

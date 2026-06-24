@@ -58,6 +58,10 @@ struct ClaudeStudioApp: App {
                 DefinitionsSectionTestView(expanded: true)
             } else if uiTestMode == "defs-collapsed" {
                 DefinitionsSectionTestView(expanded: false)
+            } else if uiTestMode == "think-collapsed" {
+                ThinkingSectionTestView(expanded: false)
+            } else if uiTestMode == "think-expanded" {
+                ThinkingSectionTestView(expanded: true)
             } else if uiTestMode == "findings" {
                 FindingsInlineTestView()
             } else if uiTestMode == "tooloutput" {

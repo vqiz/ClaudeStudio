@@ -437,3 +437,7 @@
   SessionEvent.Kind .finding; TranscriptRow.findingView rendert hervorgehobene Inline-Blöcke (Schweregrad-
   Farbe, Nachricht, Datei:Zeilennummer). FindingsInlineTestView: HIGH src/db.js:42 (SQL-Injection) + MEDIUM
   src/auth.js:88. Seam findings. ui_batch13.py. 331/360.
+[SESSION 1] [2026-06-24] [BUILD-87/UI-14] [PASSING] +1 Extended-Thinking-Sektion (F147): neue SessionEvent.Kind
+  .thinking; TranscriptRow.thinkingView rendert eine kollabierbare DisclosureGroup ("Extended Thinking"). Zu-
+  geklappt nur der Button, aufgeklappt der volle Denkprozess. ThinkingSectionTestView. Seam think-collapsed/
+  think-expanded. ui_batch14.py. 332/360.

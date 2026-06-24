@@ -114,6 +114,33 @@ struct KPITestView: View {
     }
 }
 
+/// Extended-Thinking als kollabierbare Sektion (F147) — `CLAUDESTUDIO_UITEST=think-collapsed` bzw.
+/// `think-expanded`. Rendert die ECHTE TranscriptRow für ein `.thinking`-Event: zugeklappt nur der
+/// "Extended Thinking"-Button, aufgeklappt der vollständige Denkprozess. Per OCR/Pixel nachgewiesen.
+struct ThinkingSectionTestView: View {
+    let expanded: Bool
+
+    private var event: SessionEvent {
+        SessionEvent(role: .assistant, kind: .thinking(
+            "Der Nutzer will einen DELETE-Endpoint. Ich prüfe zuerst die bestehende Route-Struktur in "
+            + "index.js, dann füge ich app.delete('/todos/:id') hinzu und filtere das Array nach id. "
+            + "Anschließend schreibe ich einen Test, der einen 204-Status erwartet."))
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(alignment: .leading, spacing: 12) {
+                TranscriptRow(event: event, initiallyExpanded: expanded)
+            }
+            .padding(20)
+            .frame(width: 560, alignment: .leading)
+        }
+        .frame(width: 600, height: 320, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Inline-Findings (F148) — `CLAUDESTUDIO_UITEST=findings`. Rendert die ECHTEN TranscriptRow-Karten
 /// mit `.finding`-Events: jedes Finding erscheint als hervorgehobener Inline-Block mit Schweregrad,
 /// Nachricht und Datei:Zeilennummer (z. B. ein Security-Finding). Per OCR nachgewiesen.
