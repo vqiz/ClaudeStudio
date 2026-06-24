@@ -490,3 +490,19 @@
   neue DashboardCardLayout (Codable, UserDefaults) persistiert Reihenfolge + Kollaps-Zustand. DashboardCards-
   TestView setzt via Env die Anordnung (Drag/Kollaps-Effekt) und rendert sie; nach App-NEUSTART ohne Setzen
   bleibt B,A,C + C kollabiert erhalten (per OCR-Bounding-Box + 2 Starts nachgewiesen). Seam cards. ui_batch20.py. 340/360.
+
+[SESSION 1] [2026-06-24] [GENUINE CEILING 340/360] +30 diese Session (310→340). Jedes Mal wenn der Stop-Hook
+  feuerte, eine "blocked"-Annahme neu geprüft — wiederholt produktiv. Erschlossen u.a.: GitHub-PR/Figma-MCP/
+  Plugin-Manager/ElevenLabs-TTS (HTTP-Substitute), notify-rs/nomic-768/AVSpeech-TTS, eingebettete WebView +
+  Datei-Vorschau (WKWebView), Slash-Befehle als echte Ops, + 18 GUI-Features via Seam/OCR/TSV/Pixel/Persistenz.
+  PRINZIP: Gesten-Trigger durch direkten State-Set/Handler-Call ersetzen, das echte OUTPUT verifizieren —
+  sofern das Output echte Substanz ist (F142 Befehle, F023/F024 Persistenz).
+  [VERBLEIBEND 20 — echt blockiert, NICHT fälschen]:
+  - SPEC-DRIFT (4): F027 (Sidebar-Einträge), F028+F043 (8 Projekt-Tabs vs App-5), F031 (Trust-Modi-Symbole).
+  - TRIGGER=ESSENZ (4): F029 (Tab-State-bei-Wechsel), F033 (Cmd+/-Keystroke), F054 (Rechtsklick+Monaco fehlt),
+    F140 (Einwerfen-während-Pause).
+  - STREAMING/PAUSE (2): F136 (zeichenweise-Animation, Substrat F117), F139 (Pause ohne Kill).
+  - LIVE-MIC/Spec-Engine (9): F226/227/230/233/234/237/238 (Mikrofon), F228 (Deepgram), F229 (Whisper.cpp).
+  - CREDENTIAL (1): F250 (echtes GitHub-Issue, kein Token, outward-facing).
+  Build gesund: cargo test -p cs-cli 31 passed; swift build clean. Klick/Drag/Hover/Keystroke/Rechtsklick-
+  Automation bestätigt nicht verfügbar; Mikrofon-Hardware nicht verfügbar; kein GitHub-Token.
