@@ -1,0 +1,22 @@
+{
+  "viewports": [
+    {
+      "client_width": 375,
+      "overflow": true,
+      "scroll_width": 1200,
+      "width": 375
+    },
+    {
+      "client_width": 768,
+      "overflow": true,
+      "scroll_width": 1200,
+      "width": 768
+    },
+    {
+      "client_width": 1440,
+      "overflow": false,
+      "scroll_width": 1440,
+      "width": 1440
+    }
+  ]
+}

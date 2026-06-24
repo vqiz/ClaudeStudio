@@ -331,3 +331,6 @@
   Druck auf [Tests reparieren] (action=fix_tests) startet den echten claude-Fix-Agenten -> rote Tests
   grün; Lauf im Event-Log (copilot_action_started/agent_result, in os.mission_control sichtbar).
   test-harness/probes/llm_batch15.py. 307/360.
+[SESSION 1] [2026-06-24] [BUILD-65] [PASSING] +1 Responsive-Checker (echtes Playwright): F340
+  testing.responsive_check rendert die Seite bei 375/768/1440px (echtes chromium) + prüft
+  scrollWidth>clientWidth -> Overflow@375 (1200>375) ja, @1440 nein. test-harness/probes/batch65.py. 308/360.

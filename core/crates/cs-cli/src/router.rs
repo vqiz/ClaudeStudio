@@ -94,7 +94,7 @@ fn deadline_for(method: &str) -> std::time::Duration {
         | "knowledge.extract_entities" | "assets.scan" | "coverage.measure"
         | "models.compare" | "integrations.github_sync" | "integrations.usage_report"
         | "integrations.slack_command" | "telemetry.export_span" | "testing.e2e_record"
-        | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
+        | "testing.responsive_check" | "definitions.vector_inject" => LONG_HANDLER_TIMEOUT,
         // Real `claude` agent runs (LLM + autonomous file edits / shell).
         "testing.generate_tests" | "code.auto_fix_loop" | "agents.decompose_task"
         | "refactoring.migrate_component" | "tasks.test_run" | "skills.test"
@@ -561,6 +561,49 @@ impl Router {
         Ok(json!({ "green": green, "iterations": history.len(), "history": history }))
     }
 
+    /// Responsive-Checker (F340): rendert `base_url` mit echtem chromium in mehreren Viewport-Breiten
+    /// und meldet horizontalen Overflow (scrollWidth > clientWidth) je Breite. `cwd` braucht playwright.
+    fn testing_responsive_check(&self, p: &Value) -> HandlerResult {
+        let cwd = req_str(p, "cwd")?;
+        let url = req_str(p, "url")?;
+        let widths: Vec<i64> = p
+            .get("widths")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_i64).collect())
+            .filter(|v: &Vec<i64>| !v.is_empty())
+            .unwrap_or_else(|| vec![375, 768, 1440]);
+        let widths_json = serde_json::to_string(&widths).unwrap_or_else(|_| "[375,768,1440]".into());
+        let script = format!(
+            "import {{ chromium }} from 'playwright';\n\
+             const widths = {widths_json};\n\
+             const browser = await chromium.launch({{ headless: true }});\n\
+             const out = [];\n\
+             for (const w of widths) {{\n\
+               const page = await browser.newPage({{ viewport: {{ width: w, height: 800 }} }});\n\
+               await page.goto('{url}');\n\
+               const r = await page.evaluate(() => ({{ sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth }}));\n\
+               out.push({{ width: w, scroll_width: r.sw, client_width: r.cw, overflow: r.sw > r.cw + 1 }});\n\
+               await page.close();\n\
+             }}\n\
+             await browser.close();\n\
+             console.log(JSON.stringify(out));\n"
+        );
+        let script_path = Path::new(cwd).join("responsive.mjs");
+        std::fs::write(&script_path, &script).map_err(|e| e.to_string())?;
+        let out = std::process::Command::new("node")
+            .arg("responsive.mjs")
+            .current_dir(cwd)
+            .output()
+            .map_err(|e| IpcFailure::internal(format!("node start: {e}")))?;
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let viewports = stdout
+            .lines()
+            .rev()
+            .find_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+            .unwrap_or(Value::Null);
+        Ok(json!({ "viewports": viewports, "stderr": String::from_utf8_lossy(&out.stderr).trim().to_string() }))
+    }
+
     /// E2E-Recorder (F324): erzeugt aus einer aufgezeichneten Interaktions-Sequenz eine echte
     /// Playwright-Spec (chromium) und führt sie HEADLESS gegen `base_url` aus. Liefert die Spec
     /// und ob sie grün lief. `cwd` muss `playwright` installiert haben.
@@ -909,6 +952,7 @@ impl Router {
             "coverage.measure" => self.coverage_measure(p),
             "testing.generate_tests" => self.testing_generate_tests(p),
             "testing.e2e_record" => self.testing_e2e_record(p),
+            "testing.responsive_check" => self.testing_responsive_check(p),
             "code.auto_fix_loop" => self.code_auto_fix_loop(p),
             "agents.decompose_task" => self.agents_decompose_task(p),
             "refactoring.migrate_component" => self.refactoring_migrate_component(p),
