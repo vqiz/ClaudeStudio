@@ -1,0 +1,14 @@
+{
+  "kompakt": {
+    "row_pitch_px": 22.0,
+    "rows": 10
+  },
+  "geraeumig": {
+    "row_pitch_px": 52.0,
+    "rows": 10
+  },
+  "screens": [
+    "test-harness/evidence/F019-kompakt.png",
+    "test-harness/evidence/F019-geraeumig.png"
+  ]
+}

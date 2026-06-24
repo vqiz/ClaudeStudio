@@ -302,7 +302,7 @@
       "F007",
       "F015"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F019",
@@ -319,7 +319,7 @@
       "F015",
       "F018"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "F020",

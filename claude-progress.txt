@@ -360,3 +360,8 @@
   2/+1) als Karten mit großem Wert + grünem Delta-Aufwärts-Pfeil; KpiMetric berechnet Wert/Delta/Richtung
   aus Heute/Gestern-Rohwerten. Verifiziert per fenster-gezieltem Screenshot + OCR (alle 4 Labels+Werte)
   + Pixel (848px grüne Pfeile). Seam CLAUDESTUDIO_UITEST=kpi. test-harness/probes/ui_batch3.py. 315/360.
+[SESSION 1] [2026-06-24] [BUILD-73/UI-4] [PASSING] +2 Tabellen-Features: F018 sortierbare Sessions-Table
+  (echte SwiftUI Table + KeyPathComparator auf Kosten; aufsteigend 0,10 oben, absteigend 0,90 oben — per
+  OCR-Bounding-Box y-Position nachgewiesen, F018-asc/desc.png). F019 drei Dichte-Stufen (RowDensity steuert
+  Zeilenhöhe+Padding; Kompakt-Pitch 22px < Geräumig 52px bei 10 Zeilen, F019-kompakt/geraeumig.png). Seams
+  table-asc/desc, density-kompakt/geraeumig. test-harness/probes/ui_batch4.py. 317/360.

@@ -36,6 +36,14 @@ struct ClaudeStudioApp: App {
                 GridTestView(width: uiTestWidth)
             } else if uiTestMode == "kpi" {
                 KPITestView()
+            } else if uiTestMode == "table-asc" {
+                SortTableTestView(ascending: true)
+            } else if uiTestMode == "table-desc" {
+                SortTableTestView(ascending: false)
+            } else if uiTestMode == "density-kompakt" {
+                DensityTableTestView(density: .kompakt)
+            } else if uiTestMode == "density-geraeumig" {
+                DensityTableTestView(density: .geraeumig)
             } else {
                 RootView()
                     .environment(appState)

@@ -114,6 +114,92 @@ struct KPITestView: View {
     }
 }
 
+/// Eine Session-Zeile für die Tabellen-Tests (F018/F019).
+struct SessionRowData: Identifiable {
+    let id = UUID()
+    let datum: String
+    let projekt: String
+    let dauer: String
+    let kosten: Double
+
+    var kostenText: String {
+        String(format: "%.2f", kosten).replacingOccurrences(of: ".", with: ",")
+    }
+}
+
+/// Sortierbare Sessions-Tabelle (F018) — `CLAUDESTUDIO_UITEST=table-asc` bzw.
+/// `table-desc`. Eine echte SwiftUI `Table` mit Spalten Datum/Projekt/Dauer/Kosten;
+/// die Zeilen werden über einen echten `KeyPathComparator` auf die Kosten sortiert
+/// (aufsteigend → 0,10 oben; absteigend → 0,90 oben). Der Seam stellt die Richtung,
+/// die ein Spaltenkopf-Klick im Betrieb umschaltet, deterministisch ein.
+struct SortTableTestView: View {
+    let ascending: Bool
+    private let rows: [SessionRowData] = [
+        SessionRowData(datum: "2026-06-20", projekt: "todo-api", dauer: "12m", kosten: 0.10),
+        SessionRowData(datum: "2026-06-21", projekt: "data-pipe", dauer: "30m", kosten: 0.50),
+        SessionRowData(datum: "2026-06-22", projekt: "landing", dauer: "18m", kosten: 0.30),
+        SessionRowData(datum: "2026-06-23", projekt: "infra", dauer: "45m", kosten: 0.90),
+    ]
+
+    var body: some View {
+        let order: [KeyPathComparator<SessionRowData>] =
+            [KeyPathComparator(\.kosten, order: ascending ? .forward : .reverse)]
+        let sorted = rows.sorted(using: order)
+        ZStack {
+            Color.white
+            Table(sorted) {
+                TableColumn("Datum", value: \.datum)
+                TableColumn("Projekt", value: \.projekt)
+                TableColumn("Dauer", value: \.dauer)
+                TableColumn("Kosten") { Text($0.kostenText).monospacedDigit() }
+            }
+            .frame(width: 660, height: 240)
+            .padding(20)
+        }
+        .frame(width: 720, height: 300)
+        .preferredColorScheme(.light)
+    }
+}
+
+/// Dichte-Stufen für Listen/Tabellen (F019).
+enum RowDensity {
+    case kompakt, komfortabel, geraeumig
+    var rowHeight: CGFloat { switch self { case .kompakt: 22; case .komfortabel: 36; case .geraeumig: 52 } }
+    var vPadding: CGFloat { switch self { case .kompakt: 2; case .komfortabel: 7; case .geraeumig: 14 } }
+}
+
+/// Dichte-umschaltbare Zeilenliste (F019) — `CLAUDESTUDIO_UITEST=density-kompakt`
+/// bzw. `density-geraeumig`. 10 Zeilen; Zeilenhöhe + vertikales Padding kommen aus
+/// der `RowDensity`. Im Kompakt-Modus ist die Zeilenhöhe (und damit der Zeilen-Pitch)
+/// messbar kleiner als im Geräumig-Modus — per Bild-Inspektion zählbar.
+struct DensityTableTestView: View {
+    let density: RowDensity
+    private let rows = Array(1...10)
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(spacing: 0) {
+                ForEach(rows, id: \.self) { i in
+                    HStack {
+                        Text("Zeile \(i)")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.black)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, density.vPadding)
+                    .frame(height: density.rowHeight, alignment: .leading)
+                    .background(i % 2 == 0 ? Color(white: 0.96) : Color.white)
+                }
+            }
+            .frame(width: 360)
+        }
+        .frame(width: 420, height: 620, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Responsives Karten-Grid (F021) — `CLAUDESTUDIO_UITEST=grid`, Breite per
 /// `CLAUDESTUDIO_UITEST_WIDTH`. 9 Karten in einem adaptiven LazyVGrid (minimum
 /// 260, wie die echte MetricGrid); bei größerer Breite passen mehr Spalten in
