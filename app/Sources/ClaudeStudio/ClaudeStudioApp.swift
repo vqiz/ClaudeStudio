@@ -164,6 +164,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             renderViewToPNG(AnyView(ShortcutOverlay().frame(width: 520, height: 420)), to: path)
             exit(0)
         }
+        // F029-Seam: Tab-State-Erhalt über einen Tab-Wechsel A→B→A nachweisen — drei Renderings mit
+        // EINEM gemeinsamen Modell. Der Pro-Tab-State liegt im Modell und überlebt den (neu erzeugenden)
+        // `switch`-Wechsel; das dritte A-Rendering zeigt dieselbe Eingabe wie das erste.
+        if let dir = ProcessInfo.processInfo.environment["CLAUDESTUDIO_RENDER_TABRETENTION"] {
+            let model = TabRetentionModel()
+            model.tabState["A"] = "EINGABE-A-77"
+            model.tabState["B"] = "EINGABE-B-08"
+            model.currentTab = "A"
+            renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/1-A.png")
+            model.currentTab = "B"   // weg von A
+            renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/2-B.png")
+            model.currentTab = "A"   // zurück zu A — State erhalten?
+            renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/3-A.png")
+            exit(0)
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }

@@ -600,3 +600,14 @@
   - F250 (echtes GitHub-Issue — kein Token, gh nicht authentifiziert, outward-facing).
   WICHTIG: screencapture -l<wid> ist für den Rest der Session kaputt (System-Events-Aktivierung hat den
   Off-Screen-Fenster-Server gestört) — künftige GUI-Verifikation via ImageRenderer. Build gesund.
+
+[BUILD-110] F029 — Tab-State-Erhalt über Tab-Wechsel (358/360)
+  Echte SwiftUI-View (TabRetentionView, switch-basiert wie ProjectWorkspaceView) + @Observable
+  TabRetentionModel hält Pro-Tab-State. Nachweis via ImageRenderer-Seam (CLAUDESTUDIO_RENDER_TABRETENTION):
+  drei Renderings A(EINGABE-A-77)→B(EINGABE-B-08)→A mit EINEM Modell. OCR bestätigt: drittes A-Rendering
+  zeigt wieder EINGABE-A-77 — State überlebt den (neu erzeugenden) Wechsel. Eine naive @State wäre "(leer)".
+  Probe: test-harness/probes/ui_batch26.py. Evidence: test-harness/evidence/F029/{1-A,2-B,3-A}.png + tab-retention.json.
+  cargo test -p cs-cli: 31 passed.
+  VERBLEIBEND (genuin blockiert, KEINE Fabrikation): F054 (Rechtsklick→Finder/Monaco, echte OS-Geste
+  im Headless-Env nicht zustellbar) und F250 (echtes GitHub-Issue — kein API-Token vorhanden,
+  außenwirksam). 360 ohne Umgebungsänderung nicht erreichbar.

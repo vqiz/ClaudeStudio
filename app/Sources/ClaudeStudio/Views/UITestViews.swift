@@ -1,6 +1,56 @@
 import SwiftUI
 import Charts
 
+/// Tab-State-Erhalt über Tab-Wechsel (F029). Die Tab-Inhalte werden über eine `switch`-Anweisung
+/// gerendert (wie im echten ProjectWorkspaceView) — d. h. die Tab-View wird beim Wechsel NEU erzeugt.
+/// Der Pro-Tab-State (z. B. eingegebener Text / Scrollposition) liegt deshalb in einem @Observable-
+/// Modell, das den Wechsel überlebt: verlässt man Tab A und kehrt zurück, ist A's State erhalten.
+@Observable
+final class TabRetentionModel {
+    var currentTab: String = "A"
+    var tabState: [String: String] = [:]
+}
+
+struct TabRetentionView: View {
+    var model: TabRetentionModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                ForEach(["A", "B", "C"], id: \.self) { t in
+                    Text("Tab \(t)")
+                        .font(.system(size: 15, weight: model.currentTab == t ? .bold : .regular))
+                        .foregroundStyle(model.currentTab == t ? Color.white : Color.black)
+                        .padding(.horizontal, 14).padding(.vertical, 7)
+                        .background(model.currentTab == t ? Color.blue : Color(white: 0.92),
+                                    in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
+            .padding(16)
+            Divider()
+            // `switch` erzeugt die Tab-View bei jedem Wechsel NEU — der State muss daher aus dem Modell kommen.
+            switch model.currentTab {
+            case "A": tabContent("A")
+            case "B": tabContent("B")
+            default: tabContent("C")
+            }
+            Spacer()
+        }
+        .frame(width: 560, height: 360, alignment: .top)
+        .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+
+    private func tabContent(_ tab: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Inhalt von Tab \(tab)").font(.system(size: 18, weight: .bold)).foregroundStyle(.black)
+            Text("Eingabe: \(model.tabState[tab] ?? "(leer)")")
+                .font(.system(size: 16)).foregroundStyle(.black)
+        }
+        .padding(20).frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 /// Token-Verbrauch-Chart (F017) — NUR für die headless UI-Verifikation
 /// (`CLAUDESTUDIO_UITEST=chart`). Swift-Charts Area+Line+Point über 7 Tage mit
 /// festen Werten; die 7 roten Punkt-Marker und der Hoch-/Tiefpunkt sind per

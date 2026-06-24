@@ -1,0 +1,10 @@
+{
+  "render_1_tabA": "Tab TabC Inhalt von Tab A Eingabe: EINGABE-A-77 ",
+  "render_2_tabB": "Tab Tab C Inhalt von Tab B Eingabe: EINGABE-B-08 ",
+  "render_3_tabA": "Tab TabC Inhalt von Tab A Eingabe: EINGABE-A-77 ",
+  "screens": [
+    "test-harness/evidence/F029/1-A.png",
+    "test-harness/evidence/F029/2-B.png",
+    "test-harness/evidence/F029/3-A.png"
+  ]
+}
