@@ -34,6 +34,7 @@ struct ClaudeStudioApp: App {
         return env["CLAUDESTUDIO_RENDER_OVERLAY"] != nil
             || env["CLAUDESTUDIO_RENDER_TABRETENTION"] != nil
             || env["CLAUDESTUDIO_RENDER_GHISSUE"] != nil
+            || env["CLAUDESTUDIO_RENDER_CARDOPEN"] != nil
             || env["CLAUDESTUDIO_RUN_QUICKACTIONS"] != nil
     }
 
@@ -191,6 +192,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/2-B.png")
             model.currentTab = "A"   // zurück zu A — State erhalten?
             renderViewToPNG(AnyView(TabRetentionView(model: model)), to: "\(dir)/3-A.png")
+            exit(0)
+        }
+        // F043-Seam: Klick auf eine Projekt-Card öffnet die Tabs GENAU dieses Projekts. Substituiert wird
+        // nur die Klick-Geste (setzt selectedProjectID); verifiziert wird die ECHTE Auflösungslogik der
+        // Hub-UI (selectedProject = projects.first{ id }) + die geöffnete ProjectWorkspaceView (Titel + 8 Tabs).
+        if let dir = ProcessInfo.processInfo.environment["CLAUDESTUDIO_RENDER_CARDOPEN"] {
+            let appState = AppState()
+            let base = NSTemporaryDirectory() + "cs-f043"
+            for name in ["todo-api", "data-pipeline"] {
+                try? FileManager.default.createDirectory(atPath: "\(base)/\(name)", withIntermediateDirectories: true)
+            }
+            _ = appState.projectStore.add(path: "\(base)/todo-api")
+            let dataPipeline = appState.projectStore.add(path: "\(base)/data-pipeline")
+            appState.selectedProjectID = dataPipeline.id   // Klick auf die data-pipeline-Card
+            let selected = appState.selectedProject         // dieselbe Auflösung wie im Hub
+            try? (selected?.name ?? "nil").write(toFile: "\(dir)/resolved.txt", atomically: true, encoding: .utf8)
+            // Primärbeleg: Titel + 8 Tabs (aus der echten Tab-Aufzählung) für das aufgelöste Projekt.
+            renderViewToPNG(AnyView(ProjectTabsStripView(projectName: selected!.name)), to: "\(dir)/F043-open.png")
+            // Sekundärbeleg: die ECHTE ProjectWorkspaceView öffnet für das aufgelöste Projekt (Kopf-Titel).
+            let workspace = ProjectWorkspaceView(project: selected!)
+                .environment(appState)
+                .frame(width: 1000, height: 640)
+            renderViewToPNG(AnyView(workspace), to: "\(dir)/workspace-real.png")
             exit(0)
         }
         // F250-Seam: das Ergebnis einer echten GitHub-MCP-Operation in der UI rendern (Issue-Nummer +

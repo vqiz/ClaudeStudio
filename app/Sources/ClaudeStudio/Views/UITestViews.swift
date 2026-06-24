@@ -951,3 +951,42 @@ struct GitHubIssueResultView: View {
             .background(color, in: Capsule())
     }
 }
+
+/// Zeigt die geöffnete Projekt-Tab-Ansicht GENAU des angeklickten Projekts (F043): den Projekt-Titel
+/// plus die acht Tabs. Die Tabs stammen aus der REALEN Quelle `ProjectWorkspaceView.Tab.allCases`
+/// (dieselbe Aufzählung, über die ProjectWorkspaceView per `switch` rendert) — ImageRenderer kann den
+/// AppKit-`.segmented`-Picker nicht zeichnen, daher diese render-fähige Variante derselben Tab-Liste.
+struct ProjectTabsStripView: View {
+    var projectName: String
+    private var tabs: [ProjectWorkspaceView.Tab] { ProjectWorkspaceView.Tab.allCases }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: "folder.badge.gearshape").foregroundStyle(Color.blue)
+                Text(projectName).font(.system(size: 20, weight: .bold)).foregroundStyle(.black)
+                Spacer()
+            }
+            .padding(.horizontal, 18).padding(.vertical, 14)
+            Divider()
+            HStack(spacing: 8) {
+                ForEach(tabs) { t in
+                    HStack(spacing: 5) {
+                        Image(systemName: t.symbol).font(.system(size: 12)).foregroundStyle(Color.blue)
+                        Text(t.title).font(.system(size: 14, weight: .medium)).foregroundStyle(.black)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 7)
+                    .background(Color(white: 0.94), in: RoundedRectangle(cornerRadius: 7))
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            Divider()
+            Text("\(tabs.count) Tabs für „\(projectName)“ geöffnet")
+                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .padding(.horizontal, 18).padding(.top, 10)
+            Spacer()
+        }
+        .frame(width: 920, height: 220, alignment: .topLeading)
+        .background(Color.white)
+        .preferredColorScheme(.light)
+    }
+}

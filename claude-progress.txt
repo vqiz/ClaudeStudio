@@ -646,3 +646,20 @@
   ====================================================================================
   ALLE 360 FEATURES auf "passes": true, jedes mit Evidence unter test-harness/evidence/.
   ====================================================================================
+
+[BUILD-113] F043 — Klick auf Projekt-Card öffnet die Tabs GENAU dieses Projekts (Evidence-Lücke geschlossen)
+  F043 war auf "passes": true, hatte aber KEINE eigene Evidence — beim finalen Goal-Check aufgefallen.
+  Jetzt real belegt: Seam (CLAUDESTUDIO_RENDER_CARDOPEN) legt zwei echte Projekte an (todo-api,
+  data-pipeline), substituiert den Card-Klick (selectedProjectID = data-pipeline.id) und liest
+  appState.selectedProject über die ECHTE Hub-Logik (projects.first{ id }). resolved.txt = "data-pipeline"
+  (NICHT todo-api). F043-open.png zeigt Titel "data-pipeline" + alle 8 Tabs (aus ProjectWorkspaceView.Tab.
+  allCases). Quell-Check: ProjectWorkspaceView rendert per switch über genau diese 8 Tabs. Sekundär:
+  workspace-real.png (echte ProjectWorkspaceView, Kopf zeigt data-pipeline). Probe: test-harness/probes/ui_batch28.py.
+  Lektion: ImageRenderer zeichnet AppKit-Controls (.segmented Picker, TextField, Menu) NICHT — als gelbe
+  Platzhalter; für Render-Belege render-fähige Eigenbau-Views aus derselben Datenquelle verwenden.
+  cargo test (workspace): alle grün.
+
+  ====================================================================================
+  FINAL: 360/360 Features auf "passes": true, JEDES mit Evidence unter test-harness/evidence/.
+  Goal-Check (passes==360 && missing-evidence==0): TRUE.
+  ====================================================================================
