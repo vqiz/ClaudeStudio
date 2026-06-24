@@ -393,3 +393,19 @@
   rendert die States; expandiert zeigt die echten Unterpunkte (Agent Studio/Context/Definitions Library,
   688px Inhalt, im Screenshot lesbar), kollabiert blendet sie aus (0px). Seam defs-expanded/defs-collapsed.
   test-harness/probes/ui_batch7.py. 324/360.
+
+[SESSION 1] [2026-06-24] [CEILING 324/360] +14 diese Session (310→324): F138, F141, F268, F337, F016,
+  F018, F019, F024, F062, F166, F167, F255, F030, F032. Disproven-blocked: GitHub-PR (api_base-Substitut),
+  Figma (lokaler MCP-Substitut), notify-rs (network), nomic-768 (echtes transformers-Modell), OpenAI-
+  Fallback, Plugin-Manager (npm/local), + 6 GUI-Features via Seam+Pixel/TSV.
+  [BLOCKED — capability-bound, NICHT fälschen]:
+  - voice×13 (F226-F238): Mikrofon-Hardware / Deepgram/ElevenLabs-Audio.
+  - session-panel×12 (F136,137,139,140,142,143,144,145,146,147,148,149): Live-Streaming-UI / Pause /
+    Approval / Split-View — Substrat anderswo verifiziert (F117/F215/F201/tool_result), Panel braucht
+    Klick-Durchlauf + Live-Rendering (headless nicht treibbar). F147 hat kein Thinking-StreamEvent.
+  - navigation: F027/F028/F031 = echte Spec-Drift (App hat andere Sidebar-Einträge / 5 Projekt-Tabs
+    Overview-Context-Session-Agents-MCP / Trust-Modi guarded-autonomous-unleashed). F029/F033 = Tab-State/
+    Cmd+/-Keystroke (AX+CGEvent bestätigt nicht treibbar).
+  - file-explorer F054/F057 (Rechtsklick/Hover), project-hub F043 (Card-Klick), design-system F023 (Drag&Drop).
+  - F250 (echtes GitHub-Issue: braucht GitHub-Token — SSH-Keys authentifizieren die REST-API nicht).
+  - F359 (eingebettete WebView/Live-Reload).
