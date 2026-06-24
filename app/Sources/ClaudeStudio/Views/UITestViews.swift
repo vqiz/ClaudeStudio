@@ -114,6 +114,41 @@ struct KPITestView: View {
     }
 }
 
+/// Session-Panel mit auf-/zuklappbaren Tool-Call-Karten (F137) — `CLAUDESTUDIO_UITEST=panel-collapsed`
+/// bzw. `panel-expanded`. Rendert die ECHTEN `TranscriptRow`-Karten (DisclosureGroup + Status-Badge)
+/// mit geseedeten Tool-Calls (Edit, Bash). Zugeklappt zeigt jede Karte nur Name + Status; aufgeklappt
+/// zusätzlich Input + Output — beides per Bild-Inspektion prüfbar.
+struct SessionPanelToolCardsTestView: View {
+    let expanded: Bool
+
+    private var events: [SessionEvent] {
+        [
+            SessionEvent(role: .assistant, kind: .message("Ich wende die Änderung an und führe die Tests aus.")),
+            SessionEvent(role: .tool, kind: .toolCall(ToolCall(
+                name: "Edit", input: "todo-api/index.js — DELETE /todos/:id hinzufügen",
+                output: "1 Datei geändert (+6 −0)", status: .succeeded))),
+            SessionEvent(role: .tool, kind: .toolCall(ToolCall(
+                name: "Bash", input: "npm test",
+                output: "Test Suites: 1 passed\nTests: 4 passed\nexit 0", status: .succeeded))),
+        ]
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.white
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(events) { e in
+                    TranscriptRow(event: e, initiallyExpanded: expanded)
+                }
+            }
+            .padding(20)
+            .frame(width: 560, alignment: .leading)
+        }
+        .frame(width: 600, height: 480, alignment: .top)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Durchsuchbarer Voice-Log (F236) — `CLAUDESTUDIO_UITEST=voicelog-all` bzw. `voicelog-search`
 /// (Suchbegriff aus `CLAUDESTUDIO_VOICELOG_QUERY`). Nutzt den ECHTEN `VoiceLog.search()` über
 /// die geseedeten Einträge und zeigt Treffer-Anzahl + passende Transkripte. Die Suche filtert

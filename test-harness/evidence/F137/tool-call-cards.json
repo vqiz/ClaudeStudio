@@ -1,0 +1,10 @@
+{
+  "collapsed_ocr": "+) ich wende die anderung an und fihre die tests aus.\n\\-) > & edit ok\nlf) > $& bash ok\n",
+  "expanded_ocr": "+) ich wende die anderung an und fihre die tests aus.\n@ v & edit ok\ninput\ntodo-api/index.js — delete /todos/:id hinzufigen\noutput\n1 datei gedndert (+6 -@)\n@ v & bash ok\ninput\nnpm test\noutput\ntest suites: 1 passed\ntests: 4 passed\nexit @\n",
+  "collapsed_dark_px": 202,
+  "expanded_dark_px": 461,
+  "screens": [
+    "test-harness/evidence/F137-collapsed.png",
+    "test-harness/evidence/F137-expanded.png"
+  ]
+}

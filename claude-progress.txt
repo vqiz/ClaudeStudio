@@ -421,3 +421,7 @@
   Transkript+Intent. VoiceLogEntry jetzt Codable. VoiceLogSearchTestView: ohne Filter 4 Interaktionen,
   Suche 'security' → 1 passender Eintrag. Seam voicelog-all/voicelog-search. KEIN Mikrofon nötig (Textlogik).
   test-harness/probes/ui_batch9.py. 327/360.
+[SESSION 1] [2026-06-24] [BUILD-83/UI-10] [PASSING] +1 Tool-Call-Karten (F137): die ECHTEN SessionPanelView-
+  TranscriptRow/DisclosureGroup-Karten (Tool-Name + Status-Badge ok/running/failed) mit geseedeten Tool-
+  Calls (Edit, Bash). Zugeklappt nur Name+Status, aufgeklappt Input+Output. TranscriptRow internal gemacht
+  + initiallyExpanded-Param. Seam panel-collapsed/panel-expanded. ui_batch10.py. 328/360.

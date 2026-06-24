@@ -203,9 +203,17 @@ private struct LiveSessionRow: View {
 
 /// One transcript entry. Tool calls render as a collapsible disclosure with the
 /// invocation input and (when available) the captured output.
-private struct TranscriptRow: View {
+struct TranscriptRow: View {
     let event: SessionEvent
+    /// Anfangszustand der Tool-Call-Karte (F137: auf-/zuklappbar). Default zugeklappt.
+    var initiallyExpanded = false
     @State private var expanded = false
+
+    init(event: SessionEvent, initiallyExpanded: Bool = false) {
+        self.event = event
+        self.initiallyExpanded = initiallyExpanded
+        _expanded = State(initialValue: initiallyExpanded)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {

@@ -58,6 +58,10 @@ struct ClaudeStudioApp: App {
                 DefinitionsSectionTestView(expanded: true)
             } else if uiTestMode == "defs-collapsed" {
                 DefinitionsSectionTestView(expanded: false)
+            } else if uiTestMode == "panel-collapsed" {
+                SessionPanelToolCardsTestView(expanded: false)
+            } else if uiTestMode == "panel-expanded" {
+                SessionPanelToolCardsTestView(expanded: true)
             } else if uiTestMode == "voicelog-all" {
                 VoiceLogSearchTestView(query: "")
             } else if uiTestMode == "voicelog-search" {
