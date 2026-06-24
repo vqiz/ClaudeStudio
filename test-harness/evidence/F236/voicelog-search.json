@@ -1,0 +1,8 @@
+{
+  "all_ocr": "ice-log\n\n1e: (alle) — 4 treffer\n\nrt a security review on the current diff.\ntch claude-studio to guarded mode.\n\nat did the supervisor do in the last hour?\n2n the brain view for atlas-api.\n",
+  "search_ocr": "ice-log\n1e: security — 1 treffer\nrt a security review on the current diff.\n",
+  "screens": [
+    "test-harness/evidence/F236-all.png",
+    "test-harness/evidence/F236-search.png"
+  ]
+}

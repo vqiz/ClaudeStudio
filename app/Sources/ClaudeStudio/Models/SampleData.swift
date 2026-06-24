@@ -90,7 +90,7 @@ struct ArchivedSession: Identifiable, Hashable, Sendable {
 }
 
 /// An entry in the Voice Log — a transcribed voice command and its disposition.
-struct VoiceLogEntry: Identifiable, Hashable, Sendable {
+struct VoiceLogEntry: Identifiable, Hashable, Sendable, Codable {
     let id: UUID
     var transcript: String
     var intent: String

@@ -114,6 +114,38 @@ struct KPITestView: View {
     }
 }
 
+/// Durchsuchbarer Voice-Log (F236) — `CLAUDESTUDIO_UITEST=voicelog-all` bzw. `voicelog-search`
+/// (Suchbegriff aus `CLAUDESTUDIO_VOICELOG_QUERY`). Nutzt den ECHTEN `VoiceLog.search()` über
+/// die geseedeten Einträge und zeigt Treffer-Anzahl + passende Transkripte. Die Suche filtert
+/// per Volltext — eine Anfrage 'security' liefert nur die Security-Review-Interaktion.
+struct VoiceLogSearchTestView: View {
+    let query: String
+    private let log = VoiceLog(entries: VoiceLogEntry.samples)
+
+    var body: some View {
+        let results = log.search(query)
+        return ZStack {
+            Color.white
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Voice-Log")
+                    .font(.system(size: 24, weight: .bold)).foregroundStyle(.black)
+                Text("Suche: \(query.isEmpty ? "(alle)" : query) — \(results.count) Treffer")
+                    .font(.system(size: 16, weight: .medium)).foregroundStyle(.black)
+                ForEach(results) { e in
+                    Text("• \(e.transcript)")
+                        .font(.system(size: 14)).foregroundStyle(.black)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .frame(width: 640, alignment: .leading)
+        }
+        .frame(width: 680, height: 360, alignment: .topLeading)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Kollabierbare Definitionen-Sektion (F032) — `CLAUDESTUDIO_UITEST=defs-expanded` bzw.
 /// `defs-collapsed`. Rendert dieselbe kollabierbare Sidebar-`Section(isExpanded:)` mit den
 /// ECHTEN `SidebarItem.definitions` (Agent Studio, Context, Definitions Library) wie die
