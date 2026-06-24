@@ -476,3 +476,8 @@
   Text an {api_base}/v1/text-to-speech/:voice_id (ElevenLabs-API-Shape) und schreibt die Audio-Bytes als
   Datei. Verifiziert mit lokalem Audio-Substitut (echte say-Audio-Bytes): HTTP 200, 81676 Bytes Audio-Datei,
   voice=Rachel. api_base konfigurierbar, Key extern. test-harness/probes/batch76.py. 337/360.
+[SESSION 1] [2026-06-24] [BUILD-93/UI-19] [PASSING] +1 Inline-Datei-Vorschau (F057): neuer FilePreview
+  (WKWebView) rendert je Dateityp direkt aus der echten Datei — Bild (PNG via loadFileURL), SVG (Vektor via
+  loadFileURL) und Markdown (eigene md→HTML-Konvertierung: H1/H2/Liste/**fett**). FilePreviewTestView.
+  Verifiziert: Bild (Text+Farbe), SVG (blau+Text), Markdown (H1 'Markdown Preview' + H2 + Liste). Seam
+  filepreview. ui_batch19.py. 338/360.

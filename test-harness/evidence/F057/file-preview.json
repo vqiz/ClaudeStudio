@@ -1,0 +1,12 @@
+{
+  "image_ocr": "image preview\npixel photo\n",
+  "svg_ocr": "© vorschau\nlogo.svg\n",
+  "md_ocr": "markdown preview\nhello bold world.\naufgaben\n",
+  "image_blue_px": 4168,
+  "svg_blue_px": 10055,
+  "screens": [
+    "test-harness/evidence/F057-image.png",
+    "test-harness/evidence/F057-svg.png",
+    "test-harness/evidence/F057-md.png"
+  ]
+}

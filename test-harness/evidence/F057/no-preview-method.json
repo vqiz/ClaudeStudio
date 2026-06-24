@@ -1,0 +1,7 @@
+{
+  "file.preview": {
+    "exists": false,
+    "code": 404,
+    "message": "unknown method: file.preview"
+  }
+}

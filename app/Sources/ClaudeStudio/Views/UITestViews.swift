@@ -114,6 +114,35 @@ struct KPITestView: View {
     }
 }
 
+/// Inline-Datei-Vorschau (F057) — `CLAUDESTUDIO_UITEST=filepreview`, Datei aus
+/// `CLAUDESTUDIO_PREVIEW_FILE`. Bettet den ECHTEN FilePreview ein, der Bilder/SVG/Markdown direkt
+/// aus der echten Datei rendert. Per OCR/Pixel der gerenderten Vorschau nachgewiesen.
+struct FilePreviewTestView: View {
+    private var fileURL: URL? {
+        ProcessInfo.processInfo.environment["CLAUDESTUDIO_PREVIEW_FILE"].map { URL(fileURLWithPath: $0) }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "eye")
+                Text("Vorschau").font(.headline)
+                Spacer()
+                Text(fileURL?.lastPathComponent ?? "—").font(.caption.monospaced()).foregroundStyle(.secondary)
+            }
+            .padding(10).background(.bar)
+            Divider()
+            if let fileURL {
+                FilePreview(fileURL: fileURL)
+            } else {
+                ContentUnavailableView("Keine Datei", systemImage: "doc")
+            }
+        }
+        .frame(width: 720, height: 520)
+        .preferredColorScheme(.light)
+    }
+}
+
 /// Eingebettete Browser-Vorschau (F359) — `CLAUDESTUDIO_UITEST=webpreview`, URL aus
 /// `CLAUDESTUDIO_PREVIEW_URL`. Bettet den ECHTEN WKWebView (`WebPreview`) ein, der die lokale
 /// Dev-Server-Seite lädt und per Live-Reload aktualisiert. Per OCR der gerenderten Seite nachgewiesen.
